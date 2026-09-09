@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="优爱客户管理系统">
+  <title>优爱 YOUAI</title>
+  <link rel="stylesheet" href="styles.css?v=20260909-import-detail-v11">
+</head>
+<body class="app-booting">
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.69 2.8a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.33 1.84.56 2.8.69A2 2 0 0 1 22 16.92z"/></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 8h8M8 12h5"/></symbol>
+    <symbol id="i-order" viewBox="0 0 24 24"><circle cx="9" cy="20" r="1"/><circle cx="19" cy="20" r="1"/><path d="M3 4h2l2.4 10.4A2 2 0 0 0 9.35 16H18a2 2 0 0 0 1.95-1.57L21 8H6"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 16 4-5 4 3 5-7"/></symbol>
+    <symbol id="i-task" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 9h18M8 14l2 2 4-4"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 4h16l-6 7v6l-4 2v-8z"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 21h14"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m18 6-12 12M6 6l12 12"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></symbol>
+    <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+    <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4z"/></symbol>
+    <symbol id="i-building" viewBox="0 0 24 24"><path d="M3 21h18M6 21V3h12v18M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m20 6-11 11-5-5"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 1 1 5.83 1c0 2-3 2-3 4M12 18h.01"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M20 7V5a2 2 0 0 0-2-2H5a3 3 0 0 0 0 6h15v12H5a3 3 0 0 1-3-3V6"/><path d="M16 13h4"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.78 5.63 6.22.9-4.5 4.38 1.06 6.19L12 17.18l-5.56 2.92 1.06-6.19L3 9.53l6.22-.9L12 3z"/></symbol>
+    <symbol id="i-lock-open" viewBox="0 0 24 24"><rect x="4" y="10" width="15" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 7.7-1.6M19 14h2M21 14v5"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4m0 0c5-3 9 3 14 0v9c-5 3-9-3-14 0"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m9 6 9 6-9 6z"/></symbol>
+    <symbol id="i-log-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="m7 22-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="8" cy="18" r="2"/></symbol>
+    <symbol id="i-user-transfer" viewBox="0 0 24 24"><circle cx="9" cy="7" r="3"/><path d="M3 19v-1a5 5 0 0 1 8-4M14 16h7M18 12l4 4-4 4"/></symbol>
+    <symbol id="i-chat-circle" viewBox="0 0 24 24"><circle cx="12" cy="11" r="8"/><path d="m7 18-2 3 4-2M8 10h.01M12 10h.01M16 10h.01"/></symbol>
+    <symbol id="i-table-grid" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 10h18M9 5v14M15 5v14"/></symbol>
+  </svg>
+
+  <header class="topbar">
+    <div class="topbar-main">
+      <a class="brand" href="#dashboard" data-route="dashboard" aria-label="优爱首页">
+        <img class="brand-logo" src="logo-youai.png" alt="优爱 YOUAI">
+      </a>
+      <button class="icon-button mobile-menu" id="mobileMenuButton" type="button" aria-label="展开导航"><svg><use href="#i-menu"></use></svg></button>
+      <nav class="primary-nav" id="primaryNav" aria-label="主导航">
+        <button class="nav-item active" type="button" data-view="dashboard"><svg><use href="#i-home"></use></svg><span>首页</span></button>
+        <button class="nav-item" type="button" data-view="customers"><svg><use href="#i-users"></use></svg><span>客户管理</span></button>
+        <button class="nav-item" type="button" data-view="calls"><svg><use href="#i-phone"></use></svg><span>呼叫中心</span></button>
+        <button class="nav-item" type="button" data-view="orders"><svg><use href="#i-order"></use></svg><span>订单管理</span></button>
+        <button class="nav-item" type="button" data-view="messages"><svg><use href="#i-message"></use></svg><span>消息中心</span><b class="nav-badge" id="messageBadge">6</b></button>
+        <button class="nav-item" type="button" data-view="system"><svg><use href="#i-sliders"></use></svg><span>系统管理</span></button>
+        <button class="nav-item" type="button" data-view="analytics"><svg><use href="#i-chart"></use></svg><span>数据中心</span></button>
+        <button class="nav-item" type="button" data-view="finance"><svg><use href="#i-wallet"></use></svg><span>财务系统</span></button>
+      </nav>
+      <div class="top-actions">
+        <span class="connection-status" id="connectionStatus" title="正在连接数据服务"><i></i><span>连接中</span></span>
+        <label class="global-search" aria-label="全局搜索">
+          <svg><use href="#i-search"></use></svg>
+          <input id="globalSearch" type="search" placeholder="搜索客户 / 手机号" autocomplete="off">
+          <kbd>⌘ K</kbd>
+        </label>
+        <button class="icon-button notification-button" id="notificationButton" type="button" aria-label="通知"><svg><use href="#i-bell"></use></svg><span></span></button>
+        <button class="user-menu" id="userMenu" type="button"><span class="avatar">林</span><span class="user-name">林夕</span><svg><use href="#i-down"></use></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <nav class="workspace-tabs" id="workspaceTabs" aria-label="已打开功能" hidden></nav>
+
+  <main id="app" tabindex="-1"></main>
+
+  <aside class="help-rail" aria-label="帮助工具">
+    <button type="button" data-help="帮助中心"><svg><use href="#i-help"></use></svg><span>帮助</span></button>
+    <button type="button" data-help="学习中心"><svg><use href="#i-task"></use></svg><span>学习</span></button>
+  </aside>
+
+  <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+  <aside class="detail-drawer" id="detailDrawer" aria-label="详情" aria-hidden="true"></aside>
+
+  <div class="modal-backdrop customer-editor-backdrop" id="modalBackdrop" hidden>
+    <section class="modal customer-editor-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <header class="modal-header">
+        <div><p class="eyebrow">CUSTOMER PROFILE</p><h2 id="modalTitle">新增客户</h2></div>
+        <button class="icon-button" id="closeModal" type="button" aria-label="关闭"><svg><use href="#i-close"></use></svg></button>
+      </header>
+      <form id="customerForm" class="customer-form customer-editor-form">
+        <input type="hidden" name="customerId">
+        <div class="customer-editor-body">
+          <aside class="customer-avatar-panel">
+            <h3>头像上传</h3>
+            <label class="customer-avatar-upload"><input type="file" accept="image/*" aria-label="上传客户头像"><span>＋</span><strong>上传</strong></label>
+          </aside>
+          <section class="customer-basic-panel">
+            <h3>基本信息</h3>
+            <div class="customer-basic-grid">
+              <label class="customer-editor-field"><span><i>*</i>姓名</span><input name="name" required placeholder="请输入"></label>
+              <label class="customer-editor-field"><span><i>*</i>性别</span><select name="gender"><option value="">请选择</option><option>男</option><option>女</option></select></label>
+              <label class="customer-editor-field"><span><i>*</i>年龄</span><input name="age" type="number" min="0" max="150" placeholder="请输入"></label>
+              <label class="customer-editor-field"><span><i>*</i>电话号码</span><div class="customer-phone-input"><input name="phone" required pattern="1[3-9][0-9]{9}" placeholder="请输入"><button type="button" data-verify-phone>检测</button></div></label>
+              <label class="customer-editor-field"><span><i>*</i>生日</span><input name="birthday" type="date"></label>
+              <label class="customer-editor-field"><span><i>*</i>身高</span><input name="height" placeholder="请输入"></label>
+              <label class="customer-editor-field"><span>职业</span><input name="occupation" placeholder="请输入职业"></label>
+              <label class="customer-editor-field"><span>婚况</span><select name="maritalStatus"><option value="">请选择</option><option>未婚</option><option>离异</option><option>丧偶</option><option>未婚先育</option><option>离异未育</option><option>离异带孩</option><option>离异不带孩</option></select></label>
+              <label class="customer-editor-field"><span><i>*</i>学历</span><select name="education"><option value="">请选择</option><option>高中及以下</option><option>中专</option><option>大专</option><option>本科</option><option>硕士</option><option>博士</option></select></label>
+              <label class="customer-editor-field"><span>工作地</span><input name="workLocation" placeholder="请输入"></label>
+              <label class="customer-editor-field"><span>月收入</span><input name="monthlyIncome" placeholder="请输入"></label>
+              <label class="customer-editor-field"><span>年收入</span><input name="annualIncome" placeholder="请输入"></label>
+              <label class="customer-editor-field"><span>微信号</span><input name="wechat" placeholder="请输入"></label>
+              <label class="customer-editor-field"><span>籍贯</span><input name="nativePlace" placeholder="请输入"></label>
+              <label class="customer-editor-field"><span>购车情况</span><input name="car" placeholder="请输入"></label>
+              <label class="customer-editor-field"><span>房车情况</span><input name="vehicleHousing" placeholder="请输入"></label>
+              <label class="customer-editor-field"><span>购房情况</span><input name="housing" placeholder="请输入"></label>
+              <label class="customer-editor-field"><span>家庭情况</span><input name="familyStatus" placeholder="请输入"></label>
+              <label class="customer-editor-field"><span>认证情况</span><input name="certificationStatus" placeholder="请输入"></label>
+              <label class="customer-editor-field"><span>子女情况</span><input name="childrenStatus" placeholder="请输入"></label>
+              <label class="customer-editor-field"><span>客户来源</span><select name="source"><option>线上咨询</option><option>老客转介绍</option><option>市场活动</option><option>主动开发</option></select></label>
+              <label class="customer-editor-field"><span>所属公司</span><input name="company" placeholder="公司或机构名称"></label>
+              <label class="customer-editor-field"><span>负责人</span><select name="owner"><option>林夕</option><option>陈晨</option><option>周倩</option><option>赵磊</option></select></label>
+              <label class="customer-editor-field"><span>客户等级</span><select name="level"><option>重点客户</option><option>普通客户</option><option>潜在客户</option></select></label>
+              <label class="customer-editor-field"><span>跟进阶段</span><select name="stage"><option>初步沟通</option><option>需求确认</option><option>方案报价</option><option>商务谈判</option><option>已成交</option><option>暂缓跟进</option><option>已流失</option></select></label>
+              <label class="customer-editor-field"><span>预计金额</span><input name="amount" type="number" min="0" step="0.01" value="0"></label>
+              <label class="customer-editor-field"><span>所在城市</span><input name="city" placeholder="例如：天津"></label>
+              <label class="customer-editor-field"><span>下次跟进</span><input name="nextFollowAt" type="datetime-local"></label>
+              <label class="customer-editor-field customer-editor-wide"><span>客户标签</span><input name="tags" placeholder="多个标签用逗号分隔"></label>
+              <label class="customer-editor-field customer-editor-wide"><span>身份证号</span><input name="idCard" placeholder="请输入身份证号"></label>
+            </div>
+          </section>
+          <aside class="customer-match-panel">
+            <h3>择偶信息</h3>
+            <div class="customer-match-grid">
+              <label class="customer-editor-field"><span>年龄范围</span><input name="matchAgeRange" placeholder="请选择"></label>
+              <label class="customer-editor-field"><span>婚况范围</span><input name="matchMaritalStatus" placeholder="请选择"></label>
+              <label class="customer-editor-field"><span>身高范围</span><input name="matchHeightRange" placeholder="请选择"></label>
+              <label class="customer-editor-field"><span>学历范围</span><input name="matchEducation" placeholder="请选择"></label>
+              <label class="customer-editor-field"><span>月收入</span><input name="matchMonthlyIncome" placeholder="请选择"></label>
+              <label class="customer-editor-field"><span>最在意对方</span><input name="matchMostImportant" placeholder="请输入"></label>
+              <label class="customer-editor-field"><span>性格</span><input name="matchPersonality" placeholder="请输入"></label>
+              <label class="customer-editor-field"><span>下一代需求</span><input name="matchChildren" placeholder="请选择"></label>
+              <label class="customer-editor-field"><span>不希望 TA</span><input name="matchDealbreakers" placeholder="请输入"></label>
+            </div>
+          </aside>
+        </div>
+        <section class="customer-editor-notes"><h3>备注</h3><div class="customer-notes-grid"><label class="customer-editor-field"><span>客户备注</span><textarea name="note" rows="3" placeholder="记录客户需求、预算或下一步安排"></textarea></label><label class="customer-editor-field"><span>备注说明</span><textarea name="remark" rows="3"></textarea></label></div></section>
+        <footer class="modal-footer customer-editor-footer"><button class="button secondary" id="cancelModal" type="button">取消</button><button class="button primary" type="submit"><svg><use href="#i-check"></use></svg>保存客户</button></footer>
+      </form>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="businessModalBackdrop" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="businessModalTitle">
+      <header class="modal-header">
+        <div><p class="eyebrow" id="businessModalEyebrow">BUSINESS RECORD</p><h2 id="businessModalTitle">编辑记录</h2></div>
+        <button class="icon-button" id="closeBusinessModal" type="button" aria-label="关闭"><svg><use href="#i-close"></use></svg></button>
+      </header>
+      <form id="businessForm" class="customer-form"></form>
+    </section>
+  </div>
+
+  <div class="popover notification-popover" id="notificationPopover" hidden></div>
+  <div class="popover user-popover" id="userPopover" hidden>
+    <button type="button" id="profileButton"><svg><use href="#i-users"></use></svg>个人资料</button>
+    <button type="button" id="settingsButton"><svg><use href="#i-building"></use></svg>企业设置</button>
+    <button type="button" id="accountSwitchButton"><svg><use href="#i-repeat"></use></svg>切换账号</button>
+    <button type="button" id="userHelpButton"><svg><use href="#i-help"></use></svg>使用帮助</button>
+    <button type="button" id="logoutButton"><svg><use href="#i-log-out"></use></svg>退出登录</button>
+  </div>
+  <div class="modal-backdrop account-backdrop" id="accountBackdrop" hidden>
+    <section class="modal account-modal" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle">
+      <header class="modal-header">
+        <div><p class="eyebrow">ACCOUNT SWITCHING</p><h2 id="accountModalTitle">切换账号</h2></div>
+        <button class="icon-button" id="closeAccountModal" type="button" aria-label="关闭"><svg><use href="#i-close"></use></svg></button>
+      </header>
+      <form id="accountSwitchForm" class="account-form">
+        <label class="field"><span>选择登录账号</span><select id="accountSelect" name="username" required></select></label>
+        <p class="account-hint" id="accountSwitchHint"></p>
+        <footer class="modal-footer"><button class="button secondary" id="cancelAccountModal" type="button">取消</button><button class="button primary" type="submit"><svg><use href="#i-repeat"></use></svg>确认切换</button></footer>
+      </form>
+    </section>
+  </div>
+  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+  <script src="config.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="app.js?v=20260909-import-detail-v11"></script>
+</body>
+</html>

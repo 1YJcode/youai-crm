@@ -1,0 +1,40 @@
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+
+spring:
+  application:
+    name: youke-crm-backend
+  datasource:
+    url: ${DB_URL:jdbc:mysql://127.0.0.1:3306/youke_crm?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 10000
+      idle-timeout: 60000
+      max-lifetime: 90000
+      keepalive-time: 30000
+      validation-timeout: 3000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+
+logging:
+  level:
+    root: INFO
+    org.hibernate.SQL: WARN
+
+security:
+  jwt:
+    secret: ${JWT_SECRET:youke-crm-dev-secret-change-this-before-production-2026}
+    ttl-hours: ${JWT_TTL_HOURS:8}

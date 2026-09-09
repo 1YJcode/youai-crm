@@ -1,0 +1,17 @@
+ALTER TABLE crm_customer
+    ADD COLUMN gender VARCHAR(16),
+    ADD COLUMN birthday VARCHAR(32),
+    ADD COLUMN age VARCHAR(16),
+    ADD COLUMN height VARCHAR(16),
+    ADD COLUMN marital_status VARCHAR(32),
+    ADD COLUMN education VARCHAR(32),
+    ADD COLUMN monthly_income VARCHAR(32),
+    ADD COLUMN annual_income VARCHAR(32),
+    ADD COLUMN occupation VARCHAR(64),
+    ADD COLUMN housing VARCHAR(64),
+    ADD COLUMN car VARCHAR(64),
+    ADD COLUMN native_place VARCHAR(64),
+    ADD COLUMN work_location VARCHAR(64),
+    ADD COLUMN wechat VARCHAR(64),
+    ADD COLUMN id_card VARCHAR(64),
+    ADD COLUMN remark VARCHAR(1000);

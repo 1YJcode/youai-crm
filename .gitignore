@@ -1,0 +1,20 @@
+.tools/
+.m2/*
+!.m2/.gitkeep
+backend/target/
+backend/target-*/
+.idea/
+.vscode/
+*.log
+
+# Local scratch and generated inspection files
+.preview-detail/
+.tmp_xlsx/
+tmp_sheet/
+.tmp_upload.zip
+*.inspect.ndjson
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example

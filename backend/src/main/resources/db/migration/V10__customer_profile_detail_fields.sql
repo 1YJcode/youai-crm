@@ -1,0 +1,15 @@
+ALTER TABLE crm_customer
+    ADD COLUMN certification_status VARCHAR(128) NULL,
+    ADD COLUMN family_status VARCHAR(128) NULL,
+    ADD COLUMN children_status VARCHAR(128) NULL,
+    ADD COLUMN vehicle_housing VARCHAR(128) NULL,
+    ADD COLUMN registration_count INT NOT NULL DEFAULT 0,
+    ADD COLUMN match_age_range VARCHAR(64) NULL,
+    ADD COLUMN match_marital_status VARCHAR(64) NULL,
+    ADD COLUMN match_height_range VARCHAR(64) NULL,
+    ADD COLUMN match_education VARCHAR(64) NULL,
+    ADD COLUMN match_monthly_income VARCHAR(64) NULL,
+    ADD COLUMN match_most_important VARCHAR(255) NULL,
+    ADD COLUMN match_personality VARCHAR(255) NULL,
+    ADD COLUMN match_children VARCHAR(255) NULL,
+    ADD COLUMN match_dealbreakers VARCHAR(255) NULL;
