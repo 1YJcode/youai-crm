@@ -32,9 +32,11 @@ public class UserDataSeeder {
             Role salesRole = roleRepository.findByCode("SALES")
                     .orElseGet(() -> roleRepository.save(role("SALES", "销售顾问", "查看和跟进本人负责的客户")));
 
-            CrmUser adminUser = userRepository.findByUsernameIgnoreCase("admin")
-                    .orElseGet(() -> user("admin", "Admin@123", "赵娣", "13800000001", adminDepartment, Set.of(adminRole), passwordEncoder));
-            if (!"赵娣".equals(adminUser.getDisplayName())) {
+            CrmUser adminUser = userRepository.findByUsernameIgnoreCase("admin").orElse(null);
+            if (adminUser == null) {
+                adminUser = user("admin", "Admin@123", "赵娣", "13800000001", adminDepartment, Set.of(adminRole), passwordEncoder);
+                userRepository.save(adminUser);
+            } else if (!"赵娣".equals(adminUser.getDisplayName())) {
                 adminUser.setDisplayName("赵娣");
                 userRepository.save(adminUser);
             }
