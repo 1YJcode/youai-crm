@@ -893,7 +893,7 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 .whiteboard-page { background: #f3f5f8; }
 .whiteboard-page .page-content { max-width: none; padding: 14px 18px 28px; }
 .whiteboard-filter-panel { position: relative; min-height: 112px; padding: 20px 22px 54px; background: #fff; border: 1px solid var(--line); }
-.whiteboard-filter-row { display: grid; grid-template-columns: auto minmax(180px,1.25fr) minmax(130px,.75fr) minmax(180px,1fr) 110px minmax(150px,.85fr) auto; align-items: center; gap: 10px; }
+.whiteboard-filter-row { display: grid; width: 78%; grid-template-columns: auto minmax(180px,1.25fr) minmax(130px,.75fr) minmax(180px,1fr) 110px minmax(150px,.85fr) auto; align-items: center; gap: 10px; }
 .whiteboard-filter-row > span { color: #344054; font-size: 13px; white-space: nowrap; }
 .whiteboard-filter-row input, .whiteboard-filter-row select { min-width: 0; width: 100%; height: 34px; padding: 6px 10px; color: #344054; background: #fff; border: 1px solid #dfe4ea; border-radius: 2px; font-size: 12px; }
 .whiteboard-filter-actions { position: absolute; right: 22px; bottom: 14px; display: flex; align-items: center; gap: 10px; }
@@ -1105,6 +1105,10 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
   .whiteboard-tag-layout { grid-template-columns: 1fr; overflow-y: auto; max-height: 75vh; }
   .whiteboard-tag-library { border-right: 0; border-bottom: 1px solid #edf0f3; }
   .whiteboard-tag-selected { min-height: 180px; }
+}
+
+@media (max-width: 1200px) {
+  .whiteboard-filter-row { width: 100%; }
 }
 
 @media (max-width: 1000px) {

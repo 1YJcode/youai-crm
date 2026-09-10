@@ -1387,7 +1387,8 @@ function parseCustomerDate(value) {
   return null;
 }
 
-function filteredCustomers() {
+function filteredCustomers(options = {}) {
+  const includeWhiteboard = options.includeWhiteboard === true;
   const query = state.customerSearch.trim().toLowerCase();
   const nameQuery = state.customerNameSearch.trim().toLowerCase();
   const uncontactedDaysThreshold = selectedCustomerUncontactedDaysThreshold();
@@ -1425,7 +1426,8 @@ function filteredCustomers() {
     const quickMatch = state.quickFilter === "全部客户" || (state.quickFilter === "重点客户" && customer.level === "重点客户") || (state.quickFilter === "今日待跟进" && customer.nextFollow.includes("今天")) || (state.quickFilter === "即将成交" && ["方案报价", "商务谈判"].includes(customer.stage));
     const sceneMatch = customerMatchesScene(customer, state.customerScene);
     const scopeMatch = state.customerScope === "all" || (state.customerScope === "mine" && customer.owner === currentOwner());
-    return !["公海", "白板"].includes(customer.owner) && queryMatch && nameMatch && stageMatch && levelMatch && statusMatch && ownerMatch && ownerHierarchyMatch && advancedOwnerMatch && advancedCollaboratorMatch && avatarMatch && genderMatch && maritalStatusMatch && educationMatch && ageMatch && heightMatch && registrationDateMatch && lastLoginDateMatch && firstAllocationDateMatch && lastFollowUpDateMatch && startDateMatch && endDateMatch && uncontactedDaysMatch && quickMatch && sceneMatch && scopeMatch;
+    const ownerScopeMatch = includeWhiteboard ? customer.owner !== "公海" : !["公海", "白板"].includes(customer.owner);
+    return ownerScopeMatch && queryMatch && nameMatch && stageMatch && levelMatch && statusMatch && ownerMatch && ownerHierarchyMatch && advancedOwnerMatch && advancedCollaboratorMatch && avatarMatch && genderMatch && maritalStatusMatch && educationMatch && ageMatch && heightMatch && registrationDateMatch && lastLoginDateMatch && firstAllocationDateMatch && lastFollowUpDateMatch && startDateMatch && endDateMatch && uncontactedDaysMatch && quickMatch && sceneMatch && scopeMatch;
   });
 }
 
@@ -1996,7 +1998,7 @@ function sincereResourceView() {
 function whiteboardListView() {
   const query = state.customerSearch.trim().toLowerCase();
   const nameQuery = state.whiteboardNameSearch.trim().toLowerCase();
-  const rows = customers.filter(customer => {
+  const rows = filteredCustomers({ includeWhiteboard: true }).filter(customer => {
     const matchesQuery = !query || [customer.id, customer.phone, customer.name, customer.company].join(" ").toLowerCase().includes(query);
     const matchesName = !nameQuery || [customer.name, customer.company, customer.remark, customer.notes, customer.nickname].join(" ").toLowerCase().includes(nameQuery);
     const matchesStatus = state.whiteboardStatus === "全部" || (customer.stage || "未激活") === state.whiteboardStatus;
@@ -2265,7 +2267,15 @@ function customerDetailView(id) {
   const profileGender = customer.gender || "—";
   const profileAge = customer.age ? `${customer.age}岁` : "—岁";
   const profileEducation = customer.education || "—";
-  const profileHeader = `<div class="profile-reference-header"><div class="profile-reference-title-row"><h1>${value(headerPhone)} <span>[${value(profileGender)} ${value(profileAge)} ${value(profileEducation)}]</span>　【${value(customer.id)}】 <span class="profile-header-icons">${icon("star")} ${icon(contactVisible ? "lock-open" : "lock")} ${icon("flag")}</span></h1><span class="profile-reference-status">● 未激活</span></div><div class="profile-reference-second-row"><div class="profile-reference-header-meta"><div class="profile-reference-meta-row profile-reference-tags-row"><span>客户标签：</span><button class="profile-add-tag" type="button" data-add-profile-tag="${value(customer.id)}">+ 增加标签</button></div><div class="profile-reference-meta-row"><span>归属人：<b>${value(customerOwnerDisplay(customer.owner))}</b></span><span>协作人：<b>${value(customer.collaborator || "")}</b></span><span>分配时间：<b>${value(customer.lastAllocationAt ? formatDateTime(customer.lastAllocationAt) : "未分配")}</b></span><span>下次跟进时间：<b>${value(customer.nextFollowAt ? formatDateTime(customer.nextFollowAt) : "")}</b></span></div></div><div class="profile-reference-actions"><button class="button secondary" data-new-order-customer="${value(customer.id)}">＋ 新订单</button>${contactVisible ? `<button class="button secondary" data-call-name="${value(customer.name)}">☎ 拨打</button><button class="button secondary" data-message-name="${value(customer.name)}">▣ 消息</button>` : ""}${isAdmin() ? `<button class="button secondary" data-allocate-profile-customer="${value(customer.id)}">资源调配</button>` : ""}<button class="button secondary" data-next-customer="${value(customer.id)}">下个客户 ›</button>${moreMenu}</div></div></div>`;
+  const isWhiteboardCustomer = state.customerSection === "白板列表";
+  const isAssignedToEmployee = !["", "白板", "公海"].includes(String(customer.owner || "").trim());
+  const profileOwner = isWhiteboardCustomer ? "" : customerOwnerDisplay(customer.owner);
+  const profileCollaborator = isAssignedToEmployee ? customer.collaborator || "" : "";
+  const profileAllocationTime = isAssignedToEmployee && customer.lastAllocationAt ? formatDateTime(customer.lastAllocationAt) : "";
+  const profileActions = isWhiteboardCustomer
+    ? `<button class="button secondary" type="button" data-customer-more-action="1" data-customer-more-label="库存" data-customer-id="${value(customer.id)}">转为库存</button>${isAdmin() ? `<button class="button secondary" type="button" data-allocate-profile-customer="${value(customer.id)}">资源调配</button>` : ""}<button class="button secondary" type="button" data-customer-more-action="4" data-customer-more-label="诚意库" data-customer-id="${value(customer.id)}">＋ 添加至诚意库</button><button class="button secondary" type="button" data-next-customer="${value(customer.id)}" data-next-customer-label="下一个客户">下一个客户 ›</button>`
+    : `<button class="button secondary" type="button" data-new-order-customer="${value(customer.id)}">＋ 新订单</button>${contactVisible ? `<button class="button secondary" type="button" data-call-name="${value(customer.name)}">☎ 拨打</button><button class="button secondary" type="button" data-message-name="${value(customer.name)}">▣ 消息</button>` : ""}${isAdmin() ? `<button class="button secondary" type="button" data-allocate-profile-customer="${value(customer.id)}">资源调配</button>` : ""}<button class="button secondary" type="button" data-next-customer="${value(customer.id)}">下个客户 ›</button>${moreMenu}`;
+  const profileHeader = `<div class="profile-reference-header"><div class="profile-reference-title-row"><h1>${value(headerPhone)} <span>[${value(profileGender)} ${value(profileAge)} ${value(profileEducation)}]</span>　【${value(customer.id)}】 <span class="profile-header-icons">${icon("star")} ${icon(contactVisible ? "lock-open" : "lock")} ${icon("flag")}</span></h1><span class="profile-reference-status">● 未激活</span></div><div class="profile-reference-second-row"><div class="profile-reference-header-meta"><div class="profile-reference-meta-row profile-reference-tags-row"><span>客户标签：</span><button class="profile-add-tag" type="button" data-add-profile-tag="${value(customer.id)}">+ 增加标签</button></div><div class="profile-reference-meta-row"><span>归属人：<b>${value(profileOwner)}</b></span><span>协作人：<b>${value(profileCollaborator)}</b></span><span>分配时间：<b>${value(profileAllocationTime)}</b></span><span>下次跟进时间：<b>${value(customer.nextFollowAt ? formatDateTime(customer.nextFollowAt) : "")}</b></span></div></div><div class="profile-reference-actions">${profileActions}</div></div></div>`;
   return `<section class="page customer-profile-page profile-reference-page">${profileHeader}<div class="customer-profile-tabs"><button class="${state.customerDetailTab === "profile" ? "active" : ""}" type="button" data-customer-detail-tab="profile">资料详情</button><button class="${state.customerDetailTab === "follow" ? "active" : ""}" type="button" data-customer-detail-tab="follow">跟进记录 (${records.length})</button><button type="button" disabled>约会安排</button><button type="button" disabled>推荐记录</button>${contactVisible ? `<button class="customer-profile-tab-edit" type="button" data-edit-profile-customer="${value(customer.id)}">编辑</button>` : ""}</div><div class="profile-reference-content">${state.customerDetailTab === "follow" ? follow : profile}</div></section>`;
 }
 
@@ -3669,7 +3679,8 @@ async function handleCustomerImportFile(event) {
     const record = { id: Date.now(), uploadedAt: new Date().toLocaleString("sv-SE").replace("T", " "), status: rows.length ? "待导入" : "上传失败", count: rows.length, success: 0, fail: 0, skipped: 0, uploader: currentOwner(), fileName: file.name, rows, message: rows.length ? "" : "上传失败，请检查文件格式及字段位置是否正确" };
     state.importRows = rows;
     state.importActiveId = record.id;
-    state.importDetailId = rows.length ? record.id : null;
+    // Keep upload on the import history page; open details only on explicit click.
+    state.importDetailId = null;
     state.importEditingRow = null;
     state.importSelectedRows = [];
     state.importDetailStatusFilter = "全部状态";
@@ -4129,7 +4140,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-call-name]").forEach(button => { button.innerHTML = `${icon("phone")}拨打`; });
   document.querySelectorAll("[data-message-name]").forEach(button => { button.innerHTML = `${icon("message")}消息`; });
   document.querySelectorAll("[data-allocate-profile-customer]").forEach(button => { button.innerHTML = `${icon("sliders")}资源调配`; });
-  document.querySelectorAll("[data-next-customer]").forEach(button => { button.innerHTML = `${icon("play")}下个客户`; });
+  document.querySelectorAll("[data-next-customer]").forEach(button => { button.innerHTML = `${icon("play")}${button.dataset.nextCustomerLabel || "下个客户"}`; });
   document.querySelectorAll("[data-customer-detail-tab]").forEach(button => button.addEventListener("click", () => { state.customerDetailTab = button.dataset.customerDetailTab; render(); }));
   document.querySelector("#dashboardFilterForm")?.addEventListener("submit", async event => {
     event.preventDefault();
@@ -4298,8 +4309,8 @@ function bindViewEvents() {
   document.querySelectorAll("[data-whiteboard-select-group]").forEach(checkbox => checkbox.addEventListener("change", () => { const tags = [...checkbox.closest(".whiteboard-tag-group").querySelectorAll("[data-whiteboard-tag]")].map(button => button.dataset.whiteboardTag); state.whiteboardSelectedTags = checkbox.checked ? [...new Set([...state.whiteboardSelectedTags, ...tags])] : state.whiteboardSelectedTags.filter(tag => !tags.includes(tag)); render(); }));
   document.querySelector("#clearWhiteboardTags")?.addEventListener("click", () => { state.whiteboardSelectedTags = []; render(); });
   document.querySelector("#whiteboardTagSearch")?.addEventListener("input", event => { const query = event.target.value.trim(); document.querySelectorAll("[data-whiteboard-tag]").forEach(button => { button.hidden = !!query && !button.textContent.includes(query); }); });
-  document.querySelector("#openWhiteboardAdvanced")?.addEventListener("click", () => { state.whiteboardAdvancedOpen = true; render(); });
-  document.querySelector(".customer-list-page .customer-filter-actions .text-button")?.addEventListener("click", () => {
+  const customerAdvancedButton = document.querySelector(".customer-list-page .customer-filter-actions .text-button") || document.querySelector("#openWhiteboardAdvanced");
+  customerAdvancedButton?.addEventListener("click", () => {
     state.customerAdvancedDraftGender = state.customerGender;
     state.customerAdvancedDraftMaritalStatus = state.customerMaritalStatus;
     state.customerAdvancedDraftAgeMin = state.customerAgeMin;
@@ -4322,6 +4333,7 @@ function bindViewEvents() {
     state.customerAdvancedDraftDialStatus = state.customerAdvancedDialStatus;
     state.customerAdvancedDraftAvatar = state.customerAvatarFilter;
     state.customerAdvancedOpen = true;
+    state.whiteboardAdvancedOpen = customerAdvancedButton.id === "openWhiteboardAdvanced";
     render();
   });
   document.querySelector("#closeWhiteboardAdvanced")?.addEventListener("click", () => { state.customerAdvancedOpen = false; state.whiteboardAdvancedOpen = false; state.customerEducationMenuOpen = false; state.customerAdvancedOwnerCascadeOpen = false; state.customerAdvancedCollaboratorCascadeOpen = false; state.customerAdvancedDatePickerOpen = false; state.customerAdvancedDatePickerField = ""; render(); });
@@ -4386,6 +4398,7 @@ function bindViewEvents() {
       state.customerAvatarFilter = state.customerAdvancedDraftAvatar;
       state.customerPage = 1;
       state.customerAdvancedOpen = false;
+      state.whiteboardAdvancedOpen = false;
       state.customerEducationMenuOpen = false;
       state.customerAdvancedOwnerCascadeOpen = false;
       state.customerAdvancedCollaboratorCascadeOpen = false;
@@ -4938,7 +4951,8 @@ function bindViewEvents() {
     if (action === 4) {
       const contactVisible = customer.contactVisible ?? (isAdmin() || customer.owner === currentOwner());
       if (!isAdmin() && !contactVisible) { toast("只有管理员或负责人可以修改客户等级"); return; }
-      if (customer.level === "重点客户") { toast("该客户已是重点客户"); return; }
+      const libraryLabel = button.dataset.customerMoreLabel || "重点客户";
+      if (customer.level === "重点客户") { toast(`该客户已是${libraryLabel}`); return; }
       try {
         requireBackend();
         const payload = customerPayload(customer);
@@ -4946,8 +4960,8 @@ function bindViewEvents() {
         const saved = await apiRequest(`/customers/${encodeURIComponent(customer.id)}`, { method: "PUT", body: JSON.stringify(payload) });
         mergeCustomerRecord(saved);
         render();
-        toast(`${customer.name} 已添加至重点客户`);
-      } catch (error) { toast(`添加重点客户失败：${error.message}`); }
+        toast(`${customer.name} 已添加至${libraryLabel}`);
+      } catch (error) { toast(`添加至${libraryLabel}失败：${error.message}`); }
       return;
     }
     if (action === 5) { toast("注销用户功能暂未接入"); }
