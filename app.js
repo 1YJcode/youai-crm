@@ -2225,7 +2225,8 @@ function customerDetailView(id) {
     return customerListView();
   }
   const value = item => escapeHtml(String(item ?? ""));
-  const contactVisible = customer.contactVisible ?? (isAdmin() || customer.owner === currentOwner());
+  const isWhiteboardCustomer = state.customerSection === "白板列表";
+  const contactVisible = !isWhiteboardCustomer && (customer.contactVisible ?? (isAdmin() || customer.owner === currentOwner()));
   const headerPhone = contactVisible ? (customer.phone || "") : maskPhoneDisplay(customer.phone);
   const cell = (label, item, required = false) => label
     ? `<div class="profile-reference-field"><dt>${required ? "*" : ""}${label}</dt><dd>${value(item)}</dd></div>`
@@ -2288,7 +2289,6 @@ function customerDetailView(id) {
   const profileGender = customer.gender || "—";
   const profileAge = customer.age ? `${customer.age}岁` : "—岁";
   const profileEducation = customer.education || "—";
-  const isWhiteboardCustomer = state.customerSection === "白板列表";
   const isAssignedToEmployee = !["", "白板", "公海"].includes(String(customer.owner || "").trim());
   const profileOwner = isWhiteboardCustomer ? "" : customerOwnerDisplay(customer.owner);
   const profileCollaborator = isAssignedToEmployee ? customer.collaborator || "" : "";
