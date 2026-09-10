@@ -2228,27 +2228,26 @@ function customerDetailView(id) {
   const value = item => escapeHtml(String(item ?? ""));
   const isWhiteboardCustomer = state.customerSection === "白板列表";
   const contactVisible = customer.contactVisible ?? (isAdmin() || customer.owner === currentOwner());
-  const contactMasked = isWhiteboardCustomer || !contactVisible;
-  const isContactRevealable = label => isWhiteboardCustomer && contactVisible && ["电话号码", "微信号"].includes(label);
+  const isCustomerOwner = String(customer.owner || "").trim().toLowerCase() === String(currentOwner() || "").trim().toLowerCase();
+  const canRevealContact = contactVisible && (isAdmin() || isCustomerOwner);
+  const isContactRevealable = label => canRevealContact && ["电话号码", "微信号"].includes(label);
   const isContactRevealed = label => isContactRevealable(label) && Boolean(state.customerContactReveals[`${customer.id}:${label}`]);
-  const headerPhone = contactMasked && !isContactRevealed("电话号码") ? maskPhoneDisplay(customer.phone) : (customer.phone || "");
+  const headerPhone = isContactRevealed("电话号码") ? (customer.phone || "") : maskPhoneDisplay(customer.phone);
   const cell = (label, item, required = false) => label
     ? `<div class="profile-reference-field"><dt>${required ? "*" : ""}${label}</dt><dd>${value(item)}</dd></div>`
     : '<div class="profile-reference-gap" aria-hidden="true"></div>';
   const privateCell = (label, item) => {
     const revealable = isContactRevealable(label);
     const revealed = isContactRevealed(label);
-    const shouldMask = contactMasked && !revealed;
-    const displayValue = shouldMask
-      ? (label === "电话号码" ? maskPhoneDisplay(item) : label === "微信号" ? maskWechatDisplay(item) : item)
-      : item;
-    const displayClass = shouldMask ? "profile-private-value profile-private-mask" : "profile-private-value revealed";
-    const privateAction = revealable
-      ? `<span class="profile-private-action">${revealed ? "隐藏" : "查看"}</span>`
-      : (!contactVisible && !isWhiteboardCustomer ? `<span class="profile-private-action">无权限查看</span>` : "");
+    const displayValue = revealed
+      ? item
+      : (label === "电话号码" ? maskPhoneDisplay(item) : label === "微信号" ? maskWechatDisplay(item) : item);
+    const displayClass = revealed ? "profile-private-value revealed" : "profile-private-value profile-private-mask";
+    const actionSubject = label === "电话号码" ? "号码" : "微信号";
+    const privateAction = revealable ? `<span class="profile-private-action">${revealed ? "隐藏" : "查看"}${actionSubject}</span>` : "";
     const content = `${value(displayValue)}${privateAction}`;
     const display = revealable
-      ? `<button class="${displayClass}" type="button" data-toggle-private-contact="${value(customer.id)}" data-private-field="${value(label)}" aria-label="${revealed ? "隐藏" : "查看"}${label}">${content}</button>`
+      ? `<button class="${displayClass}" type="button" data-toggle-private-contact="${value(customer.id)}" data-private-field="${value(label)}" aria-label="${revealed ? "隐藏" : "查看"}${actionSubject}">${content}</button>`
       : `<span class="${displayClass}">${content}</span>`;
     return `<div class="profile-reference-field"><dt>${label}</dt><dd>${item ? display : ""}</dd></div>`;
   };
@@ -3496,6 +3495,7 @@ async function openCustomer(id) {
     }
   }
   state.view = "customers";
+  state.customerContactReveals = {};
   state.customerDetailId = customer.id;
   state.customerDetailTab = "profile";
   ensureCurrentWorkspaceTab();
@@ -4952,7 +4952,7 @@ function bindViewEvents() {
     event.stopPropagation();
     openCustomer(button.dataset.openCustomer);
   }));
-  document.querySelector("[data-back-customer-list]")?.addEventListener("click", () => { state.customerDetailId = null; render(); });
+  document.querySelector("[data-back-customer-list]")?.addEventListener("click", () => { state.customerContactReveals = {}; state.customerDetailId = null; render(); });
   document.querySelectorAll("[data-edit-profile-customer]").forEach(button => button.addEventListener("click", event => { const customer = customers.find(item => String(item.id) === String(event.currentTarget.dataset.editProfileCustomer)); if (customer) openModal(customer); }));
   const profileActions = document.querySelector(".customer-profile-actions");
   const editProfile = document.querySelector("[data-edit-profile-customer]");

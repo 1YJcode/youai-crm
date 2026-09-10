@@ -166,7 +166,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .profile-reference-gap { min-height: 42px; }
 .profile-reference-mating .profile-reference-field { grid-template-columns: 1fr 1fr; }
 .profile-reference-mating .profile-reference-field dt, .profile-reference-mating .profile-reference-field dd { text-align: center; }
-.profile-private-value { border:0; padding:0; color:#303438; background:transparent; cursor:pointer; font-size:12px; white-space:nowrap; }
+.profile-private-value { border:0; padding:0; color:#303438; background:transparent; cursor:default; font-size:12px; white-space:nowrap; }
+button.profile-private-value { cursor:pointer; font-family:inherit; }
 .profile-private-action { margin-left:7px; color:#269ddd; font-size:11px; }
 .profile-private-value.revealed .profile-private-action { color:#f79009; }
 .profile-private-value.revealed { cursor:pointer; }
