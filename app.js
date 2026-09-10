@@ -2226,16 +2226,19 @@ function customerDetailView(id) {
   }
   const value = item => escapeHtml(String(item ?? ""));
   const isWhiteboardCustomer = state.customerSection === "白板列表";
-  const contactVisible = !isWhiteboardCustomer && (customer.contactVisible ?? (isAdmin() || customer.owner === currentOwner()));
-  const headerPhone = contactVisible ? (customer.phone || "") : maskPhoneDisplay(customer.phone);
+  const contactVisible = customer.contactVisible ?? (isAdmin() || customer.owner === currentOwner());
+  const contactMasked = isWhiteboardCustomer || !contactVisible;
+  const headerPhone = contactMasked ? maskPhoneDisplay(customer.phone) : (customer.phone || "");
   const cell = (label, item, required = false) => label
     ? `<div class="profile-reference-field"><dt>${required ? "*" : ""}${label}</dt><dd>${value(item)}</dd></div>`
     : '<div class="profile-reference-gap" aria-hidden="true"></div>';
   const privateCell = (label, item) => {
-    const displayValue = contactVisible
-      ? item
-      : (label === "电话号码" ? maskPhoneDisplay(item) : label === "微信号" ? maskWechatDisplay(item) : item);
-    return `<div class="profile-reference-field"><dt>${label}</dt><dd>${item ? (contactVisible ? `<span class="profile-private-value">${value(displayValue)}</span>` : `<span class="profile-private-value profile-private-mask">${value(displayValue)}<span class="profile-private-action">无权限查看</span></span>`) : ""}</dd></div>`;
+    const displayValue = contactMasked
+      ? (label === "电话号码" ? maskPhoneDisplay(item) : label === "微信号" ? maskWechatDisplay(item) : item)
+      : item;
+    const displayClass = contactMasked ? "profile-private-value profile-private-mask" : "profile-private-value";
+    const privateAction = !contactVisible && !isWhiteboardCustomer ? `<span class="profile-private-action">无权限查看</span>` : "";
+    return `<div class="profile-reference-field"><dt>${label}</dt><dd>${item ? `<span class="${displayClass}">${value(displayValue)}${privateAction}</span>` : ""}</dd></div>`;
   };
   const birthday = customer.birthday ? `${customer.birthday}${customer.age != null && customer.age !== "" ? `【${customer.age}岁】` : ""}` : "";
   // Each group is one complete visual row in the reference, including empty cells.
