@@ -197,6 +197,7 @@ const state = {
   customerSection: "客户列表",
   customerDetailId: null,
   customerDetailTab: "profile",
+  customerContactReveals: {},
   poolCustomers: [],
   importRows: [],
   importActiveId: null,
@@ -2228,17 +2229,28 @@ function customerDetailView(id) {
   const isWhiteboardCustomer = state.customerSection === "白板列表";
   const contactVisible = customer.contactVisible ?? (isAdmin() || customer.owner === currentOwner());
   const contactMasked = isWhiteboardCustomer || !contactVisible;
-  const headerPhone = contactMasked ? maskPhoneDisplay(customer.phone) : (customer.phone || "");
+  const isContactRevealable = label => isWhiteboardCustomer && contactVisible && ["电话号码", "微信号"].includes(label);
+  const isContactRevealed = label => isContactRevealable(label) && Boolean(state.customerContactReveals[`${customer.id}:${label}`]);
+  const headerPhone = contactMasked && !isContactRevealed("电话号码") ? maskPhoneDisplay(customer.phone) : (customer.phone || "");
   const cell = (label, item, required = false) => label
     ? `<div class="profile-reference-field"><dt>${required ? "*" : ""}${label}</dt><dd>${value(item)}</dd></div>`
     : '<div class="profile-reference-gap" aria-hidden="true"></div>';
   const privateCell = (label, item) => {
-    const displayValue = contactMasked
+    const revealable = isContactRevealable(label);
+    const revealed = isContactRevealed(label);
+    const shouldMask = contactMasked && !revealed;
+    const displayValue = shouldMask
       ? (label === "电话号码" ? maskPhoneDisplay(item) : label === "微信号" ? maskWechatDisplay(item) : item)
       : item;
-    const displayClass = contactMasked ? "profile-private-value profile-private-mask" : "profile-private-value";
-    const privateAction = !contactVisible && !isWhiteboardCustomer ? `<span class="profile-private-action">无权限查看</span>` : "";
-    return `<div class="profile-reference-field"><dt>${label}</dt><dd>${item ? `<span class="${displayClass}">${value(displayValue)}${privateAction}</span>` : ""}</dd></div>`;
+    const displayClass = shouldMask ? "profile-private-value profile-private-mask" : "profile-private-value revealed";
+    const privateAction = revealable
+      ? `<span class="profile-private-action">${revealed ? "隐藏" : "查看"}</span>`
+      : (!contactVisible && !isWhiteboardCustomer ? `<span class="profile-private-action">无权限查看</span>` : "");
+    const content = `${value(displayValue)}${privateAction}`;
+    const display = revealable
+      ? `<button class="${displayClass}" type="button" data-toggle-private-contact="${value(customer.id)}" data-private-field="${value(label)}" aria-label="${revealed ? "隐藏" : "查看"}${label}">${content}</button>`
+      : `<span class="${displayClass}">${content}</span>`;
+    return `<div class="profile-reference-field"><dt>${label}</dt><dd>${item ? display : ""}</dd></div>`;
   };
   const birthday = customer.birthday ? `${customer.birthday}${customer.age != null && customer.age !== "" ? `【${customer.age}岁】` : ""}` : "";
   // Each group is one complete visual row in the reference, including empty cells.
@@ -4166,6 +4178,12 @@ function bindViewEvents() {
   document.querySelectorAll("[data-allocate-profile-customer]").forEach(button => { button.innerHTML = `${icon("sliders")}资源调配`; });
   document.querySelectorAll("[data-next-customer]").forEach(button => { button.innerHTML = `${icon("play")}${button.dataset.nextCustomerLabel || "下个客户"}`; });
   document.querySelectorAll("[data-customer-detail-tab]").forEach(button => button.addEventListener("click", () => { state.customerDetailTab = button.dataset.customerDetailTab; render(); }));
+  document.querySelectorAll("[data-toggle-private-contact]").forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation();
+    const key = `${button.dataset.togglePrivateContact}:${button.dataset.privateField}`;
+    state.customerContactReveals[key] = !state.customerContactReveals[key];
+    render();
+  }));
   document.querySelector("#dashboardFilterForm")?.addEventListener("submit", async event => {
     event.preventDefault();
     const from = document.querySelector("#dashboardFrom")?.value || "";
