@@ -742,6 +742,22 @@ function formatPhone(value) {
   return digits.length === 11 ? digits.replace(/(\d{3})(\d{4})(\d{4})/, "$1 $2 $3") : value;
 }
 
+function maskPhoneDisplay(value) {
+  const text = String(value ?? "").trim();
+  if (!text || /[*＊]/.test(text)) return text;
+  const digits = text.replace(/\D/g, "");
+  if (digits.length === 11) return `${digits.slice(0, 3)}****${digits.slice(-4)}`;
+  if (digits.length <= 5) return "******";
+  return `${digits.slice(0, 3)}****${digits.slice(-2)}`;
+}
+
+function maskWechatDisplay(value) {
+  const text = String(value ?? "").trim();
+  if (!text || /[*＊]/.test(text)) return text;
+  if (text.length <= 2) return "******";
+  return `${text.slice(0, 1)}****${text.slice(-1)}`;
+}
+
 function formatRelativeDate(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -2210,11 +2226,16 @@ function customerDetailView(id) {
   }
   const value = item => escapeHtml(String(item ?? ""));
   const contactVisible = customer.contactVisible ?? (isAdmin() || customer.owner === currentOwner());
-  const headerPhone = customer.phone || "";
+  const headerPhone = contactVisible ? (customer.phone || "") : maskPhoneDisplay(customer.phone);
   const cell = (label, item, required = false) => label
     ? `<div class="profile-reference-field"><dt>${required ? "*" : ""}${label}</dt><dd>${value(item)}</dd></div>`
     : '<div class="profile-reference-gap" aria-hidden="true"></div>';
-  const privateCell = (label, item) => `<div class="profile-reference-field"><dt>${label}</dt><dd>${item ? (contactVisible ? `<span class="profile-private-value">${value(item)}</span>` : `<span class="profile-private-value profile-private-mask">${value(item)}<span class="profile-private-action">无权限查看</span></span>`) : ""}</dd></div>`;
+  const privateCell = (label, item) => {
+    const displayValue = contactVisible
+      ? item
+      : (label === "电话号码" ? maskPhoneDisplay(item) : label === "微信号" ? maskWechatDisplay(item) : item);
+    return `<div class="profile-reference-field"><dt>${label}</dt><dd>${item ? (contactVisible ? `<span class="profile-private-value">${value(displayValue)}</span>` : `<span class="profile-private-value profile-private-mask">${value(displayValue)}<span class="profile-private-action">无权限查看</span></span>`) : ""}</dd></div>`;
+  };
   const birthday = customer.birthday ? `${customer.birthday}${customer.age != null && customer.age !== "" ? `【${customer.age}岁】` : ""}` : "";
   // Each group is one complete visual row in the reference, including empty cells.
   const basicRows = [
