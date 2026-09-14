@@ -25,6 +25,12 @@
 
 后端默认运行在 `http://127.0.0.1:8080`。首次启动会自动执行 Flyway 数据库迁移并写入少量演示数据；生产环境请通过环境变量覆盖默认数据库密码。
 
+运行后端测试不依赖系统全局安装 Maven，项目会使用 `.tools` 中自带的 Java 和 Maven：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test-backend.ps1
+```
+
 如果使用 Docker 中的 MySQL（本项目示例映射到宿主机 `3307`），后端启动命令改为：
 
 `powershell -ExecutionPolicy Bypass -File .\scripts\run-backend.ps1 -DbPort 3307 -DbPassword root`
@@ -76,6 +82,20 @@ docker compose -f docker-compose.yml -f docker-compose.host-mysql.yml up -d back
 该模式不会启动 Compose 内置 MySQL，后端通过 `host.docker.internal:3307` 连接现有数据库。
 
 如需修改密码或端口，可在执行命令前设置 `MYSQL_ROOT_PASSWORD`、`MYSQL_HOST_PORT`、`BACKEND_HOST_PORT` 和 `FRONTEND_HOST_PORT` 环境变量。生产环境必须修改 `JWT_SECRET`。
+
+### 生产环境配置
+
+复制 `.env.example` 为 `.env`，填写强密码和随机 JWT 密钥。生产部署时启用 `prod` Profile；此 Profile 不提供数据库账号、密码或 JWT 密钥默认值，缺少任一变量都会拒绝启动：
+
+```powershell
+$env:SPRING_PROFILES_ACTIVE = 'prod'
+$env:DB_URL = 'jdbc:mysql://db-host:3306/youke_crm?useSSL=true'
+$env:DB_USERNAME = 'youke_app'
+$env:DB_PASSWORD = '<strong-database-password>'
+$env:JWT_SECRET = '<at-least-32-random-characters>'
+```
+
+不要将 `.env` 提交到 Git，也不要直接向公网开放 `3308` 或 `8080`。
 
 ## 后端接口
 

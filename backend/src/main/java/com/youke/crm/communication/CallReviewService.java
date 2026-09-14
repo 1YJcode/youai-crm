@@ -10,7 +10,6 @@ import com.youke.crm.common.NotFoundException;
 import jakarta.transaction.Transactional;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 @Service
 @Transactional
@@ -28,9 +27,9 @@ public class CallReviewService {
 
     @Transactional(Transactional.TxType.SUPPORTS)
     public Map<Long, Boolean> list(Authentication authentication) {
-        String scopedOwner = accessPolicy.scopedOwner(authentication);
+        accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
         List<Long> callIds = callRepository.findAllByOrderByStartedAtDesc().stream()
-                .filter(call -> !StringUtils.hasText(scopedOwner) || call.getOwner().equalsIgnoreCase(scopedOwner))
+                .filter(call -> accessPolicy.canAccessOwner(call.getOwner(), authentication))
                 .map(CallRecord::getId).toList();
         Map<Long, Boolean> result = new LinkedHashMap<>();
         if (!callIds.isEmpty()) reviewRepository.findAllByCallIdIn(callIds).forEach(review -> result.put(review.getCallId(), review.isReviewed()));

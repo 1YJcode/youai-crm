@@ -29,10 +29,11 @@ public class TaskService {
 
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<TaskResponse> list(String owner, String status, Boolean completed, Authentication authentication) {
-        String scopedOwner = accessPolicy.scopedOwner(authentication);
+        accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
+        boolean admin = accessPolicy.isAdmin(authentication);
         return repository.findAllByOrderByDueAtAsc().stream()
-                .filter(task -> !StringUtils.hasText(scopedOwner) || task.getOwner().equalsIgnoreCase(scopedOwner))
-                .filter(task -> StringUtils.hasText(scopedOwner) || !StringUtils.hasText(owner) || task.getOwner().equalsIgnoreCase(owner.trim()))
+                .filter(task -> accessPolicy.canAccessOwner(task.getOwner(), authentication))
+                .filter(task -> admin || !StringUtils.hasText(owner) || task.getOwner().equalsIgnoreCase(owner.trim()))
                 .filter(task -> !StringUtils.hasText(status) || task.getStatus().equalsIgnoreCase(status.trim()))
                 .filter(task -> completed == null || task.isCompleted() == completed)
                 .map(TaskResponse::from)

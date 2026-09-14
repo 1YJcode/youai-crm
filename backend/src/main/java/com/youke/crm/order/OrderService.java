@@ -31,9 +31,9 @@ public class OrderService {
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<OrderResponse> list(String keyword, String paymentStatus, String serviceStatus, Authentication authentication) {
         String normalizedKeyword = StringUtils.hasText(keyword) ? keyword.trim().toLowerCase(Locale.ROOT) : null;
-        String scopedOwner = accessPolicy.scopedOwner(authentication);
+        accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
         return repository.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
-                .filter(order -> !StringUtils.hasText(scopedOwner) || order.getOwner().equalsIgnoreCase(scopedOwner))
+                .filter(order -> accessPolicy.canAccessOwner(order.getOwner(), authentication))
                 .filter(order -> normalizedKeyword == null
                         || order.getOrderNo().toLowerCase(Locale.ROOT).contains(normalizedKeyword)
                         || order.getCustomerName().toLowerCase(Locale.ROOT).contains(normalizedKeyword))

@@ -10,7 +10,6 @@ import com.youke.crm.customer.CustomerService;
 import jakarta.transaction.Transactional;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 @Service
 @Transactional
@@ -35,10 +34,9 @@ public class ConversationService {
 
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<ConversationResponse> list(Authentication authentication) {
-        String scopedOwner = accessPolicy.scopedOwner(authentication);
+        accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
         return conversationRepository.findAllByOrderByLastMessageAtDesc().stream()
-                .filter(conversation -> !StringUtils.hasText(scopedOwner)
-                        || conversation.getOwner().equalsIgnoreCase(scopedOwner))
+                .filter(conversation -> accessPolicy.canAccessOwner(conversation.getOwner(), authentication))
                 .map(this::response)
                 .toList();
     }
@@ -93,10 +91,9 @@ public class ConversationService {
     }
 
     private List<Conversation> visibleConversations(Authentication authentication) {
-        String scopedOwner = accessPolicy.scopedOwner(authentication);
+        accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
         return conversationRepository.findAllByOrderByLastMessageAtDesc().stream()
-                .filter(conversation -> !StringUtils.hasText(scopedOwner)
-                        || conversation.getOwner().equalsIgnoreCase(scopedOwner))
+                .filter(conversation -> accessPolicy.canAccessOwner(conversation.getOwner(), authentication))
                 .toList();
     }
 

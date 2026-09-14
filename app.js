@@ -194,9 +194,19 @@ const state = {
   whiteboardStatus: "全部",
   whiteboardAdvancedOpen: false,
   customerAdvancedOpen: false,
+  customerAdvancedDraftCustomerType: "",
+  customerAdvancedDraftStatus: "",
+  customerIncomeMin: "",
+  customerIncomeMax: "",
   customerSection: "客户列表",
   customerDetailId: null,
   customerDetailTab: "profile",
+  customerFollowUpFilterType: "all",
+  customerFollowUpFrom: "",
+  customerFollowUpTo: "",
+  customerFollowUpKeyword: "",
+  customerFollowUpRecords: {},
+  customerFollowUpLoaded: {},
   customerContactReveals: {},
   poolCustomers: [],
   importRows: [],
@@ -934,6 +944,16 @@ function requireBackend() {
   throw new Error("数据服务暂不可用，请恢复连接后重试");
 }
 
+async function refreshCustomerSearchFromApi() {
+  if (!state.auth.token) return;
+  const params = new URLSearchParams();
+  const isPoolPage = Boolean(document.querySelector(".pool-page"));
+  if (state.customerSearch.trim()) params.set("keyword", state.customerSearch.trim());
+  if (isPoolPage) params.set("inPool", "true");
+  const advanced = { customerType: state.customerAdvancedDraftCustomerType, customerStatus: state.customerAdvancedDraftStatus || "", gender: state.customerGender !== "all" ? state.customerGender : "", maritalStatus: state.customerMaritalStatus !== "all" ? state.customerMaritalStatus : "", ageMin: state.customerAgeMin, ageMax: state.customerAgeMax, heightMin: state.customerHeightMin, heightMax: state.customerHeightMax, incomeMin: state.customerIncomeMin, incomeMax: state.customerIncomeMax, education: selectedCustomerEducations().join(","), uncontactedDays: selectedCustomerUncontactedDaysThreshold() ?? "", registrationStart: state.customerAdvancedDateRanges.registration?.start, registrationEnd: state.customerAdvancedDateRanges.registration?.end, firstAllocationStart: state.customerAdvancedDateRanges.firstAllocation?.start, firstAllocationEnd: state.customerAdvancedDateRanges.firstAllocation?.end, lastFollowUpStart: state.customerAdvancedDateRanges.lastFollowUp?.start, lastFollowUpEnd: state.customerAdvancedDateRanges.lastFollowUp?.end, nextFollowStart: state.customerAdvancedDateRanges.nextFollow?.start, nextFollowEnd: state.customerAdvancedDateRanges.nextFollow?.end };
+  Object.entries(advanced).forEach(([key, value]) => { if (value != null && String(value).trim()) params.set(key, value); });
+  try { const data = await apiRequest(`/customers?${params.toString()}`); const normalized = data.map(normalizeCustomer); if (isPoolPage) state.poolCustomers = normalized; else customers = normalized; state.customerPage = 1; render(); } catch (error) { toast(error.message); }
+}
 async function hydrateFromApi() {
   if (!state.auth.token) return;
   try {
@@ -1824,7 +1844,7 @@ function customerListView({ isPool = false } = {}) {
         <footer class="pagination"><span>${rows.length ? `${pageStart + 1}-${Math.min(pageStart + state.customerPageSize, rows.length)}` : "0"} 共 ${rows.length} 条</span><button class="page-button" data-customer-page="${state.customerPage - 1}" type="button" ${state.customerPage <= 1 ? "disabled" : ""}>‹</button>${Array.from({length: Math.min(totalPages, 5)}, (_, i) => i + 1).map(page => `<button class="page-button ${page === state.customerPage ? "active" : ""}" data-customer-page="${page}" type="button">${page}</button>`).join("")}<button class="page-button" data-customer-page="${state.customerPage + 1}" type="button" ${state.customerPage >= totalPages ? "disabled" : ""}>›</button><select id="customerPageSize"><option ${state.customerPageSize===20?"selected":""}>20</option><option ${state.customerPageSize===50?"selected":""}>50</option><option ${state.customerPageSize===100?"selected":""}>100</option></select><span>条/页</span></footer>
       </section>
     </div>
-  </section>${!isPool && state.customerAdvancedOpen ? whiteboardAdvancedFilterView() : ""}${!isPool && state.customerHeaderModalOpen ? customerHeaderModalView() : ""}`;
+  </section>${state.customerAdvancedOpen ? whiteboardAdvancedFilterView() : ""}${!isPool && state.customerHeaderModalOpen ? customerHeaderModalView() : ""}`;
 }
 
 function publicPoolCustomers() {
@@ -2096,8 +2116,8 @@ function whiteboardAdvancedFilterView() {
     <header><h2>高级筛选</h2><button type="button" id="closeWhiteboardAdvanced" aria-label="关闭">×</button></header>
     <div class="whiteboard-advanced-body">
       <div class="advanced-wide-row"><strong>客户等级：</strong><div class="advanced-checks">${["5心", "4心", "3心", "2心"].map(item => `<label><input type="checkbox">${item}</label>`).join("")}</div></div>
-      <label class="advanced-full"><strong>客户类型：</strong><select><option>请选择</option><option>非会员·未注册</option><option>非会员·已注册</option><option>会员</option></select></label>
-      <label class="advanced-full"><strong>客户状态：</strong><select><option>全部</option>${customerStatusOptions.map(option => `<option>${option}</option>`).join("")}</select></label>
+      <label class="advanced-full"><strong>客户类型：</strong><select id="customerTypeFilter"><option value="">请选择</option><option value="member">会员</option><option value="nonMember">非会员</option></select></label>
+      <label class="advanced-full"><strong>客户状态：</strong><select id="customerAdvancedStatusFilter"><option value="">全部</option>${customerStatusOptions.map(option => `<option value="${escapeHtml(option)}">${option}</option>`).join("")}</select></label>
       <div class="advanced-wide-row"><strong>下次跟进时间：</strong><div class="advanced-checks">${["今天", "明天", "本周", "下周", "本月", "下月"].map(item => `<label><input type="checkbox">${item}</label>`).join("")}</div><div class="advanced-custom-date"><span>自定义开始时间</span><b>→</b><span>自定义结束时间</span>${icon("calendar")}</div></div>
       <div class="advanced-two-column"><label><strong>未联系天数：</strong><div class="uncontacted-days-control">${uncontactedDaysSelect}${customUncontactedDays}</div></label><label><strong>会员来源：</strong><input placeholder="请选择会员来源"></label></div>
       <section class="advanced-profile"><h3>客户资料详情：</h3><div class="advanced-profile-grid">
@@ -2291,16 +2311,18 @@ function customerDetailView(id) {
     owner: event.operator || "系统",
     at: event.assignedAt
   }));
-  const records = [...customerActivityRows().filter(row => String(row.customerId) === String(customer.id) || (!row.customerId && row.type === "跟进任务" && row.customer === customer.name)), ...registrationRecords, ...assignmentRecords]
+  const fallbackRecords = [...customerActivityRows().filter(row => String(row.customerId) === String(customer.id) || (!row.customerId && row.type === "跟进任务" && row.customer === customer.name)), ...registrationRecords, ...assignmentRecords]
     .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
-  const portrait = `<div class="profile-reference-portrait"><div class="profile-reference-placeholder" role="img" aria-label="客户默认头像">${icon("users")}</div><span class="profile-reference-caption">${value(customer.name)}</span></div>`;
+  const records = state.customerFollowUpLoaded[customer.id]
+    ? (state.customerFollowUpRecords[customer.id] || []).map(row => ({ ...row, at: row.occurredAt, detail: row.content, owner: row.owner, type: row.title || row.channel || row.type }))
+    : fallbackRecords;  const portrait = `<div class="profile-reference-portrait"><div class="profile-reference-placeholder" role="img" aria-label="客户默认头像">${icon("users")}</div><span class="profile-reference-caption">${value(customer.name)}</span></div>`;
   const noteText = [customer.note, customer.remark].filter(Boolean).join("\n");
   const noteTime = customer.updatedAt || customer.createdAt;
   const profile = `<div class="profile-reference-overview">${portrait}<section class="profile-reference-basic"><h3>基本信息</h3><dl class="profile-reference-basic-grid">${basicRows.flat().join("")}</dl></section><section class="profile-reference-mating"><h3>择偶信息</h3><dl>${matingInfo.map(([label, item]) => cell(label, item)).join("")}</dl></section></div><section class="profile-reference-notes"><h3>备注</h3><dl><div><dt>备注信息</dt><dd><span>${value(noteText)}</span>${noteTime ? `<time>${value(formatDateTime(noteTime))}</time>` : ""}</dd></div></dl></section><section class="profile-reference-photos"><h3>图片</h3><p>暂无照片</p></section><div class="customer-detail-tools"><button type="button" data-customer-opening>开场白</button><button type="button" data-customer-followup>写跟进</button></div>`;
   const moreActions = ["增加协作", "转为库存", "移入公海", "发邀请券", "添加至重点客户", "注销用户"];
   const moreMenu = `<div class="customer-more-actions"><button class="button secondary customer-more-trigger" type="button" data-customer-more-toggle="${value(customer.id)}" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">${icon("more")}</button><div class="customer-more-menu" data-customer-more-menu="${value(customer.id)}" role="menu">${moreActions.map((label, index) => `<button type="button" role="menuitem" data-customer-more-action="${value(index)}" data-customer-id="${value(customer.id)}">${value(label)}</button>`).join("")}</div></div>`;
-  const follow = `<section class="customer-profile-section"><h3>跟进记录</h3><div class="customer-profile-timeline">${records.map(row => `<div><time>${value(formatDateTime(row.at))}</time><p><strong>${value(row.type)}</strong>　${value(row.detail)}<br><small>操作人：${value(row.owner)}</small></p></div>`).join("") || '<p class="customer-profile-empty">暂无客户操作记录</p>'}</div></section>`;
-  const profileGender = customer.gender || "—";
+  const followFilter = `<div class="customer-followup-filter"><select id="customerFollowUpTypeFilter" aria-label="跟进记录类型"><option value="all" ${state.customerFollowUpFilterType === "all" ? "selected" : ""}>全部</option><option value="sales" ${state.customerFollowUpFilterType === "sales" ? "selected" : ""}>销售</option><option value="invitation" ${state.customerFollowUpFilterType === "invitation" ? "selected" : ""}>邀约</option><option value="service" ${state.customerFollowUpFilterType === "service" ? "selected" : ""}>服务</option><option value="system" ${state.customerFollowUpFilterType === "system" ? "selected" : ""}>系统</option><option value="custom" ${state.customerFollowUpFilterType === "custom" ? "selected" : ""}>自定义</option><optgroup label="企微宝"><option value="wechat_customer_lost" ${state.customerFollowUpFilterType === "wechat_customer_lost" ? "selected" : ""}>客户流失</option><option value="wechat_add_friend" ${state.customerFollowUpFilterType === "wechat_add_friend" ? "selected" : ""}>添加客户好友</option></optgroup></select><div class="customer-followup-date-range"><input id="customerFollowUpFrom" type="date" value="${escapeHtml(state.customerFollowUpFrom)}" aria-label="开始日期"><span>→</span><input id="customerFollowUpTo" type="date" value="${escapeHtml(state.customerFollowUpTo)}" aria-label="结束日期"></div><div class="customer-followup-keyword"><input id="customerFollowUpKeyword" value="${escapeHtml(state.customerFollowUpKeyword)}" placeholder="输入关键词" aria-label="跟进关键词">${icon("search")}</div><button class="button primary" id="applyCustomerFollowUpFilter" type="button">查询</button></div>`;
+  const follow = `<section class="customer-profile-section"><h3>跟进记录</h3>${followFilter}<div class="customer-profile-timeline">${records.map(row => `<div><time>${value(formatDateTime(row.at))}</time><p><strong>${value(row.type)}</strong>　${value(row.detail)}<br><small>操作人：${value(row.owner)}</small></p></div>`).join("") || '<p class="customer-profile-empty">暂无客户操作记录</p>'}</div></section>`;  const profileGender = customer.gender || "—";
   const profileAge = customer.age ? `${customer.age}岁` : "—岁";
   const profileEducation = customer.education || "—";
   const isAssignedToEmployee = !["", "白板", "公海"].includes(String(customer.owner || "").trim());
@@ -3480,6 +3502,22 @@ function openSystemUserEditor(id) {
   drawer.querySelector("#systemUserEditForm").addEventListener("submit", event => { event.preventDefault(); closeDrawer(); toast("用户信息已更新"); });
 }
 
+async function loadCustomerFollowUps(customerId) {
+  if (!state.auth.token || !customerId) return;
+  const params = new URLSearchParams();
+  if (state.customerFollowUpFilterType && state.customerFollowUpFilterType !== "all") params.set("type", state.customerFollowUpFilterType);
+  if (state.customerFollowUpKeyword.trim()) params.set("keyword", state.customerFollowUpKeyword.trim());
+  if (state.customerFollowUpFrom) params.set("from", state.customerFollowUpFrom);
+  if (state.customerFollowUpTo) params.set("to", state.customerFollowUpTo);
+  try {
+    const records = await apiRequest(`/customers/${encodeURIComponent(customerId)}/follow-ups?${params.toString()}`);
+    state.customerFollowUpRecords[customerId] = records;
+    state.customerFollowUpLoaded[customerId] = true;
+    render();
+  } catch (error) {
+    toast(`跟进记录加载失败：${error.message}`);
+  }
+}
 async function openCustomer(id) {
   const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(id));
   if (!customer) return;
@@ -3498,6 +3536,11 @@ async function openCustomer(id) {
   state.customerContactReveals = {};
   state.customerDetailId = customer.id;
   state.customerDetailTab = "profile";
+  state.customerFollowUpFilterType = "all";
+  state.customerFollowUpFrom = "";
+  state.customerFollowUpTo = "";
+  state.customerFollowUpKeyword = "";
+  state.customerFollowUpLoaded[customer.id] = false;
   ensureCurrentWorkspaceTab();
   render();
   window.scrollTo({ top: 0, behavior: "instant" });
@@ -4177,7 +4220,8 @@ function bindViewEvents() {
   document.querySelectorAll("[data-message-name]").forEach(button => { button.innerHTML = `${icon("message")}消息`; });
   document.querySelectorAll("[data-allocate-profile-customer]").forEach(button => { button.innerHTML = `${icon("sliders")}资源调配`; });
   document.querySelectorAll("[data-next-customer]").forEach(button => { button.innerHTML = `${icon("play")}${button.dataset.nextCustomerLabel || "下个客户"}`; });
-  document.querySelectorAll("[data-customer-detail-tab]").forEach(button => button.addEventListener("click", () => { state.customerDetailTab = button.dataset.customerDetailTab; render(); }));
+  document.querySelectorAll("[data-customer-detail-tab]").forEach(button => button.addEventListener("click", async () => { state.customerDetailTab = button.dataset.customerDetailTab; render(); if (state.customerDetailTab === "follow" && state.customerDetailId) await loadCustomerFollowUps(state.customerDetailId); }));
+  document.querySelector("#applyCustomerFollowUpFilter")?.addEventListener("click", async () => { state.customerFollowUpFilterType = document.querySelector("#customerFollowUpTypeFilter")?.value || "all"; state.customerFollowUpFrom = document.querySelector("#customerFollowUpFrom")?.value || ""; state.customerFollowUpTo = document.querySelector("#customerFollowUpTo")?.value || ""; state.customerFollowUpKeyword = document.querySelector("#customerFollowUpKeyword")?.value || ""; if (state.customerFollowUpFrom && state.customerFollowUpTo && state.customerFollowUpTo < state.customerFollowUpFrom) { toast("结束日期不能早于开始日期"); return; } const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(state.customerDetailId)); if (customer) { state.customerFollowUpLoaded[customer.id] = false; await loadCustomerFollowUps(customer.id); } });
   document.querySelectorAll("[data-toggle-private-contact]").forEach(button => button.addEventListener("click", event => {
     event.stopPropagation();
     const key = `${button.dataset.togglePrivateContact}:${button.dataset.privateField}`;
@@ -4422,6 +4466,7 @@ function bindViewEvents() {
         document.querySelector("#customerUncontactedDaysCustom")?.focus();
         return;
       }
+      state.customerStatus = state.customerAdvancedDraftStatus || "全部状态";
       state.customerGender = state.customerAdvancedDraftGender;
       state.customerMaritalStatus = state.customerAdvancedDraftMaritalStatus;
       state.customerAdvancedOwnerSelection = JSON.parse(JSON.stringify(state.customerAdvancedDraftOwnerSelection));
@@ -4450,8 +4495,11 @@ function bindViewEvents() {
       state.whiteboardAdvancedOpen = false;
     }
     render();
+    refreshCustomerSearchFromApi();
     toast("高级筛选条件已应用");
   });
+  document.querySelector("#customerTypeFilter")?.addEventListener("change", event => { state.customerAdvancedDraftCustomerType = event.target.value; });
+  document.querySelector("#customerAdvancedStatusFilter")?.addEventListener("change", event => { state.customerAdvancedDraftStatus = event.target.value; });
   document.querySelector("#customerGenderFilter")?.addEventListener("change", event => {
     if (!state.customerAdvancedOpen) return;
     state.customerAdvancedDraftGender = event.target.value;
@@ -4814,7 +4862,7 @@ function bindViewEvents() {
     render();
     toast("自定义表头已保存");
   });
-  document.querySelector("#applyCustomerFilters")?.addEventListener("click", () => { state.customerPage = 1; render(); });
+  document.querySelector("#applyCustomerFilters")?.addEventListener("click", async () => { state.customerPage = 1; render(); await refreshCustomerSearchFromApi(); });
   document.querySelector("#resetCustomerFilters")?.addEventListener("click", () => { state.customerSearch = ""; state.customerNameSearch = ""; state.customerStage = "全部阶段"; state.customerLevel = "全部等级"; state.customerStatus = "全部状态"; state.customerScene = "all"; state.customerOwner = "全部负责人"; state.customerOwnerSelection = { nodes: [] }; state.customerAdvancedCollaboratorSelection = { nodes: [] }; state.customerAdvancedDraftCollaboratorSelection = { nodes: [] }; state.customerAdvancedCollaboratorCascadeOpen = false; state.customerOwnerCascadeOpen = false; state.customerOwnerSearch = ""; state.customerOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"]; state.customerStartDate = ""; state.customerEndDate = ""; state.customerDateRangePickerOpen = false; state.customerDateRangeDraftStart = ""; state.customerDateRangeDraftEnd = ""; state.customerDateRangeViewMonth = ""; state.customerDateRangePicking = "start"; state.customerGender = "all"; state.customerMaritalStatus = "all"; state.customerAgeMin = ""; state.customerAgeMax = ""; state.customerHeightMin = ""; state.customerHeightMax = ""; state.customerEducation = []; state.customerEducationMenuOpen = false; state.customerUncontactedDays = "all"; state.customerUncontactedDaysCustom = ""; state.customerAdvancedDraftGender = "all"; state.customerAdvancedDraftMaritalStatus = "all"; state.customerAdvancedDraftAgeMin = ""; state.customerAdvancedDraftAgeMax = ""; state.customerAdvancedDraftHeightMin = ""; state.customerAdvancedDraftHeightMax = ""; state.customerAdvancedDraftEducation = []; state.customerAdvancedOwnerSelection = { nodes: [] }; state.customerAdvancedDraftOwnerSelection = { nodes: [] }; state.customerAdvancedOwnerCascadeOpen = false; state.customerAdvancedOwnerSearch = ""; state.customerAdvancedOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"]; state.customerAdvancedDraftDateRanges = { registration: { start: "", end: "" }, lastLogin: { start: "", end: "" }, firstAllocation: { start: "", end: "" }, lastFollowUp: { start: "", end: "" } }; state.customerAdvancedDateRanges = { registration: { start: "", end: "" }, lastLogin: { start: "", end: "" }, firstAllocation: { start: "", end: "" }, lastFollowUp: { start: "", end: "" } }; state.customerAdvancedDatePickerOpen = false; state.customerAdvancedDatePickerField = ""; state.customerAdvancedDatePickerDraftStart = ""; state.customerAdvancedDatePickerDraftEnd = ""; state.customerAdvancedDatePickerViewMonth = ""; state.customerAdvancedDatePickerPicking = "start"; state.customerAdvancedDraftUncontactedDays = "all"; state.customerAdvancedDraftUncontactedDaysCustom = ""; state.customerAdvancedDialStatus = "all"; state.customerAdvancedDraftDialStatus = "all"; state.customerAvatarFilter = "all"; state.customerAdvancedDraftAvatar = "all"; state.quickFilter = "全部客户"; state.customerPage = 1; render(); });
   document.querySelectorAll("[data-customer-page]").forEach(button => button.addEventListener("click", () => { if (!button.disabled) { state.customerPage = Number(button.dataset.customerPage); render(); } }));
   document.querySelector("#customerPageSize")?.addEventListener("change", event => { state.customerPageSize = Number(event.target.value); state.customerPage = 1; render(); });

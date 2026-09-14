@@ -35,8 +35,9 @@ public class CustomerController {
             @RequestParam(required = false) String level,
             @RequestParam(required = false) String owner,
             @RequestParam(required = false) String tag,
-            @RequestParam(required = false) Boolean inPool) {
-        return service.search(keyword, stage, level, owner, tag, inPool, authentication);
+            @RequestParam(required = false) Boolean inPool,
+            @RequestParam Map<String, String> advanced) {
+        return service.search(keyword, stage, level, owner, tag, inPool, advanced, authentication);
     }
 
     @GetMapping("/pool")

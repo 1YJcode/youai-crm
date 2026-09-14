@@ -22,9 +22,10 @@ public class InvitationService {
         this.records = records; this.customers = customers; this.accessPolicy = accessPolicy;
     }
     public List<InvitationResponse> list(Authentication auth) {
-        String owner = accessPolicy.scopedOwner(auth);
-        return records.findAll((root, query, b) -> StringUtils.hasText(owner) ? b.equal(root.get("inviter"), owner) : b.conjunction(), Sort.by(Sort.Direction.DESC, "createdAt"))
-            .stream().map(this::response).toList();
+        accessPolicy.scopedOwner(auth); // also rejects direct calls without an identity
+        return records.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
+            .filter(row -> accessPolicy.canAccessOwner(row.getInviter(), auth))
+            .map(this::response).toList();
     }
     @Transactional
     public InvitationResponse create(InvitationRequest request, Authentication auth) {

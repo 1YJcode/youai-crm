@@ -11,12 +11,14 @@ import com.youke.crm.account.RoleRepository;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 @Configuration
 public class UserDataSeeder {
 
     @Bean
+    @Order(1)
     CommandLineRunner seedAccounts(
             DepartmentRepository departmentRepository,
             RoleRepository roleRepository,

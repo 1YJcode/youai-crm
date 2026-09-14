@@ -12,7 +12,6 @@ import jakarta.transaction.Transactional;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 @Service
 @Transactional
@@ -31,11 +30,10 @@ public class OrderRefundService {
 
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<RefundResponse> list(Authentication authentication) {
-        String owner = accessPolicy.scopedOwner(authentication);
-        List<OrderRefund> refunds = StringUtils.hasText(owner)
-                ? refundRepository.findAllByOwnerIgnoreCaseOrderByCreatedAtDesc(owner)
-                : refundRepository.findAllByOrderByCreatedAtDesc();
-        return refunds.stream().map(RefundResponse::from).toList();
+        accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
+        return refundRepository.findAllByOrderByCreatedAtDesc().stream()
+                .filter(refund -> accessPolicy.canAccessOwner(refund.getOwner(), authentication))
+                .map(RefundResponse::from).toList();
     }
 
     public RefundResponse create(RefundRequest request, Authentication authentication) {

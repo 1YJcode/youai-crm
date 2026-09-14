@@ -47,9 +47,16 @@ public record CustomerResponse(
         List<String> tags) {
 
     public static CustomerResponse from(Customer customer) {
-        return from(customer, true);
+        // Keep the safe projection as the default so a new caller cannot
+        // accidentally expose private customer data.
+        return from(customer, false);
     }
 
+    /**
+     * The visibility flag is the authorization result calculated by the
+     * service: only an administrator or the current owner may receive the
+     * unmasked contact fields.
+     */
     public static CustomerResponse from(Customer customer, boolean contactVisible) {
         return new CustomerResponse(
                 customer.getCustomerNo(),

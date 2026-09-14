@@ -62,28 +62,28 @@ public class DashboardController {
         if (endDate.isBefore(startDate)) throw new IllegalArgumentException("结束日期不能早于开始日期");
         LocalDateTime start = startDate.atStartOfDay();
         LocalDateTime end = endDate.plusDays(1).atStartOfDay();
-        String owner = accessPolicy.scopedOwner(authentication);
+        accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
         var visibleCustomers = customerRepository.findAll().stream()
-                .filter(customer -> matchesOwner(owner, customer.getOwner()))
+                .filter(customer -> accessPolicy.canAccessOwner(customer.getOwner(), authentication))
                 .toList();
         var visibleTasks = taskRepository.findAll().stream()
-                .filter(task -> matchesOwner(owner, task.getOwner()))
+                .filter(task -> accessPolicy.canAccessOwner(task.getOwner(), authentication))
                 .toList();
         var visibleOrders = orderRepository.findAll().stream()
-                .filter(order -> matchesOwner(owner, order.getOwner()))
+                .filter(order -> accessPolicy.canAccessOwner(order.getOwner(), authentication))
                 .filter(order -> inRange(order.getCreatedAt(), start, end))
                 .toList();
         var visibleCalls = callRepository.findAll().stream()
-                .filter(call -> matchesOwner(owner, call.getOwner()))
+                .filter(call -> accessPolicy.canAccessOwner(call.getOwner(), authentication))
                 .filter(call -> inRange(call.getStartedAt(), start, end))
                 .toList();
         var visibleInvitations = invitationRepository.findAll().stream()
-                .filter(invitation -> matchesOwner(owner, invitation.getInviter()))
+                .filter(invitation -> accessPolicy.canAccessOwner(invitation.getInviter(), authentication))
                 .filter(invitation -> store == null || store.isBlank() || store.equals(invitation.getStoreName()))
                 .filter(invitation -> inRange(invitation.getScheduledAt(), start, end))
                 .toList();
         var visibleRefunds = refundRepository.findAll().stream()
-                .filter(refund -> matchesOwner(owner, refund.getOwner()))
+                .filter(refund -> accessPolicy.canAccessOwner(refund.getOwner(), authentication))
                 .filter(refund -> inRange(refund.getCreatedAt(), start, end))
                 .toList();
         long customers = visibleCustomers.size();
@@ -160,10 +160,6 @@ public class DashboardController {
                 refundAmount,
                 rankedVisits,
                 rankedSales);
-    }
-
-    private boolean matchesOwner(String scopedOwner, String candidate) {
-        return scopedOwner == null || (candidate != null && candidate.equalsIgnoreCase(scopedOwner));
     }
 
     private boolean inRange(LocalDateTime value, LocalDateTime start, LocalDateTime end) {

@@ -26,9 +26,9 @@ public class CallService {
 
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<CallResponse> list(String status, Authentication authentication) {
-        String scopedOwner = accessPolicy.scopedOwner(authentication);
+        accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
         return repository.findAllByOrderByStartedAtDesc().stream()
-                .filter(call -> !StringUtils.hasText(scopedOwner) || call.getOwner().equalsIgnoreCase(scopedOwner))
+                .filter(call -> accessPolicy.canAccessOwner(call.getOwner(), authentication))
                 .filter(call -> !StringUtils.hasText(status) || call.getStatus().equals(status.trim()))
                 .map(CallResponse::from)
                 .toList();

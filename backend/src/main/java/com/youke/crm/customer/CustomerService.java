@@ -28,19 +28,27 @@ public class CustomerService {
     private final CrmUserRepository userRepository;
     private final CustomerRegistrationEventRepository registrationEventRepository;
     private final CustomerAssignmentEventRepository assignmentEventRepository;
+    private final CustomerOperationEventRepository operationEventRepository;
 
     public CustomerService(CustomerRepository repository, AccessPolicy accessPolicy, CrmUserRepository userRepository,
             CustomerRegistrationEventRepository registrationEventRepository,
-            CustomerAssignmentEventRepository assignmentEventRepository) {
+            CustomerAssignmentEventRepository assignmentEventRepository,
+            CustomerOperationEventRepository operationEventRepository) {
         this.repository = repository;
         this.accessPolicy = accessPolicy;
         this.userRepository = userRepository;
         this.registrationEventRepository = registrationEventRepository;
         this.assignmentEventRepository = assignmentEventRepository;
+        this.operationEventRepository = operationEventRepository;
     }
 
     public List<CustomerResponse> search(String keyword, String stage, String level, String owner, String tag, Boolean inPool, Authentication authentication) {
-        String scopedOwner = accessPolicy.scopedOwner(authentication);
+        return search(keyword, stage, level, owner, tag, inPool, Map.of(), authentication);
+    }
+
+    public List<CustomerResponse> search(String keyword, String stage, String level, String owner, String tag, Boolean inPool, Map<String, String> advanced, Authentication authentication) {
+        accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
+        boolean admin = accessPolicy.isAdmin(authentication);
         return repository.findAll((root, query, builder) -> {
                     List<Predicate> predicates = new java.util.ArrayList<>();
                     if (StringUtils.hasText(keyword)) {
@@ -57,19 +65,72 @@ public class CustomerService {
                     if (StringUtils.hasText(level)) {
                         predicates.add(builder.equal(root.get("level"), level));
                     }
-                    if (StringUtils.hasText(scopedOwner)) {
-                        predicates.add(builder.equal(root.get("owner"), scopedOwner));
-                    } else if (StringUtils.hasText(owner)) {
+                    if (admin && StringUtils.hasText(owner)) {
                         predicates.add(builder.equal(root.get("owner"), owner.trim()));
                     }
                     if (inPool != null) predicates.add(inPool ? builder.equal(root.get("owner"), "公海") : builder.notEqual(root.get("owner"), "公海"));
                     return builder.and(predicates.toArray(Predicate[]::new));
                 }, Sort.by(Sort.Direction.DESC, "id")).stream()
+                .filter(customer -> accessPolicy.canAccessOwner(customer.getOwner(), authentication))
                 .filter(customer -> !StringUtils.hasText(tag) || customer.getTags().contains(tag.trim()))
+                .filter(customer -> advancedMatches(customer, advanced))
                 .map(customer -> toResponse(customer, authentication)).toList();
     }
 
+    private boolean advancedMatches(Customer c, Map<String, String> a) {
+        if (a == null || a.isEmpty()) return true;
+        if (has(a,"gender") && !eq(a.get("gender"), c.getGender())) return false;
+        if (has(a,"maritalStatus") && !eq(a.get("maritalStatus"), c.getMaritalStatus())) return false;
+        if (has(a,"education") && !containsAny(a.get("education"), c.getEducation())) return false;
+        if (has(a,"customerStatus") && !eq(a.get("customerStatus"), c.getStage())) return false;
+        if (has(a,"customerType")) {
+            String type = a.get("customerType");
+            boolean member = StringUtils.hasText(c.getLevel()) && c.getLevel().contains("会员");
+            if (("member".equals(type) || "会员".equals(type)) != member) return false;
+        }
+        if (!numberBetween(c.getAge(), a.get("ageMin"), a.get("ageMax"))) return false;
+        if (!numberBetween(c.getHeight(), a.get("heightMin"), a.get("heightMax"))) return false;
+        String income = StringUtils.hasText(c.getMonthlyIncome()) ? c.getMonthlyIncome() : c.getAnnualIncome();
+        if (!numberBetween(income, a.get("incomeMin"), a.get("incomeMax"))) return false;
+        if (has(a,"occupation") && !contains(a.get("occupation"), c.getOccupation())) return false;
+        if (has(a,"housing") && !contains(a.get("housing"), c.getHousing())) return false;
+        if (has(a,"car") && !contains(a.get("car"), c.getCar())) return false;
+        if (has(a,"nativePlace") && !contains(a.get("nativePlace"), c.getNativePlace())) return false;
+        if (has(a,"workLocation") && !contains(a.get("workLocation"), c.getWorkLocation())) return false;
+        if (has(a,"personality") && !contains(a.get("personality"), c.getMatchPersonality())) return false;
+        if (has(a,"interest") && !contains(a.get("interest"), c.getMatchMostImportant())) return false;
+        if (has(a,"note") && !(contains(a.get("note"), c.getNote()) || contains(a.get("note"), c.getRemark()))) return false;
+        if (has(a,"owner") && !contains(a.get("owner"), c.getOwner())) return false;
+        if (has(a,"collaborator") && !contains(a.get("collaborator"), c.getCollaborator())) return false;
+        if (!dateBetween(c.getNextFollowAt(), a.get("nextFollowStart"), a.get("nextFollowEnd"))) return false;
+        if (!dateBetween(c.getCreatedAt(), a.get("registrationStart"), a.get("registrationEnd"))) return false;
+        if (!dateBetween(c.getFirstAllocationAt(), a.get("firstAllocationStart"), a.get("firstAllocationEnd"))) return false;
+        if (!dateBetween(c.getLastContactAt(), a.get("lastFollowUpStart"), a.get("lastFollowUpEnd"))) return false;
+        if (has(a,"uncontactedDays")) {
+            try {
+                long days = java.time.Duration.between(c.getLastContactAt() == null ? c.getCreatedAt() : c.getLastContactAt(), LocalDateTime.now()).toDays();
+                if (days < Long.parseLong(a.get("uncontactedDays"))) return false;
+            } catch (Exception ignored) { }
+        }
+        return true;
+    }
+    private boolean has(Map<String,String> a, String k){ return StringUtils.hasText(a.get(k)); }
+    private boolean eq(String expected, String actual){ return expected.equalsIgnoreCase(String.valueOf(actual == null ? "" : actual)); }
+    private boolean contains(String q, String v){ return StringUtils.hasText(v) && v.toLowerCase().contains(q.toLowerCase()); }
+    private boolean containsAny(String csv, String v){ return java.util.Arrays.stream(csv.split(",")).map(String::trim).anyMatch(x -> eq(x,v)); }
+    private boolean numberBetween(String value, String min, String max){
+        boolean hasMin = StringUtils.hasText(min), hasMax = StringUtils.hasText(max);
+        if (!hasMin && !hasMax) return true;
+        if (!StringUtils.hasText(value)) return false;
+        try { double n = Double.parseDouble(value.replaceAll("[^0-9.\\-]", "")); if (hasMin && n < Double.parseDouble(min)) return false; if (hasMax && n > Double.parseDouble(max)) return false; return true; } catch(Exception e){ return true; }
+    }
+    private boolean dateBetween(LocalDateTime value, String start, String end){
+        if (!StringUtils.hasText(start) && !StringUtils.hasText(end)) return true;
+        if (value == null) return false;
+        try { if (StringUtils.hasText(start) && value.toLocalDate().isBefore(java.time.LocalDate.parse(start))) return false; if (StringUtils.hasText(end) && value.toLocalDate().isAfter(java.time.LocalDate.parse(end))) return false; return true; } catch(Exception e){ return true; }
+    }
     public List<CustomerResponse> pool(Authentication authentication) {
+        accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
         return repository.findAll((root, query, builder) -> builder.equal(root.get("owner"), "公海"),
                         Sort.by(Sort.Direction.DESC, "id")).stream()
                 .map(customer -> toResponse(customer, authentication))
@@ -77,7 +138,10 @@ public class CustomerService {
     }
 
     public Map<String, Long> tags(Authentication authentication) {
-        return repository.findAll().stream().filter(customer -> accessPolicy.isAdmin(authentication) || "公海".equals(customer.getOwner()) || customer.getOwner().equals(accessPolicy.currentOwner(authentication)))
+        accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
+        return repository.findAll().stream().filter(customer -> accessPolicy.isAdmin(authentication)
+                || "公海".equals(customer.getOwner())
+                || accessPolicy.canAccessOwner(customer.getOwner(), authentication))
                 .flatMap(customer -> customer.getTags().stream()).collect(Collectors.groupingBy(tag -> tag, LinkedHashMap::new, Collectors.counting()));
     }
 
@@ -151,6 +215,9 @@ public class CustomerService {
         }
         Customer saved = repository.save(customer);
         recordAssignmentIfNeeded(saved, previousOwner, saved.getOwner(), authentication);
+        if (Objects.equals(previousOwner, saved.getOwner())) {
+            recordOperation(saved, "编辑客户资料", "员工及管理员更新了客户资料", authentication);
+        }
         return toResponse(saved, authentication);
     }
 
@@ -160,15 +227,21 @@ public class CustomerService {
             throw new IllegalArgumentException("客户阶段不能为空");
         }
         Customer customer = get(customerNo, authentication);
+        String previousStage = customer.getStage();
         customer.setStage(stage.trim());
         customer.setLastContactAt(LocalDateTime.now());
-        return toResponse(repository.save(customer), authentication);
+        Customer saved = repository.save(customer);
+        if (!Objects.equals(previousStage, saved.getStage())) {
+            recordOperation(saved, "更新客户阶段", "客户阶段由“" + previousStage + "”更新为“" + saved.getStage() + "”", authentication);
+        }
+        return toResponse(saved, authentication);
     }
 
     @Transactional
     public CustomerResponse updatePool(String customerNo, boolean inPool, Authentication authentication) {
         Customer customer = repository.findByCustomerNo(customerNo)
                 .orElseThrow(() -> new NotFoundException("未找到客户：" + customerNo));
+        String previousOwner = customer.getOwner();
         if (inPool) {
             accessPolicy.requireOwner(customer.getOwner(), authentication);
             if (!"公海".equals(customer.getOwner())) customer.setPreviousOwner(customer.getOwner());
@@ -177,14 +250,17 @@ public class CustomerService {
             if (!"公海".equals(customer.getOwner()) && !accessPolicy.isAdmin(authentication)) {
                 throw new org.springframework.security.access.AccessDeniedException("只能领取公海客户");
             }
-            String previousOwner = customer.getOwner();
             customer.setOwner(accessPolicy.isAdmin(authentication)
                     ? accessPolicy.currentDisplayName(authentication)
                     : accessPolicy.currentOwner(authentication));
             recordAssignmentIfNeeded(customer, previousOwner, customer.getOwner(), authentication);
         }
         customer.setLastContactAt(LocalDateTime.now());
-        return toResponse(repository.save(customer), authentication);
+        Customer saved = repository.save(customer);
+        if (inPool && !Objects.equals(previousOwner, "公海")) {
+            recordOperation(saved, "移入公海", "客户由“" + customerOwnerLabel(previousOwner) + "”移入公海", authentication);
+        }
+        return toResponse(saved, authentication);
     }
 
     @Transactional
@@ -212,7 +288,7 @@ public class CustomerService {
     private CustomerResponse toResponse(Customer customer, Authentication authentication) {
         boolean contactVisible = accessPolicy.isAdmin(authentication)
                 || (StringUtils.hasText(customer.getOwner())
-                    && customer.getOwner().equalsIgnoreCase(accessPolicy.currentOwner(authentication)));
+                    && accessPolicy.canAccessOwner(customer.getOwner(), authentication));
         return CustomerResponse.from(customer, contactVisible);
     }
 
@@ -318,6 +394,20 @@ public class CustomerService {
         event.setOperator(authentication == null ? "系统" : accessPolicy.currentDisplayName(authentication));
         event.setAssignedAt(now);
         assignmentEventRepository.save(event);
+    }
+
+    private void recordOperation(Customer customer, String operationType, String detail,
+            Authentication authentication) {
+        CustomerOperationEvent event = new CustomerOperationEvent();
+        event.setCustomerId(customer.getId());
+        event.setOperationType(operationType);
+        event.setDetail(detail);
+        event.setOperator(authentication == null ? "系统" : accessPolicy.currentDisplayName(authentication));
+        operationEventRepository.save(event);
+    }
+
+    private String customerOwnerLabel(String owner) {
+        return StringUtils.hasText(owner) ? owner : "未分配";
     }
 
     private String trimToNull(String value) {
