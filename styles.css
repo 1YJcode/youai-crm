@@ -44,6 +44,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .brand-copy strong { font-size: 16px; }
 .brand-copy small { margin-top: 4px; color: #8991a2; font-size: 9px; font-weight: 700; letter-spacing: 1.2px; }
 .primary-nav { display: flex; min-width: 0; flex: 1 1 auto; align-items: stretch; justify-content: center; }
+.employee-role .primary-nav { justify-content: flex-start; padding-left: 56px; }
 .nav-item { position: relative; display: flex; min-width: 0; flex: 0 1 auto; align-items: center; gap: 6px; padding: 0 13px; color: #aeb5c2; background: transparent; border: 0; cursor: pointer; white-space: nowrap; }
 .nav-item::after { position: absolute; right: 16px; bottom: 0; left: 16px; height: 3px; background: transparent; border-radius: 3px 3px 0 0; content: ""; }
 .nav-item:hover { color: #fff; background: var(--nav-hover); }
@@ -1828,6 +1829,7 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
   .topbar-main { padding: 0 18px; }
   .brand { min-width: 132px; }
   .brand-copy small { display: none; }
+  .employee-role .primary-nav { padding-left: 28px; }
   .nav-item { padding: 0 12px; }
   .global-search { width: 190px; }
   .connection-status span { display: none; }
@@ -1837,6 +1839,7 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 }
 
 @media (max-width: 1120px) {
+  .employee-role .primary-nav { padding-left: 0; }
   .nav-item span { display: none; }
   .nav-item { padding: 0 15px; }
   .nav-badge { right: 3px; }
@@ -1855,6 +1858,7 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
   .brand-logo { width: 42px; }
   .mobile-menu { display: grid; order: -1; margin-right: 5px; }
   .primary-nav { position: fixed; z-index: 45; top: 58px; right: 0; left: 0; display: none; height: auto; padding: 7px 10px; background: #272d39; box-shadow: 0 12px 30px rgba(15,23,42,.2); overflow-x: auto; }
+  .employee-role .primary-nav { padding: 7px 10px; }
   .primary-nav.open { display: flex; }
   .nav-item { min-width: 75px; flex: 1 0 auto; flex-direction: column; gap: 3px; padding: 9px 8px; border-radius: 4px; font-size: 10px; }
   .nav-item span { display: block; }

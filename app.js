@@ -1507,7 +1507,7 @@ function followUpRecordsView() {
 
 function customerPill(stage) {
   const tones = { "初步沟通": "gray", "需求确认": "blue", "方案报价": "amber", "商务谈判": "purple", "已成交": "green", "暂缓跟进": "gray", "已流失": "red" };
-  return `<span class="pill ${tones[stage] || "gray"}">${stage}</span>`;
+  return `<span class="pill ${tones[stage] || "gray"}">${escapeHtml(stage)}</span>`;
 }
 
 function parseCustomerDate(value) {
@@ -2897,7 +2897,7 @@ async function useMessageTemplate(id) {
 
 function orderPill(status) {
   const tones = { "已支付": "green", "部分支付": "amber", "待支付": "blue", "已取消": "red" };
-  return `<span class="pill ${tones[status] || "gray"}">${status}</span>`;
+  return `<span class="pill ${tones[status] || "gray"}">${escapeHtml(status)}</span>`;
 }
 
 function filteredOrders() {
@@ -3271,7 +3271,7 @@ function render() {
   }
   ensureCurrentWorkspaceTab();
   const views = { dashboard: dashboardView, customers: customersView, tasks: tasksView, calls: callsView, messages: messagesView, orders: ordersView, system: systemView, analytics: analyticsView, finance: financeView };
-  document.querySelector("#app").innerHTML = views[state.view]();
+  setSafeHtml(document.querySelector("#app"), views[state.view]());
   if (document.querySelector(".pool-scene-bar")) renderSharedPoolNavigation();
   if (state.view === "customers") {
     renderImportedCustomerFields();
@@ -3652,7 +3652,7 @@ function openHelpModal(kind = "help") {
   const form = document.querySelector("#businessForm");
   document.querySelector("#businessModalEyebrow").textContent = isLearning ? "QUICK START" : "HELP CENTER";
   document.querySelector("#businessModalTitle").textContent = isLearning ? "学习中心" : "使用帮助";
-  form.innerHTML = businessModalFields(isLearning ? "learning" : "help");
+  setSafeHtml(form, businessModalFields(isLearning ? "learning" : "help"));
   form.querySelector("[data-close-business]")?.addEventListener("click", closeBusinessModal);
   backdrop.hidden = false;
   document.body.style.overflow = "hidden";
@@ -3672,7 +3672,7 @@ function openBusinessModal(type, record = null) {
   form.dataset.corner = type === "task" && Boolean(record?.corner) ? "true" : "false";
   document.querySelector("#businessModalEyebrow").textContent = labels[type][0];
   document.querySelector("#businessModalTitle").textContent = labels[type][1];
-  form.innerHTML = businessModalFields(type, record);
+  setSafeHtml(form, businessModalFields(type, record));
   if (type === "collaboration") {
     const entries = form.querySelector("[data-collaboration-entries]");
     form.querySelector("[data-add-collaborator]")?.addEventListener("click", () => {
@@ -3797,8 +3797,9 @@ function closeBusinessModal() {
 }
 
 function openSystemUserEditor(id) {
-  const user = state.systemUsers.find(item => String(item.id) === String(id));
-  if (!user) return;
+  const sourceUser = state.systemUsers.find(item => String(item.id) === String(id));
+  if (!sourceUser) return;
+  const user = Object.fromEntries(Object.entries(sourceUser).map(([key, value]) => [key, escapeHtml(value)]));
   const drawer = document.querySelector("#detailDrawer");
   const backdrop = document.querySelector("#drawerBackdrop");
   drawer.innerHTML = `<header class="drawer-header"><div><h2>编辑</h2></div><button class="icon-button" data-close-drawer aria-label="关闭">${icon("close")}</button></header><div class="drawer-body system-user-editor"><div class="system-editor-id">ID：${user.id}</div><form id="systemUserEditForm" class="system-user-editor-form"><label><span><i>*</i>用户账号：</span><input name="account" value="${user.account}" required></label><label><span><i>*</i>手机号码：</span><input name="phone" value="${user.phone}" required></label><label><span><i>*</i>用户姓名：</span><input name="name" value="${user.name}" required></label><label><span>职务：</span><div class="editor-inline"><span class="editor-tag">销售 ×</span><button type="button" class="button primary">${icon("search")}选择</button></div></label><label><span><i>*</i>角色分配：</span><div class="editor-tags"><span class="editor-tag">销售 ×</span></div></label><label><span><i>*</i>部门分配：</span><div class="editor-inline"><input value="销售部"><button type="button" class="button secondary">${icon("search")}选择</button></div></label><label><span>身份：</span><div class="editor-radios"><label><input type="radio" name="identity" checked>普通用户</label><label><input type="radio" name="identity">上级</label></div></label><label><span>头像：</span><div class="avatar-upload"><strong>＋</strong><small>上传</small></div></label><label><span>生日：</span><input type="date" name="birthday"></label><label><span>性别：</span><select name="gender"><option>请选择性别</option><option ${user.gender === "男" ? "selected" : ""}>男</option><option ${user.gender === "女" ? "selected" : ""}>女</option></select></label><label><span>邮箱：</span><input name="email" placeholder="请输入邮箱"></label><label><span>工作流引擎：</span><div class="editor-radios"><label><input type="radio" name="workflow" checked>同步</label><label><input type="radio" name="workflow">不同步</label></div></label></form></div><footer class="drawer-footer"><button type="button" class="button secondary" data-close-drawer>取消</button><button type="submit" form="systemUserEditForm" class="button primary">提交</button></footer>`;
@@ -3983,8 +3984,18 @@ async function openCustomer(id) {
 }
 
 function openOrder(id) {
-  const order = orders.find(item => item.id === id);
-  if (!order) return;
+  const sourceOrder = orders.find(item => item.id === id);
+  if (!sourceOrder) return;
+  const order = {
+    ...sourceOrder,
+    id: escapeHtml(sourceOrder.id),
+    customer: escapeHtml(sourceOrder.customer),
+    product: escapeHtml(sourceOrder.product),
+    status: escapeHtml(sourceOrder.status),
+    service: escapeHtml(sourceOrder.service),
+    owner: escapeHtml(sourceOrder.owner),
+    created: escapeHtml(sourceOrder.created)
+  };
   const drawer = document.querySelector("#detailDrawer");
   drawer.innerHTML = `<header class="drawer-header"><div><p class="eyebrow">ORDER DETAIL</p><h2>订单详情</h2></div><button class="icon-button" data-close-drawer aria-label="关闭">${icon("close")}</button></header><div class="drawer-body"><div class="profile-head"><span class="person-avatar">单</span><div><h3>${order.id}</h3><p>${order.customer} · ${order.product}</p></div></div><div class="profile-actions"><button class="button secondary" data-edit-order="${order.id}">${icon("edit")}编辑订单</button><button class="button secondary" data-update-payment="${order.id}">${icon("wallet")}登记回款</button><button class="button secondary" data-update-service="${order.id}">${icon("check")}更新服务</button></div><section class="detail-section"><h4>订单信息</h4><div class="detail-grid"><div class="detail-item"><span>订单金额</span><strong>${money(order.amount)}</strong></div><div class="detail-item"><span>已付金额</span><strong>${money(order.paid)}</strong></div><div class="detail-item"><span>支付状态</span><strong>${orderPill(order.status)}</strong></div><div class="detail-item"><span>服务状态</span><strong>${order.service}</strong></div><div class="detail-item"><span>业绩状态</span><strong>${order.performanceConfirmed ? "已确认" : order.paid > 0 ? "待确认" : "待回款"}</strong></div><div class="detail-item"><span>销售负责人</span><strong>${order.owner}</strong></div><div class="detail-item"><span>创建时间</span><strong>${order.created}</strong></div></div></section><section class="detail-section"><h4>订单进度</h4><div class="timeline"><div class="timeline-item"><time>${order.created}</time><p>订单已创建，当前支付状态为“${order.status}”。</p></div><div class="timeline-item"><time>当前</time><p>服务状态为“${order.service}”。</p></div></div></section>${order.performanceConfirmed ? `<div class="confirmation-state pill green">${icon("check")}业绩已确认</div>` : order.paid > 0 ? `<button class="button primary" style="width:100%;margin-top:25px" data-confirm-order="${order.id}">${icon("check")}确认业绩</button>` : `<div class="confirmation-state pill gray">${icon("clock")}登记回款后可确认业绩</div>`}</div>`;
   document.querySelector("#drawerBackdrop").hidden = false;
@@ -4007,9 +4018,9 @@ function closeDrawer() {
 function toast(message, variant = "success") {
   const item = document.createElement("div");
   item.className = `toast${variant === "error" ? " toast-error" : ""}`;
-  item.innerHTML = variant === "error"
-    ? `<span class="toast-error-icon" aria-hidden="true">×</span><span>${message}</span>`
-    : `${icon("check")}<span>${message}</span>`;
+  setSafeHtml(item, variant === "error"
+    ? `<span class="toast-error-icon" aria-hidden="true">×</span><span>${escapeHtml(message)}</span>`
+    : `${icon("check")}<span>${escapeHtml(message)}</span>`);
   document.querySelector("#toastRegion").append(item);
   setTimeout(() => item.remove(), 2800);
 }
@@ -5853,8 +5864,42 @@ function exportAnalytics() {
 
 function escapeHtml(value) {
   const element = document.createElement("div");
-  element.textContent = value;
+  element.textContent = value == null ? "" : String(value);
   return element.innerHTML;
+}
+
+// Defense in depth for the legacy HTML-template rendering pipeline. Business
+// values should still use escapeHtml at interpolation sites; this makes every
+// full-page render reject executable markup if a site is missed.
+function sanitizeHtml(html) {
+  const template = document.createElement("template");
+  template.innerHTML = String(html ?? "");
+  const blocked = new Set(["SCRIPT", "IFRAME", "OBJECT", "EMBED", "APPLET", "BASE", "META", "LINK", "STYLE"]);
+  const urlAttributes = new Set(["href", "src", "action", "formaction", "poster", "xlink:href"]);
+  const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT);
+  const elements = [];
+  while (walker.nextNode()) elements.push(walker.currentNode);
+  elements.forEach(element => {
+    if (blocked.has(element.tagName)) {
+      element.remove();
+      return;
+    }
+    [...element.attributes].forEach(attribute => {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value.trim().replace(/[\u0000-\u0020]+/g, "");
+      const isAllowedStaticHandler = name === "onclick" && attribute.value.trim() === "event.stopPropagation()";
+      if ((name.startsWith("on") && !isAllowedStaticHandler) || name === "srcdoc" ||
+          (urlAttributes.has(name) && /^(?:javascript|vbscript|data):/i.test(value)) ||
+          (name === "style" && /(?:expression\s*\(|url\s*\()/i.test(value))) {
+        element.removeAttribute(attribute.name);
+      }
+    });
+  });
+  return template.innerHTML;
+}
+
+function setSafeHtml(element, html) {
+  if (element) element.innerHTML = sanitizeHtml(html);
 }
 
 document.querySelectorAll(".nav-item").forEach(item => item.addEventListener("click", event => {
