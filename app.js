@@ -101,16 +101,24 @@ const customerTableColumnDefinitions = [
 const defaultCustomerTableColumns = customerTableColumnDefinitions
   .filter(column => column.defaultVisible)
   .map(column => column.key);
-const customerFixedColumnKeys = ["id"];
+const customerFixedColumnKeys = ["id", "customer"];
+const customerTableColumnsStoragePrefix = "youai.crm.customerTableColumns.user.";
 const customerSortableColumnKeys = new Set([
   "age", "education", "income", "city", "followUpCount", "uncontactedDays",
   "firstAllocationAt", "lastFollowUpAt", "lastLoginAt"
 ]);
 const customerEducationSortOrder = ["小学", "初中", "高中", "中专", "大专", "本科", "硕士", "博士", "博士后"];
 
-function storedCustomerTableColumns() {
+function customerTableColumnsStorageKey(user) {
+  const identity = String(user?.id ?? user?.username ?? "").trim();
+  return identity ? `${customerTableColumnsStoragePrefix}${encodeURIComponent(identity)}` : "";
+}
+
+function storedCustomerTableColumns(user) {
   try {
-    const stored = JSON.parse(localStorage.getItem("youai.crm.customerTableColumns") || "null");
+    const storageKey = customerTableColumnsStorageKey(user);
+    if (!storageKey) return [...defaultCustomerTableColumns];
+    const stored = JSON.parse(localStorage.getItem(storageKey) || "null");
     const allowed = new Set(customerTableColumnDefinitions.map(column => column.key));
     const selected = Array.isArray(stored) ? stored.filter(key => allowed.has(key)) : [];
     const visible = customerTableColumnDefinitions
@@ -120,6 +128,17 @@ function storedCustomerTableColumns() {
   } catch (_) {
     return [...defaultCustomerTableColumns];
   }
+}
+
+function loadCustomerTableColumns() {
+  state.customerVisibleColumns = storedCustomerTableColumns(state.auth.user);
+  state.customerHeaderDraftColumns = [];
+}
+
+function saveCustomerTableColumns() {
+  const storageKey = customerTableColumnsStorageKey(state.auth.user);
+  if (!storageKey) return;
+  localStorage.setItem(storageKey, JSON.stringify(state.customerVisibleColumns));
 }
 
 const state = {
@@ -198,7 +217,7 @@ const state = {
   customerPageSize: 20,
   customerSort: { key: "", direction: "" },
   customerHeaderModalOpen: false,
-  customerVisibleColumns: storedCustomerTableColumns(),
+  customerVisibleColumns: [...defaultCustomerTableColumns],
   customerHeaderDraftColumns: [],
   selectedCustomerIds: [],
   sincereScope: "all",
@@ -594,12 +613,14 @@ async function apiRequest(path, options = {}) {
 function clearAuth() {
   state.auth.token = "";
   state.auth.user = null;
+  loadCustomerTableColumns();
   localStorage.removeItem("youai.crm.accessToken");
 }
 
 function saveAuth(auth) {
   state.auth.token = auth.accessToken;
   state.auth.user = auth.user;
+  loadCustomerTableColumns();
   localStorage.setItem("youai.crm.accessToken", auth.accessToken);
 }
 
@@ -610,10 +631,29 @@ function isAdmin() {
   });
 }
 
+const adminOnlyViews = new Set(["system", "finance"]);
+
+function canAccessView(view) {
+  return !adminOnlyViews.has(view) || isAdmin();
+}
+
+function accessibleView(view) {
+  return canAccessView(view) ? view : "dashboard";
+}
+
 function updateAuthChrome() {
   const user = state.auth.user;
   const menu = document.querySelector("#userMenu");
   if (!user || !menu) return;
+  const admin = isAdmin();
+  document.body.classList.toggle("admin-role", admin);
+  document.body.classList.toggle("employee-role", !admin);
+  document.querySelectorAll(".admin-only-nav").forEach(item => { item.hidden = !admin; });
+  const nextView = accessibleView(state.view);
+  if (nextView !== state.view) {
+    state.view = nextView;
+    if (location.hash !== `#${nextView}`) history.replaceState(null, "", `#${nextView}`);
+  }
   menu.querySelector(".avatar").textContent = (user.displayName || user.username || "用").slice(0, 1);
   menu.querySelector(".user-name").textContent = user.displayName || user.username;
   const switchButton = document.querySelector("#accountSwitchButton");
@@ -1175,7 +1215,7 @@ function ensureCurrentWorkspaceTab() {
 function renderWorkspaceTabs() {
   const bar = document.querySelector("#workspaceTabs");
   if (!bar) return;
-  bar.innerHTML = state.workspaceTabs.map(tab => {
+  bar.innerHTML = state.workspaceTabs.filter(tab => canAccessView(tab.view)).map(tab => {
     const label = tab.importDetailId ? "导入详情" : tab.detailId ? (() => { const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(tab.detailId)); return customer ? `${customer.name}[${customer.id}]` : `客户详情[${tab.detailId}]`; })() : tab.label;
     tab.label = label;
     return `<div class="workspace-tab ${tab.id === state.activeWorkspaceTabId ? "active" : ""}" role="button" tabindex="0" data-workspace-tab="${escapeHtml(tab.id)}" ${tab.id === state.activeWorkspaceTabId ? 'aria-current="page"' : ""}><span>${escapeHtml(label)}</span>${tab.view === "dashboard" ? "" : `<button type="button" class="workspace-tab-close" data-close-workspace-tab="${escapeHtml(tab.id)}" aria-label="关闭 ${escapeHtml(label)}">${icon("close")}</button>`}</div>`;
@@ -1187,6 +1227,10 @@ function activateWorkspaceTab(id) {
   loadWorkspaceTabs();
   const tab = state.workspaceTabs.find(item => item.id === id);
   if (!tab) return;
+  if (!canAccessView(tab.view)) {
+    navigate(tab.view);
+    return;
+  }
   state.view = tab.view;
   setWorkspaceSection(tab.view, tab.section);
   state.customerDetailId = tab.detailId || null;
@@ -1294,7 +1338,7 @@ function dashboardReferenceView() {
   return `<section class="page dashboard-reference"><div class="page-content">
     <section class="home-dashboard-bar"><div class="home-dashboard-tabs"><button class="active" type="button">数据概览</button><button type="button" data-dashboard-target="analytics">客户到店登记</button></div><form id="dashboardFilterForm" class="home-dashboard-controls"><select id="dashboardStore">${storeOptions}</select><label><span>统计日期</span><input id="dashboardFrom" type="date" value="${state.dashboardFilters.from}"></label><i>—</i><input id="dashboardTo" type="date" value="${state.dashboardFilters.to}"><button class="button primary" type="submit">${icon("search")}查询</button><button class="button secondary" id="resetDashboardFilters" type="button">重置</button></form></section>
     <section class="home-metric-grid">${cards.map(([label, value, unit, target]) => `<button class="home-metric" type="button" data-dashboard-target="${target}"><h3>${label}</h3><strong>${value}<small>${unit}</small></strong><span>查看明细 →</span></button>`).join("")}</section>
-    <section class="home-service-grid">${serviceCards.map(([label, value]) => `<button class="home-metric" type="button" data-dashboard-target="orders"><h3>${label}</h3><strong>${value}<small>人</small></strong><span>查看会员订单 →</span></button>`).join("")}<button class="home-metric home-money" type="button" data-dashboard-target="finance"><h3>实收金额</h3><strong>${wan(summary.paidAmount)}<small>万元</small></strong><span>查看收款流水 →</span></button><button class="home-metric home-money" type="button" data-dashboard-target="finance"><h3>退款金额</h3><strong>${wan(summary.refundAmount)}<small>万元</small></strong><span>查看退款明细 →</span></button></section>
+    <section class="home-service-grid">${serviceCards.map(([label, value]) => `<button class="home-metric" type="button" data-dashboard-target="orders"><h3>${label}</h3><strong>${value}<small>人</small></strong><span>查看会员订单 →</span></button>`).join("")}${isAdmin() ? `<button class="home-metric home-money" type="button" data-dashboard-target="finance"><h3>实收金额</h3><strong>${wan(summary.paidAmount)}<small>万元</small></strong><span>查看收款流水 →</span></button><button class="home-metric home-money" type="button" data-dashboard-target="finance"><h3>退款金额</h3><strong>${wan(summary.refundAmount)}<small>万元</small></strong><span>查看退款明细 →</span></button>` : ""}</section>
     <section class="home-rank-grid"><article class="panel"><header class="panel-header"><h2>到店排行</h2><span>${escapeHtml(state.dashboardFilters.store || "全部门店")} / 个人排行</span></header><div class="table-wrap"><table class="data-table"><thead><tr><th>排名</th><th>员工</th><th>部门</th><th>到店客户数</th><th>成交人数</th><th>成交率</th></tr></thead><tbody>${visitRows}</tbody></table></div></article><article class="panel"><header class="panel-header"><h2>业绩排行</h2><span>销售部 / 个人排行</span></header><div class="table-wrap"><table class="data-table"><thead><tr><th>排名</th><th>员工</th><th>部门</th><th>销售额</th><th>回款额</th><th>完成率</th></tr></thead><tbody>${salesRows}</tbody></table></div></article></section>
   </div></section>`;
 }
@@ -3220,6 +3264,11 @@ function positionCustomerFollowUpDatePopover() {
 
 function render() {
   if (!viewMeta[state.view]) state.view = "dashboard";
+  const nextView = accessibleView(state.view);
+  if (nextView !== state.view) {
+    state.view = nextView;
+    if (location.hash !== `#${nextView}`) history.replaceState(null, "", `#${nextView}`);
+  }
   ensureCurrentWorkspaceTab();
   const views = { dashboard: dashboardView, customers: customersView, tasks: tasksView, calls: callsView, messages: messagesView, orders: ordersView, system: systemView, analytics: analyticsView, finance: financeView };
   document.querySelector("#app").innerHTML = views[state.view]();
@@ -3348,13 +3397,15 @@ function renderImportedCustomerFields() {
 
 function navigate(view) {
   if (!viewMeta[view]) return;
+  const nextView = accessibleView(view);
+  if (nextView !== view) toast("当前账号无权访问该功能");
   closeDrawer();
   closeModal();
   closeBusinessModal();
   state.customerDetailId = null;
   state.importDetailId = null;
-  state.view = view;
-  location.hash = view;
+  state.view = nextView;
+  location.hash = nextView;
   document.querySelector("#primaryNav").classList.remove("open");
   render();
   document.querySelector("#app").focus({ preventScroll: true });
@@ -5175,7 +5226,7 @@ function bindViewEvents() {
   document.querySelector("#selectAllCustomerColumns")?.addEventListener("change", event => {
     state.customerHeaderDraftColumns = event.target.checked
       ? customerTableColumnDefinitions.map(column => column.key)
-      : [customerTableColumnDefinitions[0].key];
+      : [...customerFixedColumnKeys];
     render();
   });
   document.querySelectorAll("[data-customer-header-column]").forEach(input => input.addEventListener("change", event => {
@@ -5204,7 +5255,7 @@ function bindViewEvents() {
     state.customerVisibleColumns = customerTableColumnDefinitions
       .filter(column => selected.has(column.key))
       .map(column => column.key);
-  localStorage.setItem("youai.crm.customerTableColumns", JSON.stringify(state.customerVisibleColumns));
+    saveCustomerTableColumns();
     state.customerHeaderModalOpen = false;
     render();
     toast("自定义表头已保存");
@@ -5953,7 +6004,19 @@ document.addEventListener("click", event => {
   if (filterStateChanged) render();
 });
 document.querySelectorAll("[data-help]").forEach(button => button.addEventListener("click", () => openHelpModal(button.dataset.help === "学习中心" ? "learning" : "help")));
-window.addEventListener("hashchange", () => { const next = location.hash.replace("#", ""); if (next && next !== state.view) { state.view = next; render(); } });
+window.addEventListener("hashchange", () => {
+  const requestedView = location.hash.replace("#", "");
+  if (!requestedView || !viewMeta[requestedView]) return;
+  const nextView = accessibleView(requestedView);
+  if (nextView !== requestedView) {
+    history.replaceState(null, "", `#${nextView}`);
+    toast("当前账号无权访问该功能");
+  }
+  if (nextView !== state.view) {
+    state.view = nextView;
+    render();
+  }
+});
 window.addEventListener("resize", positionCustomerFollowUpDatePopover);
 
 async function initialize() {
@@ -5963,6 +6026,7 @@ async function initialize() {
   }
   try {
     state.auth.user = await apiRequest("/auth/me");
+    loadCustomerTableColumns();
     await hydrateFromApi();
     showApp();
   } catch (_) {
