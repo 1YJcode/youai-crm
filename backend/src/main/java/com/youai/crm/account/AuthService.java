@@ -7,6 +7,9 @@ import com.youai.crm.common.NotFoundException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.AuthenticationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,6 +17,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 @Service
 public class AuthService {
+    private static final Logger SECURITY_AUDIT = LoggerFactory.getLogger("SECURITY_AUDIT");
 
     private final AuthenticationManager authenticationManager;
     private final CrmUserRepository userRepository;
@@ -21,6 +25,7 @@ public class AuthService {
     private final DepartmentRepository departmentRepository;
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
+    private final LoginProtectionService loginProtection;
 
     public AuthService(
             AuthenticationManager authenticationManager,
@@ -28,19 +33,40 @@ public class AuthService {
             JwtService jwtService,
             DepartmentRepository departmentRepository,
             RoleRepository roleRepository,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            LoginProtectionService loginProtection) {
         this.authenticationManager = authenticationManager;
         this.userRepository = userRepository;
         this.jwtService = jwtService;
         this.departmentRepository = departmentRepository;
         this.roleRepository = roleRepository;
         this.passwordEncoder = passwordEncoder;
+        this.loginProtection = loginProtection;
     }
 
-    public AuthResponse login(LoginRequest request) {
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.username(), request.password()));
-        return tokenResponse((CrmPrincipal) authentication.getPrincipal());
+    public AuthResponse login(LoginRequest request, String clientIp) {
+        String username = request.username().trim();
+        try {
+            loginProtection.checkAndRecordAttempt(clientIp, username);
+            Authentication authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(username, request.password()));
+            loginProtection.recordSuccess(username);
+            SECURITY_AUDIT.info("event=login_success username={} ip={}", auditValue(username), auditValue(clientIp));
+            return tokenResponse((CrmPrincipal) authentication.getPrincipal());
+        } catch (LoginRateLimitException exception) {
+            SECURITY_AUDIT.warn("event=login_blocked username={} ip={} retryAfterSeconds={}",
+                    auditValue(username), auditValue(clientIp), exception.getRetryAfterSeconds());
+            throw exception;
+        } catch (AuthenticationException exception) {
+            loginProtection.recordFailure(username);
+            SECURITY_AUDIT.warn("event=login_failure username={} ip={} reason={}",
+                    auditValue(username), auditValue(clientIp), exception.getClass().getSimpleName());
+            throw exception;
+        }
+    }
+
+    private String auditValue(String value) {
+        return value == null ? "" : value.replaceAll("[\\r\\n\\t]", "_");
     }
 
     @Transactional
@@ -99,6 +125,16 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setCredentialVersion(user.getCredentialVersion() + 1);
         return UserResponse.from(userRepository.save(user));
+    }
+
+    @Transactional
+    public void logout(Authentication authentication) {
+        CrmPrincipal currentPrincipal = principal(authentication);
+        CrmUser user = userRepository.findById(currentPrincipal.getUser().getId())
+                .orElseThrow(() -> new NotFoundException("用户不存在"));
+        user.setCredentialVersion(user.getCredentialVersion() + 1);
+        userRepository.save(user);
+        SECURITY_AUDIT.info("event=logout username={}", auditValue(user.getUsername()));
     }
 
     @Transactional(readOnly = true)

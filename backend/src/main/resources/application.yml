@@ -35,6 +35,11 @@ logging:
     org.hibernate.SQL: WARN
 
 security:
+  login:
+    ip-max-attempts: ${LOGIN_IP_MAX_ATTEMPTS:30}
+    ip-window-seconds: ${LOGIN_IP_WINDOW_SECONDS:60}
+    account-max-failures: ${LOGIN_ACCOUNT_MAX_FAILURES:5}
+    account-lock-seconds: ${LOGIN_ACCOUNT_LOCK_SECONDS:900}
   jwt:
     secret: ${JWT_SECRET:youke-crm-dev-secret-change-this-before-production-2026}
     ttl-hours: ${JWT_TTL_HOURS:8}

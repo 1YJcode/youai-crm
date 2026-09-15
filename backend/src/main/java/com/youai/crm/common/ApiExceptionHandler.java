@@ -8,12 +8,27 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import com.youai.crm.account.LoginRateLimitException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+    @ExceptionHandler(LoginRateLimitException.class)
+    public ResponseEntity<ApiError> handleLoginRateLimit(LoginRateLimitException exception) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", Long.toString(exception.getRetryAfterSeconds()))
+                .body(new ApiError(Instant.now(), HttpStatus.TOO_MANY_REQUESTS.value(), "LOGIN_RATE_LIMITED",
+                        exception.getMessage(), Map.of()));
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ApiError> handleAuthentication(AuthenticationException exception) {
+        return response(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "用户名或密码错误", Map.of());
+    }
 
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<ApiError> handleNotFound(NotFoundException exception) {

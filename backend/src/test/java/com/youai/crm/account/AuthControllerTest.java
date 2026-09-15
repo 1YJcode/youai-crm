@@ -51,6 +51,44 @@ class AuthControllerTest {
     }
 
     @Test
+    void invalidatesTokenOnLogout() throws Exception {
+        String registration = mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"logouttest\",\"password\":\"Password123\",\"displayName\":\"注销测试\",\"phone\":\"13800138002\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String token = JsonPath.read(registration, "$.accessToken");
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/auth/me")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void temporarilyLocksAccountAfterRepeatedPasswordFailures() throws Exception {
+        for (int attempt = 0; attempt < 5; attempt++) {
+            mockMvc.perform(post("/api/auth/login")
+                            .with(request -> { request.setRemoteAddr("192.0.2.44"); return request; })
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"username\":\"locked-test-user\",\"password\":\"wrong\"}"))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        mockMvc.perform(post("/api/auth/login")
+                        .with(request -> { request.setRemoteAddr("192.0.2.45"); return request; })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"locked-test-user\",\"password\":\"wrong\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("LOGIN_RATE_LIMITED"))
+                .andExpect(result -> org.junit.jupiter.api.Assertions.assertNotNull(
+                        result.getResponse().getHeader("Retry-After")));
+    }
+
+    @Test
     void invalidatesExistingEmployeeTokenAfterAdministratorResetsPassword() throws Exception {
         String registration = mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
