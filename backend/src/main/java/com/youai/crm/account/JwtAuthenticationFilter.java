@@ -35,9 +35,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 && SecurityContextHolder.getContext().getAuthentication() == null) {
             String token = header.substring(7);
             try {
-                String username = jwtService.parse(token).getSubject();
+                var claims = jwtService.parse(token);
+                String username = claims.getSubject();
+                Object versionClaim = claims.get("credentialVersion");
+                long tokenCredentialVersion = versionClaim instanceof Number number
+                        ? number.longValue()
+                        : 0L;
                 var userDetails = userDetailsService.loadUserByUsername(username);
-                if (userDetails.isEnabled()) {
+                boolean credentialsCurrent = userDetails instanceof CrmPrincipal principal
+                        && principal.getUser().getCredentialVersion() == tokenCredentialVersion;
+                if (userDetails.isEnabled() && credentialsCurrent) {
                     var authentication = new UsernamePasswordAuthenticationToken(
                             userDetails, null, userDetails.getAuthorities());
                     authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));

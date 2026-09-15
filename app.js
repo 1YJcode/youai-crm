@@ -3188,8 +3188,8 @@ function systemView() {
   const active = sections.includes(state.systemSection) ? state.systemSection : sections[0];
   if (active === "用户管理") {
     const records = state.systemUsers;
-    const userRows = records.map(user => `<tr><td><input type="checkbox" aria-label="选择${user.name}"></td><td>${user.id}</td><td>${user.account}</td><td>${user.name}</td><td>${user.gender}</td><td>${user.phone}</td><td>${user.storeDept}</td><td>${user.department}</td><td><span class="pill green">正常</span></td><td><button class="table-link" type="button" data-edit-system-user="${user.id}">编辑</button><button class="table-link table-more-link" type="button">更多<span class="dropdown-chevron"></span></button></td></tr>`).join("");
-    return `<section class="page system-user-reference">${subnav(sections, active, sections)}<div class="system-user-content"><section class="system-user-filter"><div class="system-user-filter-row"><label>姓名：<input placeholder="输入姓名模糊查询"></label><label>门店：<select><option>请选择门店</option></select></label><label>部门：<select><option>请选择部门</option></select></label></div><div class="system-user-actions"><button class="button primary" type="button">${icon("search")}查询</button><button class="button primary" type="button">${icon("repeat")}重置</button><button class="text-button dropdown-trigger" type="button">展开<span class="dropdown-chevron"></span></button></div><button class="button primary add-user-button" type="button">${icon("plus")}添加用户</button></section><section class="data-panel system-user-panel"><div class="selected-user-bar">已选择 <strong>0</strong> 项　<a>清空</a></div><div class="table-wrap"><table class="data-table system-user-table"><thead><tr><th><input type="checkbox" aria-label="全选"></th><th>ID</th><th>账号</th><th>姓名</th><th>性别</th><th>手机号码</th><th>门店-部门</th><th>负责部门</th><th>状态</th><th>操作</th></tr></thead><tbody>${userRows}</tbody></table></div></section></div></section>`;
+    const userRows = records.map(user => `<tr><td><input type="checkbox" aria-label="选择${user.name}"></td><td>${user.id}</td><td>${user.account}</td><td>${user.name}</td><td>${user.gender}</td><td>${user.phone}</td><td>${user.storeDept}</td><td>${user.department}</td><td><span class="pill green">正常</span></td><td class="system-user-operation-cell"><div class="system-user-row-actions"><button class="table-link" type="button" data-edit-system-user="${user.id}">编辑</button><div class="system-user-more"><button class="table-link table-more-link" type="button" data-system-user-more-toggle="${user.id}" aria-expanded="false">更多<span class="dropdown-chevron"></span></button><div class="system-user-more-menu" data-system-user-more-menu="${user.id}" hidden><button type="button" data-system-user-more-action="detail" data-system-user-id="${user.id}">详情</button><button type="button" data-system-user-more-action="password" data-system-user-id="${user.id}">密码</button><button type="button" data-system-user-more-action="delete" data-system-user-id="${user.id}">删除</button><button type="button" data-system-user-more-action="freeze" data-system-user-id="${user.id}">冻结</button><button type="button" data-system-user-more-action="leave-inherit" data-system-user-id="${user.id}">离职继承</button></div></div></div></td></tr>`).join("");
+    return `<section class="page system-user-reference">${subnav(sections, active, sections)}<div class="system-user-content"><section class="system-user-filter"><div class="system-user-filter-row"><label>姓名：<input placeholder="输入姓名模糊查询"></label><label>门店：<select><option>请选择门店</option></select></label><label>部门：<select><option>请选择部门</option></select></label></div><div class="system-user-actions"><button class="button primary" type="button">${icon("search")}查询</button><button class="button primary" type="button">${icon("repeat")}重置</button><button class="text-button dropdown-trigger" type="button">展开<span class="dropdown-chevron"></span></button></div><button class="button primary add-user-button" type="button" data-add-system-user>${icon("plus")}添加用户</button></section><section class="data-panel system-user-panel"><div class="selected-user-bar">已选择 <strong>0</strong> 项　<a>清空</a></div><div class="table-wrap"><table class="data-table system-user-table"><thead><tr><th><input type="checkbox" aria-label="全选"></th><th>ID</th><th>账号</th><th>姓名</th><th>性别</th><th>手机号码</th><th>门店-部门</th><th>负责部门</th><th>状态</th><th>操作</th></tr></thead><tbody>${userRows}</tbody></table></div></section></div></section>`;
   }
   if (active === "菜单管理") {
     const menus = [["首页","0","home","dashboard/Analysis","/dashboard/analysis","0"],["客户管理","0","team","layouts/RouteView","/member","1"],["学习中心权限","2","","","","1"],["学习中心","0","","layouts/RouteView","/studyCenter","1.1"],["资料审核","0","audit","layouts/RouteView","/material_check","2"],["呼叫中心","0","phone","layouts/RouteView","/call","2"],["订单管理","0","dollar","layouts/RouteView","/order","3"],["消息中心","0","aliwangwang","layouts/RouteView","/msg","3"],["系统管理","0","setting","layouts/RouteView","/system","4"],["工具管理","0","tool","layouts/RouteView","/tools","8"],["个人页","0","user","layouts/RouteView","/account","9"],["数据中心","0","bar-chart","layouts/RouteView","/report","10"],["运营管理","0","radar-chart","layouts/RouteView","/cms","11"]];
@@ -3809,6 +3809,108 @@ function openSystemUserEditor(id) {
   document.body.style.overflow = "hidden";
   drawer.querySelectorAll("[data-close-drawer]").forEach(button => button.addEventListener("click", closeDrawer));
   drawer.querySelector("#systemUserEditForm").addEventListener("submit", event => { event.preventDefault(); closeDrawer(); toast("用户信息已更新"); });
+}
+
+function closeSystemUserPasswordModal() {
+  const backdrop = document.querySelector("#systemUserPasswordBackdrop");
+  if (!backdrop) return;
+  backdrop.remove();
+  document.body.style.overflow = "";
+}
+
+function openSystemUserPasswordReset(user) {
+  closeSystemUserPasswordModal();
+  const backdrop = document.createElement("div");
+  backdrop.id = "systemUserPasswordBackdrop";
+  backdrop.className = "modal-backdrop system-user-password-backdrop";
+  backdrop.innerHTML = `<section class="system-user-password-modal" role="dialog" aria-modal="true" aria-labelledby="systemUserPasswordTitle"><header class="system-user-password-header"><h2 id="systemUserPasswordTitle">重置登录密码</h2><button class="icon-button" type="button" data-close-system-user-password aria-label="关闭">${icon("close")}</button></header><form id="systemUserPasswordForm" class="system-user-password-form"><label><span>用户账号：</span><input name="username" value="${escapeHtml(user.account || "")}" readonly></label><label><span><i>*</i>登录密码：</span><div class="editor-input-wrap"><input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required placeholder="请输入登录密码"><button type="button" class="editor-password-toggle" data-password-toggle="password" aria-label="显示登录密码">${icon("eye")}</button></div></label><footer class="system-user-password-footer"><button class="button secondary" type="button" data-close-system-user-password>关闭</button><button class="button primary" type="submit">确定</button></footer></form></section>`;
+  document.body.append(backdrop);
+  document.body.style.overflow = "hidden";
+  backdrop.querySelectorAll("[data-close-system-user-password]").forEach(button => button.addEventListener("click", closeSystemUserPasswordModal));
+  backdrop.addEventListener("click", event => { if (event.target === backdrop) closeSystemUserPasswordModal(); });
+  backdrop.querySelectorAll("[data-password-toggle]").forEach(button => button.addEventListener("click", () => {
+    const input = backdrop.querySelector(`[name="${button.dataset.passwordToggle}"]`);
+    if (!input) return;
+    const visible = input.type === "text";
+    input.type = visible ? "password" : "text";
+    button.setAttribute("aria-label", visible ? "显示密码" : "隐藏密码");
+  }));
+  backdrop.querySelector("#systemUserPasswordForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = Object.fromEntries(new FormData(form));
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true;
+    try {
+      await apiRequest(`/auth/users/${encodeURIComponent(user.id)}/password`, { method: "PATCH", body: JSON.stringify({ password: data.password }) });
+      closeSystemUserPasswordModal();
+      toast(`已重置“${user.name || user.account}”的登录密码`);
+    } catch (error) {
+      toast(`密码重置失败：${error.message}`, "error");
+      submit.disabled = false;
+    }
+  });
+  backdrop.querySelector('input[name="password"]')?.focus();
+}
+
+function openSystemUserCreator() {
+  const drawer = document.querySelector("#detailDrawer");
+  const backdrop = document.querySelector("#drawerBackdrop");
+  drawer.innerHTML = `<header class="drawer-header"><div><h2>新增</h2></div><button class="icon-button" data-close-drawer aria-label="关闭">${icon("close")}</button></header><div class="drawer-body system-user-editor system-user-create-editor"><div class="system-editor-id">ID：</div><form id="systemUserCreateForm" class="system-user-editor-form system-user-create-form"><label><span><i>*</i>用户账号：</span><input name="username" autocomplete="username" minlength="3" maxlength="32" pattern="[A-Za-z][A-Za-z0-9_.-]*" required placeholder="请输入用户账号"></label><label><span><i>*</i>手机号码：</span><input name="phone" inputmode="numeric" autocomplete="tel" pattern="1[3-9][0-9]{9}" required placeholder="请输入手机号码"></label><label><span><i>*</i>登录密码：</span><div class="editor-input-wrap"><input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required placeholder="请输入登录密码"><button type="button" class="editor-password-toggle" data-password-toggle="password" aria-label="显示登录密码">${icon("eye")}</button></div></label><label><span><i>*</i>确认密码：</span><div class="editor-input-wrap"><input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" maxlength="72" required placeholder="请再次输入登录密码"><button type="button" class="editor-password-toggle" data-password-toggle="confirmPassword" aria-label="显示确认密码">${icon("eye")}</button></div></label><label><span><i>*</i>用户姓名：</span><input name="displayName" autocomplete="name" minlength="2" maxlength="64" required placeholder="请输入用户姓名"></label><label><span>职务：</span><div class="editor-selection"><input name="position" placeholder="请选择职务" readonly><button type="button" class="button primary" data-editor-select="position">${icon("search")}选择</button></div></label><label><span><i>*</i>角色分配：</span><div class="editor-selection"><input name="role" placeholder="请选择用户角色" readonly><button type="button" class="button primary" data-editor-select="role">${icon("search")}选择</button></div></label><label><span><i>*</i>部门分配：</span><div class="editor-selection"><input name="department" placeholder="请选择部门" readonly><button type="button" class="button secondary" data-editor-select="department">${icon("search")}选择</button></div></label><label><span>身份：</span><div class="editor-radios"><label><input type="radio" name="identity" value="普通用户" checked>普通用户</label><label><input type="radio" name="identity" value="上级">上级</label></div></label><label class="editor-avatar-row"><span>头像：</span><div class="avatar-upload"><strong>＋</strong><small>上传</small></div></label><label><span>生日：</span><input type="date" name="birthday"></label><label><span>性别：</span><select name="gender"><option value="">请选择性别</option><option>男</option><option>女</option></select></label><label><span>邮箱：</span><input name="email" type="email" placeholder="请输入邮箱"></label><label><span>工作流引擎：</span><div class="editor-radios"><label><input type="radio" name="workflow" value="同步" checked>同步</label><label><input type="radio" name="workflow" value="不同步">不同步</label></div></label></form></div><footer class="drawer-footer"><button type="button" class="button secondary" data-cancel-system-user>取消</button><button type="submit" form="systemUserCreateForm" class="button primary">提交</button></footer><div class="system-user-cancel-confirm" data-system-user-cancel-confirm hidden role="dialog" aria-label="放弃新增确认"><p><span class="system-user-confirm-icon">!</span>确定放弃并关闭吗?</p><div><button type="button" class="button secondary" data-system-user-discard-cancel>取消</button><button type="button" class="button primary" data-system-user-discard-confirm>确定</button></div></div>`;
+  backdrop.hidden = false;
+  drawer.classList.add("system-user-drawer", "open");
+  drawer.setAttribute("aria-hidden", "false");
+  document.body.style.overflow = "hidden";
+  drawer.querySelectorAll("[data-close-drawer]").forEach(button => button.addEventListener("click", closeDrawer));
+  const cancelButton = drawer.querySelector("[data-cancel-system-user]");
+  const cancelConfirm = drawer.querySelector("[data-system-user-cancel-confirm]");
+  cancelButton?.addEventListener("click", () => {
+    cancelConfirm.hidden = false;
+    const drawerRect = drawer.getBoundingClientRect();
+    const cancelRect = cancelButton.getBoundingClientRect();
+    const arrowCenterOffset = 34;
+    const right = drawerRect.right - cancelRect.left - (cancelRect.width / 2) - arrowCenterOffset;
+    cancelConfirm.style.right = `${Math.max(16, right)}px`;
+    cancelButton.setAttribute("aria-expanded", "true");
+    cancelConfirm.querySelector("[data-system-user-discard-cancel]")?.focus();
+  });
+  cancelConfirm?.querySelector("[data-system-user-discard-cancel]")?.addEventListener("click", () => {
+    cancelConfirm.hidden = true;
+    cancelButton.setAttribute("aria-expanded", "false");
+    cancelButton.focus();
+  });
+  cancelConfirm?.querySelector("[data-system-user-discard-confirm]")?.addEventListener("click", () => {
+    cancelConfirm.hidden = true;
+    closeDrawer();
+  });
+  drawer.querySelectorAll("[data-password-toggle]").forEach(button => button.addEventListener("click", () => {
+    const input = drawer.querySelector(`[name="${button.dataset.passwordToggle}"]`);
+    if (!input) return;
+    const visible = input.type === "text";
+    input.type = visible ? "password" : "text";
+    button.setAttribute("aria-label", visible ? "显示密码" : "隐藏密码");
+  }));
+  drawer.querySelectorAll("[data-editor-select]").forEach(button => button.addEventListener("click", () => toast(`${button.dataset.editorSelect === "position" ? "职务" : button.dataset.editorSelect === "role" ? "角色" : "部门"}选择功能已打开`)));
+  drawer.querySelector("#systemUserCreateForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = Object.fromEntries(new FormData(form));
+    if (data.password !== data.confirmPassword) { toast("两次输入的密码不一致", "error"); return; }
+    const submit = drawer.querySelector('[type="submit"]');
+    submit.disabled = true;
+    try {
+      const user = await apiRequest("/auth/users", { method: "POST", body: JSON.stringify({ username: data.username, password: data.password, displayName: data.displayName, phone: data.phone }) });
+      state.systemUsers.push({ id: user.id, account: user.username, name: user.displayName || user.username, gender: data.gender || "—", phone: user.phone || "—", storeDept: user.departmentName || "—", department: user.departmentName || "—", roles: user.roles || [] });
+      state.systemUsers.sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-CN"));
+      closeDrawer();
+      render();
+      toast("员工用户已添加");
+    } catch (error) {
+      toast(`添加失败：${error.message}`, "error");
+      submit.disabled = false;
+    }
+  });
+  drawer.querySelector('input[name="username"]')?.focus();
 }
 
 async function loadCustomerFollowUps(customerId) {
@@ -4651,6 +4753,27 @@ function bindViewEvents() {
     navigate("customers");
   }));
   document.querySelectorAll("[data-edit-system-user]").forEach(button => button.addEventListener("click", event => { event.stopPropagation(); openSystemUserEditor(event.currentTarget.dataset.editSystemUser); }));
+  document.querySelectorAll("[data-system-user-more-toggle]").forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation();
+    const menu = button.parentElement.querySelector("[data-system-user-more-menu]");
+    const shouldOpen = menu.hidden;
+    document.querySelectorAll("[data-system-user-more-menu]").forEach(item => { item.hidden = true; });
+    document.querySelectorAll("[data-system-user-more-toggle]").forEach(item => item.setAttribute("aria-expanded", "false"));
+    menu.hidden = !shouldOpen;
+    button.setAttribute("aria-expanded", String(shouldOpen));
+  }));
+  document.querySelectorAll("[data-system-user-more-action]").forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation();
+    const user = state.systemUsers.find(item => String(item.id) === String(button.dataset.systemUserId));
+    if (!user) return;
+    const labels = { detail: "详情", password: "密码", delete: "删除", freeze: "冻结", "leave-inherit": "离职继承" };
+    document.querySelectorAll("[data-system-user-more-menu]").forEach(item => { item.hidden = true; });
+    document.querySelectorAll("[data-system-user-more-toggle]").forEach(item => item.setAttribute("aria-expanded", "false"));
+    if (button.dataset.systemUserMoreAction === "detail") { openSystemUserEditor(user.id); return; }
+    if (button.dataset.systemUserMoreAction === "password") { openSystemUserPasswordReset(user); return; }
+    toast(`${labels[button.dataset.systemUserMoreAction] || "操作"}功能已打开`);
+  }));
+  document.querySelectorAll("[data-add-system-user]").forEach(button => button.addEventListener("click", openSystemUserCreator));
   document.querySelectorAll("[data-add-customer]").forEach(button => button.addEventListener("click", () => openModal()));
   document.querySelectorAll("[data-route]").forEach(button => button.addEventListener("click", () => navigate(button.dataset.route)));
   document.querySelectorAll("[data-subnav-value]").forEach(button => button.addEventListener("click", () => {
@@ -5946,7 +6069,7 @@ document.querySelector("#globalSearch").addEventListener("keydown", event => {
 document.addEventListener("keydown", event => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); document.querySelector("#globalSearch").focus(); }
   if (event.key === "Escape") {
-    closeDrawer(); closeModal(); closeBusinessModal(); document.querySelectorAll(".popover").forEach(item => item.hidden = true);
+    closeDrawer(); closeModal(); closeBusinessModal(); closeSystemUserPasswordModal(); document.querySelectorAll(".popover").forEach(item => item.hidden = true);
     if (state.customerFollowUpDatePickerOpen) { state.customerFollowUpDatePickerOpen = false; render(); }
   }
 });
@@ -5986,6 +6109,10 @@ document.addEventListener("click", event => {
   if (collaborationOwnerPopover && !event.target.closest(".collaboration-owner-popover") && !event.target.closest("[data-collaboration-owner-search]")) closeCollaborationOwnerPopover();
   if (!event.target.closest(".popover") && !event.target.closest("#notificationButton") && !event.target.closest("#userMenu")) document.querySelectorAll(".popover").forEach(item => item.hidden = true);
   if (!event.target.closest(".customer-more-actions")) document.querySelectorAll(".customer-more-menu.open").forEach(item => item.classList.remove("open"));
+  if (!event.target.closest(".system-user-more")) {
+    document.querySelectorAll("[data-system-user-more-menu]").forEach(item => { item.hidden = true; });
+    document.querySelectorAll("[data-system-user-more-toggle]").forEach(item => item.setAttribute("aria-expanded", "false"));
+  }
   let filterStateChanged = false;
   if (!event.target.closest(".date-range-picker-wrap") && !event.target.closest(".advanced-date-range-control")) {
     if (state.customerDateRangePickerOpen || state.customerFollowUpDatePickerOpen || state.customerAdvancedDatePickerOpen) filterStateChanged = true;

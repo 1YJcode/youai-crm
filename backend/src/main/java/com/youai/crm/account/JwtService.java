@@ -33,6 +33,7 @@ public class JwtService {
                 .subject(user.getUsername())
                 .claim("displayName", user.getDisplayName())
                 .claim("roles", user.getRoles().stream().map(Role::getCode).toList())
+                .claim("credentialVersion", user.getCredentialVersion())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(expiresAt))
                 .signWith(key)
