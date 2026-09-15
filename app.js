@@ -1,5 +1,22 @@
 const icon = (name, className = "") => `<svg class="${className}" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
 
+const LEGACY_STORAGE_PREFIX = "youke.crm";
+const CURRENT_STORAGE_PREFIX = "youai.crm";
+
+function migrateStorageNamespace() {
+  const legacyKeys = [];
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (key?.startsWith(`${LEGACY_STORAGE_PREFIX}.`)) legacyKeys.push(key);
+  }
+  legacyKeys.forEach((key) => {
+    const nextKey = `${CURRENT_STORAGE_PREFIX}${key.slice(LEGACY_STORAGE_PREFIX.length)}`;
+    if (localStorage.getItem(nextKey) === null) localStorage.setItem(nextKey, localStorage.getItem(key));
+  });
+}
+
+migrateStorageNamespace();
+
 let customers = [
   { id: "YK-260813-001", name: "周雨桐", phone: "138 2167 8821", company: "天津澄途科技", source: "线上咨询", owner: "林夕", stage: "需求确认", level: "重点客户", amount: 128000, lastContact: "今天 10:32", nextFollow: "今天 16:00", city: "天津", tags: ["高意向", "企业版"], note: "关注多门店客户沉淀和销售过程管理，希望本周内完成方案评估。" },
   { id: "YK-260812-018", name: "陈嘉宇", phone: "186 1028 3706", company: "北京云杉商贸", source: "老客转介绍", owner: "陈晨", stage: "方案报价", level: "重点客户", amount: 86000, lastContact: "昨天 17:46", nextFollow: "8月18日", city: "北京", tags: ["连锁零售"], note: "需要 25 个坐席，已发送标准版报价单，等待财务确认。" },
@@ -93,7 +110,7 @@ const customerEducationSortOrder = ["小学", "初中", "高中", "中专", "大
 
 function storedCustomerTableColumns() {
   try {
-    const stored = JSON.parse(localStorage.getItem("youke.crm.customerTableColumns") || "null");
+    const stored = JSON.parse(localStorage.getItem("youai.crm.customerTableColumns") || "null");
     const allowed = new Set(customerTableColumnDefinitions.map(column => column.key));
     const selected = Array.isArray(stored) ? stored.filter(key => allowed.has(key)) : [];
     const visible = customerTableColumnDefinitions
@@ -201,10 +218,15 @@ const state = {
   customerSection: "客户列表",
   customerDetailId: null,
   customerDetailTab: "profile",
-  customerFollowUpFilterType: "all",
+  customerFollowUpFilterType: "",
   customerFollowUpFrom: "",
   customerFollowUpTo: "",
   customerFollowUpKeyword: "",
+  customerFollowUpDatePickerOpen: false,
+  customerFollowUpDateDraftFrom: "",
+  customerFollowUpDateDraftTo: "",
+  customerFollowUpDateViewMonth: "",
+  customerFollowUpDatePicking: "start",
   customerFollowUpRecords: {},
   customerFollowUpLoaded: {},
   customerContactReveals: {},
@@ -217,9 +239,9 @@ const state = {
   importSkipInvalid: false,
   importDetailStatusFilter: "全部状态",
   importStatusFilter: "全部状态",
-  importHistory: JSON.parse(localStorage.getItem("youke.crm.importHistory") || "[]"),
-  customerAuditLog: JSON.parse(localStorage.getItem("youke.crm.customerAuditLog") || "[]"),
-  customerCollaborators: JSON.parse(localStorage.getItem("youke.crm.customerCollaborators") || "{}"),
+  importHistory: JSON.parse(localStorage.getItem("youai.crm.importHistory") || "[]"),
+  customerAuditLog: JSON.parse(localStorage.getItem("youai.crm.customerAuditLog") || "[]"),
+  customerCollaborators: JSON.parse(localStorage.getItem("youai.crm.customerCollaborators") || "{}"),
   customerRegistrationEvents: {},
   customerAssignmentEvents: {},
   quickFilter: "全部客户",
@@ -231,7 +253,7 @@ const state = {
   orderServiceStatus: "全部状态",
   orderSection: "订单列表",
   orderPage: 1,
-  orderRefunds: JSON.parse(localStorage.getItem("youke.crm.orderRefunds") || "[]"),
+  orderRefunds: JSON.parse(localStorage.getItem("youai.crm.orderRefunds") || "[]"),
   systemSection: "用户管理",
   systemUsers: [],
   financeSection: "财务概览",
@@ -244,13 +266,14 @@ const state = {
   callSection: "通话记录",
   callTaskFilter: "all",
   callAgentFilter: "全部坐席",
-  callReviews: JSON.parse(localStorage.getItem("youke.crm.callReviews") || "{}"),
+  callReviews: JSON.parse(localStorage.getItem("youai.crm.callReviews") || "{}"),
   messageSection: "消息管理",
   notificationFilter: "all",
-  notificationRead: JSON.parse(localStorage.getItem("youke.crm.notificationRead") || "{}"),
-  messageTemplates: JSON.parse(localStorage.getItem("youke.crm.messageTemplates") || "null") || defaultMessageTemplates,
+  notificationRead: JSON.parse(localStorage.getItem("youai.crm.notificationRead") || "{}"),
+  messageTemplates: JSON.parse(localStorage.getItem("youai.crm.messageTemplates") || "null") || defaultMessageTemplates,
   messageTemplateSearch: "",
   editingTemplateId: null,
+  activeMessageChannel: "system",
   activeConversationId: 1,
   dashboardTab: "经营概览",
   dashboardFilters: { store: "", from: localDateValue(dashboardMonthStart), to: localDateValue(dashboardToday) },
@@ -269,10 +292,14 @@ const state = {
   activeWorkspaceTabId: "",
   workspaceTabsLoaded: false,
   auth: {
-    token: localStorage.getItem("youke.crm.accessToken") || "",
+    token: localStorage.getItem("youai.crm.accessToken") || "",
     user: null
   }
 };
+
+const shownFollowupAlertIds = new Set();
+let followupAlertTimer = null;
+let followupAlertRefreshPromise = null;
 
 const customerStatusOptions = [
   "未注册",
@@ -530,7 +557,7 @@ function customerCollaboratorHierarchyMatches(customer, selection = {}) {
   });
 }
 
-const API_BASE = window.YOUKE_API_BASE || "http://127.0.0.1:8080/api";
+const API_BASE = window.YOUAI_API_BASE || "http://127.0.0.1:8080/api";
 
 async function apiRequest(path, options = {}) {
   const controller = new AbortController();
@@ -567,13 +594,13 @@ async function apiRequest(path, options = {}) {
 function clearAuth() {
   state.auth.token = "";
   state.auth.user = null;
-  localStorage.removeItem("youke.crm.accessToken");
+  localStorage.removeItem("youai.crm.accessToken");
 }
 
 function saveAuth(auth) {
   state.auth.token = auth.accessToken;
   state.auth.user = auth.user;
-  localStorage.setItem("youke.crm.accessToken", auth.accessToken);
+  localStorage.setItem("youai.crm.accessToken", auth.accessToken);
 }
 
 function isAdmin() {
@@ -604,6 +631,7 @@ function showLogin(message = "") {
   document.querySelector(".topbar").hidden = true;
   document.querySelector(".help-rail").hidden = true;
   document.querySelector("#workspaceTabs").hidden = true;
+  document.querySelector("#followupAlertRegion")?.setAttribute("hidden", "");
   document.querySelector("#app").innerHTML = `<main class="login-screen"><section class="login-panel reference-login"><div class="reference-logo"><img src="logo-youai.png" alt="优爱 YOUAI"></div><div class="reference-name"><strong>客户经营管理平台</strong><span>让每一次客户沟通都有记录、有结果</span></div><div class="login-tabs"><button class="active" type="button">账号密码登录</button><button type="button" disabled title="即将开放">手机号登录</button></div><form class="login-form" id="loginForm"><label><span>登录账号</span><input name="username" autocomplete="username" required placeholder="请输入账号名，例如 admin"></label><label><span>登录密码</span><input name="password" type="password" autocomplete="current-password" required placeholder="请输入登录密码"></label><div class="captcha-row"><label><span>验证码</span><input name="captcha" required maxlength="4" autocomplete="off" placeholder="请输入验证码"></label><button type="button" class="captcha-code" id="refreshCaptcha" aria-label="刷新验证码" title="点击刷新验证码">${captcha}</button></div><label class="auto-login"><input type="checkbox" checked> <span>记住登录状态</span></label><p class="login-error" id="loginError" ${message ? "" : "hidden"}>${escapeHtml(message)}</p><button class="button primary" type="submit" id="loginSubmit">登录系统</button></form><button class="auth-switch" type="button" id="showRegister">没有账号？注册销售账号</button><p class="demo-account">演示管理员：admin / Admin@123</p><footer class="reference-footer">Copyright © 2026<br><span>优爱 YOUAI</span> 出品</footer></section></main>`;
   document.querySelector("#loginForm").addEventListener("submit", submitLogin);
   document.querySelector("#refreshCaptcha").addEventListener("click", () => showLogin());
@@ -681,10 +709,13 @@ function showApp() {
   document.querySelector(".topbar").hidden = false;
   document.querySelector(".help-rail").hidden = false;
   document.querySelector("#workspaceTabs").hidden = false;
+  ensureFollowupAlertRegion();
+  document.querySelector("#followupAlertRegion")?.removeAttribute("hidden");
   restoreActiveWorkspaceTab();
   updateAuthChrome();
   bindHelpActions();
   render();
+  startFollowupAlertMonitor();
   requestAnimationFrame(() => document.body.classList.remove("app-booting"));
 }
 
@@ -985,8 +1016,8 @@ async function hydrateFromApi() {
     state.systemUsers = systemUserData.map(user => ({ id: user.id, account: user.username, name: user.displayName || user.username, gender: user.gender || "—", phone: user.phone || "—", storeDept: user.departmentName || "—", department: user.departmentName || "—", roles: user.roles || [] }));
     invitations = invitationData.map(normalizeInvitation);
     ledgerAccounts = ledgerData.map(normalizeLedger);
-    localStorage.setItem("youke.crm.notificationRead", JSON.stringify(state.notificationRead));
-    localStorage.setItem("youke.crm.callReviews", JSON.stringify(state.callReviews));
+    localStorage.setItem("youai.crm.notificationRead", JSON.stringify(state.notificationRead));
+    localStorage.setItem("youai.crm.callReviews", JSON.stringify(state.callReviews));
     conversations = conversationData.map(normalizeConversation);
     state.poolCustomers = poolData.map(normalizeCustomer);
     state.activeConversationId = conversations.some(item => item.id === state.activeConversationId) ? state.activeConversationId : conversations[0]?.id;
@@ -1002,6 +1033,7 @@ async function hydrateFromApi() {
     state.backendOnline = true;
     updateConnectionStatus("online", "MySQL 数据服务已连接");
     render();
+    checkUpcomingFollowupAlerts();
   } catch (error) {
     if (!state.auth.token) return;
     state.backendOnline = false;
@@ -1088,7 +1120,7 @@ function loadWorkspaceTabs() {
   if (state.workspaceTabsLoaded) return;
   state.workspaceTabsLoaded = true;
   try {
-    const stored = JSON.parse(localStorage.getItem("youke.crm.workspaceTabs") || "[]");
+    const stored = JSON.parse(localStorage.getItem("youai.crm.workspaceTabs") || "[]");
     state.workspaceTabs = Array.isArray(stored) ? stored.filter(tab => viewMeta[tab.view] && tab.section).map(tab => ({
       id: tab.importDetailId ? `customers:import-detail:${tab.importDetailId}` : tab.detailId ? `customers:detail:${tab.detailId}` : workspaceTabId(tab.view, tab.section),
       view: tab.view,
@@ -1097,7 +1129,7 @@ function loadWorkspaceTabs() {
       importDetailId: tab.importDetailId || null,
       label: tab.importDetailId ? "导入详情" : tab.detailId ? (() => { const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(tab.detailId)); return customer ? `${customer.name}[${customer.id}]` : `客户详情[${tab.detailId}]`; })() : workspaceTabLabel(tab.view, tab.section)
     })) : [];
-    state.activeWorkspaceTabId = localStorage.getItem("youke.crm.activeWorkspaceTab") || "";
+    state.activeWorkspaceTabId = localStorage.getItem("youai.crm.activeWorkspaceTab") || "";
   } catch (_) {
     state.workspaceTabs = [];
     state.activeWorkspaceTabId = "";
@@ -1105,8 +1137,8 @@ function loadWorkspaceTabs() {
 }
 
 function saveWorkspaceTabs() {
-  localStorage.setItem("youke.crm.workspaceTabs", JSON.stringify(state.workspaceTabs));
-  localStorage.setItem("youke.crm.activeWorkspaceTab", state.activeWorkspaceTabId);
+  localStorage.setItem("youai.crm.workspaceTabs", JSON.stringify(state.workspaceTabs));
+  localStorage.setItem("youai.crm.activeWorkspaceTab", state.activeWorkspaceTabId);
 }
 
 function restoreActiveWorkspaceTab() {
@@ -1188,6 +1220,37 @@ function closeWorkspaceTab(id) {
   } else {
     saveWorkspaceTabs();
     renderWorkspaceTabs();
+  }
+}
+
+function closeWorkspaceTabsAround(id, mode) {
+  loadWorkspaceTabs();
+  const targetIndex = state.workspaceTabs.findIndex(tab => tab.id === id);
+  if (targetIndex < 0) return;
+  const target = state.workspaceTabs[targetIndex];
+  state.workspaceTabs = state.workspaceTabs.filter((tab, index) => {
+    if (tab.view === "dashboard" || tab.id === id) return true;
+    if (mode === "left") return index >= targetIndex;
+    if (mode === "right") return index <= targetIndex;
+    return false;
+  });
+  saveWorkspaceTabs();
+  if (!state.workspaceTabs.some(tab => tab.id === state.activeWorkspaceTabId)) {
+    activateWorkspaceTab(target.id);
+  } else {
+    renderWorkspaceTabs();
+  }
+}
+
+async function refreshWorkspaceTab(id) {
+  if (!state.workspaceTabs.some(tab => tab.id === id)) return;
+  if (state.activeWorkspaceTabId !== id) activateWorkspaceTab(id);
+  try {
+    await hydrateFromApi();
+    render();
+    toast("页面已刷新");
+  } catch (error) {
+    toast(`刷新失败：${error.message}`);
   }
 }
 
@@ -1306,7 +1369,7 @@ function customerActivityRows() {
 function recordCustomerActivity({ customerId, customer, type, detail, owner }) {
   const item = { id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, customerId, customer, type, detail, owner: owner || currentOwner(), at: new Date().toISOString() };
   state.customerAuditLog = [item, ...state.customerAuditLog].slice(0, 2000);
-  localStorage.setItem("youke.crm.customerAuditLog", JSON.stringify(state.customerAuditLog));
+  localStorage.setItem("youai.crm.customerAuditLog", JSON.stringify(state.customerAuditLog));
 }
 
 function customerActivityView() {
@@ -1626,22 +1689,58 @@ function customerDateRangeCalendar(monthValue, start, end, dateAttribute = "data
   return `<div class="customer-date-range-month"><strong>${customerDateRangeMonthLabel(monthValue)}</strong><div class="customer-date-range-weekdays">${weekdays.map(day => `<span>${day}</span>`).join("")}</div><div class="customer-date-range-days">${cells}</div></div>`;
 }
 
-function customerDateRangePickerView() {
-  const start = String(state.customerDateRangeDraftStart || "");
-  const end = String(state.customerDateRangeDraftEnd || "");
-  const viewMonth = customerDateRangeMonthValue(state.customerDateRangeViewMonth || start);
+function sharedCustomerDateRangePickerView({
+  start = "",
+  end = "",
+  viewMonth = "",
+  picking = "start",
+  dateAttribute = "data-customer-date",
+  shiftAttribute = "data-customer-date-shift",
+  clearAttribute = "data-clear-customer-date-range",
+  className = "",
+  id = "",
+  ariaLabel = "选择时间范围"
+} = {}) {
+  start = String(start || "");
+  end = String(end || "");
+  viewMonth = customerDateRangeMonthValue(viewMonth || start);
   const nextMonth = customerDateRangeShiftMonth(viewMonth, 1);
   const selectedLabel = start && end
     ? `${start} 至 ${end}`
     : start
       ? `${start} 至 请选择结束日期`
       : "请选择开始日期和结束日期";
-  return `<div class="date-range-popover open" id="dateRangePopover" role="dialog" aria-label="选择分配时间范围">
-    <div class="date-range-popover-header"><strong>选择时间范围</strong><div class="date-range-popover-nav"><button type="button" data-customer-date-shift="-1" aria-label="上两个月">${icon("chevron-left")}</button><button type="button" data-customer-date-shift="1" aria-label="下两个月">${icon("chevron-right")}</button></div></div>
-    <div class="customer-date-range-summary"><div class="${state.customerDateRangePicking === "start" ? "active" : ""}"><small>开始日期</small><strong>${start || "请选择"}</strong></div><span>→</span><div class="${state.customerDateRangePicking === "end" ? "active" : ""}"><small>结束日期</small><strong>${end || "请选择"}</strong></div></div>
-    <div class="customer-date-range-calendars">${customerDateRangeCalendar(viewMonth, start, end)}${customerDateRangeCalendar(nextMonth, start, end)}</div>
-    <div class="customer-date-range-footer"><span>${selectedLabel}</span><button type="button" data-clear-customer-date-range>清空</button></div>
+  return `<div class="date-range-popover open ${className}" ${id ? `id="${id}"` : ""} role="dialog" aria-label="${ariaLabel}">
+    <div class="date-range-popover-header"><strong>选择时间范围</strong><div class="date-range-popover-nav"><button type="button" ${shiftAttribute}="-1" aria-label="上两个月">${icon("chevron-left")}</button><button type="button" ${shiftAttribute}="1" aria-label="下两个月">${icon("chevron-right")}</button></div></div>
+    <div class="customer-date-range-summary"><div class="${picking === "start" ? "active" : ""}"><small>开始日期</small><strong>${start || "请选择"}</strong></div><span>→</span><div class="${picking === "end" ? "active" : ""}"><small>结束日期</small><strong>${end || "请选择"}</strong></div></div>
+    <div class="customer-date-range-calendars">${customerDateRangeCalendar(viewMonth, start, end, dateAttribute)}${customerDateRangeCalendar(nextMonth, start, end, dateAttribute)}</div>
+    <div class="customer-date-range-footer"><span>${selectedLabel}</span><button type="button" ${clearAttribute}>清空</button></div>
   </div>`;
+}
+
+function customerDateRangePickerView() {
+  return sharedCustomerDateRangePickerView({
+    start: state.customerDateRangeDraftStart,
+    end: state.customerDateRangeDraftEnd,
+    viewMonth: state.customerDateRangeViewMonth,
+    picking: state.customerDateRangePicking,
+    id: "dateRangePopover",
+    ariaLabel: "选择分配时间范围"
+  });
+}
+
+function customerFollowUpDateRangePickerView() {
+  return sharedCustomerDateRangePickerView({
+    start: state.customerFollowUpDateDraftFrom,
+    end: state.customerFollowUpDateDraftTo,
+    viewMonth: state.customerFollowUpDateViewMonth,
+    picking: state.customerFollowUpDatePicking,
+    dateAttribute: "data-followup-date",
+    shiftAttribute: "data-followup-date-shift",
+    clearAttribute: "data-clear-followup-date-range",
+    className: "customer-followup-date-popover",
+    ariaLabel: "选择跟进记录时间范围"
+  });
 }
 
 function customerAdvancedDateRangePickerView(field) {
@@ -1840,7 +1939,7 @@ function customerListView({ isPool = false } = {}) {
       <div class="customer-batch-actions"><label class="wechat-toggle"><input type="checkbox"> 添加微信客户</label><div class="batch-action-row">${!isPool && isAdmin() ? `<button class="button primary" type="button" id="customerAllocate">${icon("sliders")}资源调配</button>` : ""}${isPool ? `<button class="button secondary" id="batchClaimCustomers" type="button">${icon("users")}领取客户</button>` : `<button class="button primary" type="button" data-add-customer>${icon("plus")}增加用户</button><button class="button secondary" id="batchPoolCustomers" type="button">${icon("user-transfer")}移入公海</button>`}${isPool ? "" : `<button class="button secondary" id="batchMessageCustomers" type="button">${icon("chat-circle")}发送消息</button>`}<button class="button secondary" type="button">${icon("user-transfer")}转为库存</button>${isPool ? "" : `<button class="button secondary" type="button" id="openCustomerHeader">${icon("table-grid")}自定义表头</button>`}</div><div class="customer-selection-summary">已选择 <strong>${state.selectedCustomerIds.length}</strong> 项${state.selectedCustomerIds.length ? `　<button class="text-button" id="clearCustomerSelection">清空</button>` : ""}</div>${isPool ? "" : `<div class="customer-id-hints"><span class="unregistered-id">*橙色ID为未注册用户</span><span class="unavailable-id">灰色ID为当前不可拨打用户</span></div>`}</div>
       <section class="data-panel">
         <div class="data-toolbar"><div class="data-tabs"><button class="data-tab ${isPool || state.customerScope === "all" ? "active" : ""}" type="button" ${isPool ? "" : `data-customer-scope="all"`}>全部 <span class="count">${rows.length}</span></button>${isPool ? "" : `<button class="data-tab ${state.customerScope === "mine" ? "active" : ""}" type="button" data-customer-scope="mine">我负责的</button><button class="data-tab" type="button" disabled>我协作的</button>`}</div><div class="toolbar-actions"><span class="pill gray">当前显示 ${rows.length} 项</span></div></div>
-      <div class="table-wrap">${rows.length ? `<table class="data-table customer-detail-table"><thead><tr><th class="select-column"><input id="selectPageCustomers" type="checkbox" aria-label="选择本页客户" ${pageRows.length && pageRows.every(c => state.selectedCustomerIds.includes(c.id)) ? "checked" : ""}></th><th>标注</th><th>ID</th><th>客户姓名/昵称</th><th>性别</th><th>婚况</th><th>年龄</th><th>学历</th><th>收入</th><th>等级</th><th>城市</th><th>跟进次数</th><th>未联系天数</th><th>${isPool ? "前归属人" : "归属人"}</th><th>邀约人</th><th>协作人</th><th>服务人</th><th class="operation-column">操作</th></tr></thead><tbody>${pageRows.map(customer => `<tr data-customer-id="${escapeHtml(customer.id)}"><td class="select-column"><input type="checkbox" data-select-customer="${escapeHtml(customer.id)}" aria-label="选择${escapeHtml(customer.name)}" ${state.selectedCustomerIds.includes(customer.id) ? "checked" : ""} onclick="event.stopPropagation()"></td><td>⚑</td><td><a class="table-link" onclick="event.stopPropagation()">${escapeHtml(customer.id)}</a></td><td><div class="customer-cell"><span class="person-avatar">${escapeHtml(customer.name[0])}</span><span><strong>${escapeHtml(customer.name)}</strong><small>${escapeHtml(customer.phone)}</small></span></div></td><td>${escapeHtml(customer.gender || "—")}</td><td>${escapeHtml(customer.maritalStatus || "—")}</td><td>${escapeHtml(customer.age || "—")}</td><td>${escapeHtml(customer.education || "—")}</td><td>${escapeHtml(customer.monthlyIncome || customer.annualIncome || "—")}</td><td>${escapeHtml(customer.level || "—")}</td><td>${escapeHtml(customer.city || "—")}</td><td>${escapeHtml(String(customer.followUpCount || 0))}</td><td>${escapeHtml(customerUncontactedDaysLabel(customer))}</td><td>${escapeHtml(isPool ? customerOwnerDisplay(customer.previousOwner) : customerOwnerDisplay(customer.owner))}</td><td>${escapeHtml(customer.inviter || "—")}</td><td>${escapeHtml(customer.collaborator || "—")}</td><td>${escapeHtml(customer.servicePerson || "—")}</td><td class="operation-column"><div class="table-actions" onclick="event.stopPropagation()"><button class="table-icon" type="button" data-call="${escapeHtml(customer.id)}" aria-label="呼叫客户">${icon("phone")}</button><button class="table-icon" type="button" data-open-customer="${escapeHtml(customer.id)}" aria-label="查看详情">${icon("chevron")}</button><button class="button ghost" type="button" ${isPool ? `data-claim-customer="${escapeHtml(customer.id)}"` : `data-release-customer="${escapeHtml(customer.id)}"`}>${isPool ? "领取" : "放入公海"}</button></div></td></tr>`).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon(isPool ? "users" : "search")}</span><strong>${isPool ? "公海暂无客户" : "没有匹配的客户"}</strong><p>${isPool ? "可以从客户列表将客户放入公海。" : "调整筛选条件后再试一次"}</p></div>`}</div>
+      <div class="table-wrap">${rows.length ? `<table class="data-table customer-detail-table"><thead><tr><th class="select-column"><input id="selectPageCustomers" type="checkbox" aria-label="选择本页客户" ${pageRows.length && pageRows.every(c => state.selectedCustomerIds.includes(c.id)) ? "checked" : ""}></th><th>标注</th><th>ID</th><th>客户姓名/昵称</th><th>性别</th><th>婚况</th><th>年龄</th><th>学历</th><th>收入</th><th>等级</th><th>城市</th><th>跟进次数</th><th>未联系天数</th><th>${isPool ? "前归属人" : "归属人"}</th><th>邀约人</th><th>协作人</th><th>服务人</th>${isPool ? "<th>标签</th><th>来源</th>" : ""}<th class="operation-column">操作</th></tr></thead><tbody>${pageRows.map(customer => `<tr data-customer-id="${escapeHtml(customer.id)}"><td class="select-column"><input type="checkbox" data-select-customer="${escapeHtml(customer.id)}" aria-label="选择${escapeHtml(customer.name)}" ${state.selectedCustomerIds.includes(customer.id) ? "checked" : ""} onclick="event.stopPropagation()"></td><td>⚑</td><td><a class="table-link" onclick="event.stopPropagation()">${escapeHtml(customer.id)}</a></td><td><div class="customer-cell"><span class="person-avatar">${escapeHtml(customer.name[0])}</span><span><strong>${escapeHtml(customer.name)}</strong><small>${escapeHtml(customer.phone)}</small></span></div></td><td>${escapeHtml(customer.gender || "—")}</td><td>${escapeHtml(customer.maritalStatus || "—")}</td><td>${escapeHtml(customer.age || "—")}</td><td>${escapeHtml(customer.education || "—")}</td><td>${escapeHtml(customer.monthlyIncome || customer.annualIncome || "—")}</td><td>${escapeHtml(customer.level || "—")}</td><td>${escapeHtml(customer.city || "—")}</td><td>${escapeHtml(String(customer.followUpCount || 0))}</td><td>${escapeHtml(customerUncontactedDaysLabel(customer))}</td><td>${escapeHtml(isPool ? customerOwnerDisplay(customer.previousOwner) : customerOwnerDisplay(customer.owner))}</td><td>${escapeHtml(customer.inviter || "—")}</td><td>${escapeHtml(customer.collaborator || "—")}</td><td>${escapeHtml(customer.servicePerson || "—")}</td>${isPool ? `<td>${escapeHtml((customer.tags || []).join("、") || "+ 增加标签")}</td><td>${escapeHtml(customer.source || customer.origin || customer.channel || customer.sourceName || "—")}</td>` : ""}<td class="operation-column"><div class="table-actions" onclick="event.stopPropagation()"><button class="table-icon" type="button" data-call="${escapeHtml(customer.id)}" aria-label="呼叫客户">${icon("phone")}</button><button class="table-icon" type="button" data-open-customer="${escapeHtml(customer.id)}" aria-label="查看详情">${icon("chevron")}</button><button class="button ghost" type="button" ${isPool ? `data-claim-customer="${escapeHtml(customer.id)}"` : `data-release-customer="${escapeHtml(customer.id)}"`}>${isPool ? "领取" : "放入公海"}</button></div></td></tr>`).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon(isPool ? "users" : "search")}</span><strong>${isPool ? "公海暂无客户" : "没有匹配的客户"}</strong><p>${isPool ? "可以从客户列表将客户放入公海。" : "调整筛选条件后再试一次"}</p></div>`}</div>
         <footer class="pagination"><span>${rows.length ? `${pageStart + 1}-${Math.min(pageStart + state.customerPageSize, rows.length)}` : "0"} 共 ${rows.length} 条</span><button class="page-button" data-customer-page="${state.customerPage - 1}" type="button" ${state.customerPage <= 1 ? "disabled" : ""}>‹</button>${Array.from({length: Math.min(totalPages, 5)}, (_, i) => i + 1).map(page => `<button class="page-button ${page === state.customerPage ? "active" : ""}" data-customer-page="${page}" type="button">${page}</button>`).join("")}<button class="page-button" data-customer-page="${state.customerPage + 1}" type="button" ${state.customerPage >= totalPages ? "disabled" : ""}>›</button><select id="customerPageSize"><option ${state.customerPageSize===20?"selected":""}>20</option><option ${state.customerPageSize===50?"selected":""}>50</option><option ${state.customerPageSize===100?"selected":""}>100</option></select><span>条/页</span></footer>
       </section>
     </div>
@@ -1883,7 +1982,7 @@ function importHistoryRecord(id) {
 
 function persistImportHistory() {
   try {
-    localStorage.setItem("youke.crm.importHistory", JSON.stringify(state.importHistory));
+    localStorage.setItem("youai.crm.importHistory", JSON.stringify(state.importHistory));
   } catch (_) {
     // A large spreadsheet can exceed localStorage; the active detail still works in memory.
   }
@@ -2321,8 +2420,8 @@ function customerDetailView(id) {
   const profile = `<div class="profile-reference-overview">${portrait}<section class="profile-reference-basic"><h3>基本信息</h3><dl class="profile-reference-basic-grid">${basicRows.flat().join("")}</dl></section><section class="profile-reference-mating"><h3>择偶信息</h3><dl>${matingInfo.map(([label, item]) => cell(label, item)).join("")}</dl></section></div><section class="profile-reference-notes"><h3>备注</h3><dl><div><dt>备注信息</dt><dd><span>${value(noteText)}</span>${noteTime ? `<time>${value(formatDateTime(noteTime))}</time>` : ""}</dd></div></dl></section><section class="profile-reference-photos"><h3>图片</h3><p>暂无照片</p></section><div class="customer-detail-tools"><button type="button" data-customer-opening>开场白</button><button type="button" data-customer-followup>写跟进</button></div>`;
   const moreActions = ["增加协作", "转为库存", "移入公海", "发邀请券", "添加至重点客户", "注销用户"];
   const moreMenu = `<div class="customer-more-actions"><button class="button secondary customer-more-trigger" type="button" data-customer-more-toggle="${value(customer.id)}" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">${icon("more")}</button><div class="customer-more-menu" data-customer-more-menu="${value(customer.id)}" role="menu">${moreActions.map((label, index) => `<button type="button" role="menuitem" data-customer-more-action="${value(index)}" data-customer-id="${value(customer.id)}">${value(label)}</button>`).join("")}</div></div>`;
-  const followFilter = `<div class="customer-followup-filter"><select id="customerFollowUpTypeFilter" aria-label="跟进记录类型"><option value="all" ${state.customerFollowUpFilterType === "all" ? "selected" : ""}>全部</option><option value="sales" ${state.customerFollowUpFilterType === "sales" ? "selected" : ""}>销售</option><option value="invitation" ${state.customerFollowUpFilterType === "invitation" ? "selected" : ""}>邀约</option><option value="service" ${state.customerFollowUpFilterType === "service" ? "selected" : ""}>服务</option><option value="system" ${state.customerFollowUpFilterType === "system" ? "selected" : ""}>系统</option><option value="custom" ${state.customerFollowUpFilterType === "custom" ? "selected" : ""}>自定义</option><optgroup label="企微宝"><option value="wechat_customer_lost" ${state.customerFollowUpFilterType === "wechat_customer_lost" ? "selected" : ""}>客户流失</option><option value="wechat_add_friend" ${state.customerFollowUpFilterType === "wechat_add_friend" ? "selected" : ""}>添加客户好友</option></optgroup></select><div class="customer-followup-date-range"><input id="customerFollowUpFrom" type="date" value="${escapeHtml(state.customerFollowUpFrom)}" aria-label="开始日期"><span>→</span><input id="customerFollowUpTo" type="date" value="${escapeHtml(state.customerFollowUpTo)}" aria-label="结束日期"></div><div class="customer-followup-keyword"><input id="customerFollowUpKeyword" value="${escapeHtml(state.customerFollowUpKeyword)}" placeholder="输入关键词" aria-label="跟进关键词">${icon("search")}</div><button class="button primary" id="applyCustomerFollowUpFilter" type="button">查询</button></div>`;
-  const follow = `<section class="customer-profile-section"><h3>跟进记录</h3>${followFilter}<div class="customer-profile-timeline">${records.map(row => `<div><time>${value(formatDateTime(row.at))}</time><p><strong>${value(row.type)}</strong>　${value(row.detail)}<br><small>操作人：${value(row.owner)}</small></p></div>`).join("") || '<p class="customer-profile-empty">暂无客户操作记录</p>'}</div></section>`;  const profileGender = customer.gender || "—";
+  const followFilter = `<div class="customer-followup-filter"><select id="customerFollowUpTypeFilter" aria-label="类型"><option value="" ${!state.customerFollowUpFilterType ? "selected" : ""} disabled hidden>类型</option><option value="all" ${state.customerFollowUpFilterType === "all" ? "selected" : ""}>全部</option><option value="sales" ${state.customerFollowUpFilterType === "sales" ? "selected" : ""}>销售</option><option value="invitation" ${state.customerFollowUpFilterType === "invitation" ? "selected" : ""}>邀约</option><option value="service" ${state.customerFollowUpFilterType === "service" ? "selected" : ""}>服务</option><option value="system" ${state.customerFollowUpFilterType === "system" ? "selected" : ""}>系统</option><option value="custom" ${state.customerFollowUpFilterType === "custom" ? "selected" : ""}>自定义</option><optgroup label="企微宝"><option value="wechat_customer_lost" ${state.customerFollowUpFilterType === "wechat_customer_lost" ? "selected" : ""}>客户流失</option><option value="wechat_add_friend" ${state.customerFollowUpFilterType === "wechat_add_friend" ? "selected" : ""}>添加客户好友</option></optgroup></select><div class="customer-followup-date-range"><div class="date-range-picker-wrap"><button class="date-range-display" id="openCustomerFollowUpDateRange" type="button" aria-label="选择跟进记录时间范围"><span>${escapeHtml(state.customerFollowUpFrom || "开始日期")}</span><b>→</b><span>${escapeHtml(state.customerFollowUpTo || "结束日期")}</span><span class="date-range-picker">${icon("calendar")}</span></button>${state.customerFollowUpDatePickerOpen ? customerFollowUpDateRangePickerView() : ""}</div></div><div class="customer-followup-keyword"><input id="customerFollowUpKeyword" value="${escapeHtml(state.customerFollowUpKeyword)}" placeholder="输入关键词" aria-label="跟进关键词"></div><button class="customer-followup-search" id="applyCustomerFollowUpFilter" type="button" aria-label="搜索关键字" title="搜索">${icon("search")}</button></div>`;
+  const follow = `<section class="customer-profile-section"><h3>跟进记录</h3><div class="customer-profile-timeline">${records.map(row => `<div><time>${value(formatDateTime(row.at))}</time><p><strong>${value(row.type)}</strong>　${value(row.detail)}<br><small>操作人：${value(row.owner)}</small></p></div>`).join("") || '<p class="customer-profile-empty">暂无客户操作记录</p>'}</div></section>`;  const profileGender = customer.gender || "—";
   const profileAge = customer.age ? `${customer.age}岁` : "—岁";
   const profileEducation = customer.education || "—";
   const isAssignedToEmployee = !["", "白板", "公海"].includes(String(customer.owner || "").trim());
@@ -2333,7 +2432,11 @@ function customerDetailView(id) {
     ? `<button class="button secondary" type="button" data-customer-more-action="1" data-customer-more-label="库存" data-customer-id="${value(customer.id)}">转为库存</button>${isAdmin() ? `<button class="button secondary" type="button" data-allocate-profile-customer="${value(customer.id)}">资源调配</button>` : ""}<button class="button secondary" type="button" data-customer-more-action="4" data-customer-more-label="诚意库" data-customer-id="${value(customer.id)}">＋ 添加至诚意库</button><button class="button secondary" type="button" data-next-customer="${value(customer.id)}" data-next-customer-label="下一个客户">下一个客户 ›</button>`
     : `<button class="button secondary" type="button" data-new-order-customer="${value(customer.id)}">＋ 新订单</button>${contactVisible ? `<button class="button secondary" type="button" data-call-name="${value(customer.name)}">☎ 拨打</button><button class="button secondary" type="button" data-message-name="${value(customer.name)}">▣ 消息</button>` : ""}${isAdmin() ? `<button class="button secondary" type="button" data-allocate-profile-customer="${value(customer.id)}">资源调配</button>` : ""}<button class="button secondary" type="button" data-next-customer="${value(customer.id)}">下个客户 ›</button>${moreMenu}`;
   const profileHeader = `<div class="profile-reference-header"><div class="profile-reference-title-row"><h1>${value(headerPhone)} <span>[${value(profileGender)} ${value(profileAge)} ${value(profileEducation)}]</span>　【${value(customer.id)}】 <span class="profile-header-icons">${icon("star")} ${icon(contactVisible ? "lock-open" : "lock")} ${icon("flag")}</span></h1><span class="profile-reference-status">● 未激活</span></div><div class="profile-reference-second-row"><div class="profile-reference-header-meta"><div class="profile-reference-meta-row profile-reference-tags-row"><span>客户标签：</span><button class="profile-add-tag" type="button" data-add-profile-tag="${value(customer.id)}">+ 增加标签</button></div><div class="profile-reference-meta-row"><span>归属人：<b>${value(profileOwner)}</b></span><span>协作人：<b>${value(profileCollaborator)}</b></span><span>分配时间：<b>${value(profileAllocationTime)}</b></span><span>下次跟进时间：<b>${value(customer.nextFollowAt ? formatDateTime(customer.nextFollowAt) : "")}</b></span></div></div><div class="profile-reference-actions">${profileActions}</div></div></div>`;
-  return `<section class="page customer-profile-page profile-reference-page">${profileHeader}<div class="customer-profile-tabs"><button class="${state.customerDetailTab === "profile" ? "active" : ""}" type="button" data-customer-detail-tab="profile">资料详情</button><button class="${state.customerDetailTab === "follow" ? "active" : ""}" type="button" data-customer-detail-tab="follow">跟进记录 (${records.length})</button><button type="button" disabled>约会安排</button><button type="button" disabled>推荐记录</button>${contactVisible ? `<button class="customer-profile-tab-edit" type="button" data-edit-profile-customer="${value(customer.id)}">编辑</button>` : ""}</div><div class="profile-reference-content">${state.customerDetailTab === "follow" ? follow : profile}</div></section>`;
+  const profileTabEdit = state.customerDetailTab === "profile" && contactVisible
+    ? `<button class="customer-profile-tab-edit" type="button" data-edit-profile-customer="${value(customer.id)}">编辑</button>`
+    : "";
+  const activeTabTools = state.customerDetailTab === "follow" ? followFilter : profileTabEdit;
+  return `<section class="page customer-profile-page profile-reference-page ${state.customerDetailTab === "follow" ? "followup-active" : ""}">${profileHeader}<div class="customer-profile-tabs"><button class="${state.customerDetailTab === "profile" ? "active" : ""}" type="button" data-customer-detail-tab="profile">资料详情</button><button class="${state.customerDetailTab === "follow" ? "active" : ""}" type="button" data-customer-detail-tab="follow">跟进记录 (${records.length})</button><button type="button" disabled>约会安排</button><button type="button" disabled>推荐记录</button>${activeTabTools}</div><div class="profile-reference-content">${state.customerDetailTab === "follow" ? follow : profile}</div></section>`;
 }
 
 function tasksView() {
@@ -2402,7 +2505,7 @@ async function toggleCallReview(callId) {
     requireBackend();
     const result = await apiRequest(`/call-reviews/${encodeURIComponent(callId)}`, { method: "PATCH", body: JSON.stringify({ reviewed }) });
     state.callReviews[callId] = Boolean(result.reviewed);
-    localStorage.setItem("youke.crm.callReviews", JSON.stringify(state.callReviews));
+    localStorage.setItem("youai.crm.callReviews", JSON.stringify(state.callReviews));
     render();
     toast(state.callReviews[callId] ? "已标记为质检完成并写入 MySQL" : "已恢复为待质检");
   } catch (error) {
@@ -2441,18 +2544,151 @@ function customerMessagesView() {
 }
 
 function customerMessagesInteractiveView(active, messages) {
-  return `<section class="page">${subnav(["消息管理", "短信记录"], "消息管理", ["消息管理", "短信记录"])}<div class="page-content">
+  const systemActive = state.activeMessageChannel === "system";
+  const reminders = systemReminderRows();
+  const unreadReminders = reminders.filter(row => {
+    const task = tasks.find(item => String(item.id) === String(row.taskId));
+    return !task?.done && notificationIsDue(row) && !state.notificationRead[row.id];
+  });
+  return `<section class="page compact-message-page">${subnav(["消息管理", "短信记录"], "消息管理", ["消息管理", "短信记录"])}<div class="page-content compact-message-content">
     ${pageHeading(`<button class="button secondary" id="markAllRead" type="button">${icon("check")}全部已读</button><button class="button primary" id="newConversation" type="button">${icon("plus")}新建会话</button>`)}
-    <section class="message-layout"><aside class="conversation-list"><div class="conversation-search"><label class="global-search">${icon("search")}<input id="conversationSearch" placeholder="搜索会话"></label></div>${conversations.map(conversation => `<article class="conversation-item ${conversation.id === active?.id ? "active" : ""}" data-conversation="${conversation.id}"><span class="person-avatar">${escapeHtml(conversation.name?.[0] || "客")}</span><div class="conversation-copy"><strong>${escapeHtml(conversation.name)}</strong><span>${escapeHtml(conversation.preview || "")}</span></div><div class="conversation-meta"><time>${escapeHtml(conversation.time || "")}</time>${conversation.unread ? `<span class="unread">${conversation.unread}</span>` : ""}</div></article>`).join("")}</aside><div class="chat-pane">${active ? `<header class="chat-header"><h2>${escapeHtml(active.name)}</h2><p>${escapeHtml(active.company || "")}</p></header><div class="messages" id="messageThread">${messages.map(message => `<div class="message ${message.outgoing ? "outgoing" : ""}"><span class="person-avatar">${escapeHtml(message.sender?.[0] || "客")}</span><div class="message-bubble">${escapeHtml(message.content)}<time>${escapeHtml(message.time || "")}</time></div></div>`).join("") || `<div class="empty-state">暂无消息，发送第一条消息开始沟通</div>`}</div><form class="composer" id="messageForm"><textarea id="messageInput" placeholder="输入消息内容，Enter 发送"></textarea><button class="button primary" type="submit">发送</button></form>` : `<div class="empty-state">还没有会话</div>`}</div></section></div></section>`;
+    <section class="message-layout"><aside class="conversation-list"><div class="conversation-search"><label class="global-search">${icon("search")}<input id="conversationSearch" placeholder="搜索会话"></label></div><article class="conversation-item system-conversation ${systemActive ? "active" : ""}" data-system-message-channel><span class="system-message-avatar">${icon("bell")}</span><div class="conversation-copy"><strong>系统消息</strong><span>${reminders.length ? `您有 ${reminders.length} 条跟进提醒` : "暂无跟进提醒"}</span></div><div class="conversation-meta">${unreadReminders.length ? `<span class="unread">${unreadReminders.length}</span>` : ""}</div></article>${conversations.map(conversation => `<article class="conversation-item ${!systemActive && conversation.id === active?.id ? "active" : ""}" data-conversation="${conversation.id}"><span class="person-avatar">${escapeHtml(conversation.name?.[0] || "客")}</span><div class="conversation-copy"><strong>${escapeHtml(conversation.name)}</strong><span>${escapeHtml(conversation.preview || "")}</span></div><div class="conversation-meta"><time>${escapeHtml(conversation.time || "")}</time>${conversation.unread ? `<span class="unread">${conversation.unread}</span>` : ""}</div></article>`).join("")}</aside><div class="chat-pane">${systemActive ? systemMessageThreadView(reminders) : active ? `<header class="chat-header"><h2>${escapeHtml(active.name)}</h2><p>${escapeHtml(active.company || "")}</p></header><div class="messages" id="messageThread">${messages.map(message => `<div class="message ${message.outgoing ? "outgoing" : ""}"><span class="person-avatar">${escapeHtml(message.sender?.[0] || "客")}</span><div class="message-bubble">${escapeHtml(message.content)}<time>${escapeHtml(message.time || "")}</time></div></div>`).join("") || `<div class="empty-state">暂无消息，发送第一条消息开始沟通</div>`}</div><form class="composer" id="messageForm"><textarea id="messageInput" placeholder="输入消息内容，Enter 发送"></textarea><button class="button primary" type="submit">发送</button></form>` : `<div class="empty-state">还没有会话</div>`}</div></section></div></section>`;
+}
+
+function systemMessageThreadView(reminders) {
+  const now = Date.now();
+  return `<header class="chat-header system-message-header"><div><h2>系统消息</h2><p>跟进任务提醒仅对任务所属员工显示</p></div>${reminders.length ? `<button class="button secondary" id="markAllSystemMessages" type="button">${icon("check")}全部已读</button>` : ""}</header><div class="messages system-message-thread" id="messageThread">${reminders.length ? reminders.map(row => {
+    const task = tasks.find(item => String(item.id) === String(row.taskId));
+    const read = Boolean(task?.done || state.notificationRead[row.id]);
+    const dueTime = new Date(task?.dueAt || row.at).getTime();
+    const due = Number.isFinite(dueTime) && dueTime <= now;
+    const dueAt = task?.dueAt || row.at;
+    const dueDate = new Date(dueAt);
+    const pad = value => String(value).padStart(2, "0");
+    const dateLabel = Number.isNaN(dueDate.getTime()) ? formatDateTime(dueAt) : `${dueDate.getMonth() + 1}月${dueDate.getDate()}日 ${pad(dueDate.getHours())}:${pad(dueDate.getMinutes())}`;
+    const timeLabel = Number.isNaN(dueDate.getTime()) ? "" : `${pad(dueDate.getHours())}:${pad(dueDate.getMinutes())}:${pad(dueDate.getSeconds())}`;
+    const reminderText = task?.done
+      ? "已完成今日跟进。"
+      : due
+        ? "即将到达你设置的跟进时间，今日尚未跟进，请及时跟进。"
+        : "已设置下次跟进时间，请按计划及时跟进。";
+    const dailyFollowed = Boolean(task?.done);
+    return `<article class="followup-reminder ${read ? "is-read" : "is-unread"} ${due ? "is-due" : "is-upcoming"}" data-system-reminder="${escapeHtml(row.id)}"><div class="followup-reminder-time">${escapeHtml(dateLabel)}</div><div class="followup-reminder-card"><div class="followup-reminder-copy"><div class="followup-reminder-title"><span class="followup-reminder-check" aria-hidden="true"></span><strong>跟进提醒</strong><time>${escapeHtml(timeLabel)}</time></div><p>客户：${escapeHtml(task?.customer || "—")}，ID: ${escapeHtml(task?.customerId || "—")}，${reminderText}</p></div><button class="button primary followup-go-button" type="button" data-follow-reminder="${escapeHtml(String(task?.id || ""))}">去跟进</button></div><span class="followup-daily-status ${dailyFollowed ? "is-done" : "is-pending"}"><span aria-hidden="true">${dailyFollowed ? "✓" : "□"}</span>${dailyFollowed ? "当日已跟进" : "当日未跟进"}</span></article>`;
+  }).join("") : `<div class="empty-state"><span class="empty-icon">${icon("bell")}</span><strong>暂无跟进提醒</strong><p>为客户勾选“创建下次跟进任务”并设置时间后，提醒会显示在这里。</p></div>`}</div>`;
 }
 
 function systemNotificationRows() {
   const rows = [];
-  tasks.filter(task => !task.done).forEach(task => rows.push({ id: `task-${task.id}`, type: "任务提醒", title: "跟进任务待处理", detail: `${task.title} · ${task.customer}`, owner: task.owner, at: task.dueAt || new Date().toISOString(), tone: "amber", taskId: task.id }));
+  tasks.filter(task => !task.done).forEach(task => rows.push(taskReminderRow(task)));
   conversations.filter(conversation => conversation.unread > 0).forEach(conversation => rows.push({ id: `conversation-${conversation.id}`, type: "客户消息", title: "有未读客户消息", detail: `${conversation.name}：${conversation.preview}`, owner: conversation.owner || "客户顾问", at: conversation.lastMessageAt || new Date().toISOString(), tone: "blue", conversationId: conversation.id }));
   calls.filter(call => ["未接通", "待回拨"].includes(call.status)).forEach(call => rows.push({ id: `call-${call.id}`, type: "通话提醒", title: call.status === "待回拨" ? "客户等待回拨" : "通话未接通", detail: `${call.customer} · ${call.phone}`, owner: call.agent || call.owner, at: call.startedAt || new Date().toISOString(), tone: "red", customerId: call.customerId }));
   if (state.poolCustomers.length) rows.push({ id: "pool-customers", type: "公海提醒", title: "公海有待领取客户", detail: `当前有 ${state.poolCustomers.length} 位客户等待领取`, owner: "系统", at: new Date().toISOString(), tone: "green" });
   return rows.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+}
+
+function taskReminderRow(task) {
+  return { id: `task-${task.id}`, type: "任务提醒", title: "跟进任务待处理", detail: `${task.title} · ${task.customer}`, owner: task.owner, at: task.dueAt || new Date().toISOString(), tone: "amber", taskId: task.id };
+}
+
+function systemReminderRows() {
+  return tasks
+    .filter(task => !task.done || task.priority !== "完成")
+    .map(taskReminderRow)
+    .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+}
+
+function notificationIsDue(row) {
+  if (!row?.taskId) return true;
+  const dueAt = new Date(row.at).getTime();
+  return Number.isFinite(dueAt) && dueAt <= Date.now();
+}
+
+function ensureFollowupAlertRegion() {
+  let region = document.querySelector("#followupAlertRegion");
+  if (!region) {
+    region = document.createElement("div");
+    region.id = "followupAlertRegion";
+    region.className = "followup-alert-region";
+    region.setAttribute("aria-live", "polite");
+    document.body.appendChild(region);
+  }
+  if (region.dataset.bound === "true") return region;
+  region.dataset.bound = "true";
+  region.addEventListener("click", event => {
+    const alert = event.target.closest("[data-followup-alert-id]");
+    if (!alert) return;
+    const task = tasks.find(item => String(item.id) === String(alert.dataset.followupAlertId));
+    if (event.target.closest("[data-dismiss-followup-alert]")) {
+      alert.remove();
+      return;
+    }
+    if (event.target.closest("[data-open-followup-alert]") && task) {
+      alert.remove();
+      openBusinessModal("task", {
+        corner: true,
+        customer: task.customer,
+        customerId: task.customerId,
+        reminderTaskId: task.id,
+        dueAt: new Date().toISOString()
+      });
+    }
+  });
+  return region;
+}
+
+function checkUpcomingFollowupAlerts() {
+  if (!state.auth.token) return;
+  const region = ensureFollowupAlertRegion();
+  const now = Date.now();
+  const until = now + 5 * 60 * 1000;
+  tasks.filter(task => !task.done).forEach(task => {
+    const dueAt = new Date(task.dueAt).getTime();
+    const id = String(task.id);
+    if (!Number.isFinite(dueAt) || dueAt < now || dueAt > until || shownFollowupAlertIds.has(id)) return;
+    shownFollowupAlertIds.add(id);
+    const minutes = Math.max(1, Math.ceil((dueAt - now) / 60000));
+    const due = new Date(dueAt);
+    const dueLabel = `${String(due.getHours()).padStart(2, "0")}:${String(due.getMinutes()).padStart(2, "0")}`;
+    const item = document.createElement("article");
+    item.className = "followup-alert";
+    item.dataset.followupAlertId = id;
+    item.innerHTML = `<header><div><span class="followup-alert-icon">${icon("bell")}</span><strong>提醒跟进</strong></div><button type="button" data-dismiss-followup-alert aria-label="关闭提醒">×</button></header><p>客户 <strong>${escapeHtml(task.customer || "—")}</strong> 的跟进任务将在 ${minutes} 分钟后到期。</p><footer><time>${escapeHtml(dueLabel)} · ${escapeHtml(task.title || "跟进任务")}</time><button type="button" class="button primary" data-open-followup-alert>去跟进</button></footer>`;
+    region.appendChild(item);
+  });
+}
+
+async function refreshFollowupAlertTasks() {
+  if (!state.auth.token || followupAlertRefreshPromise) return;
+  followupAlertRefreshPromise = apiRequest("/tasks")
+    .then(data => {
+      tasks = data.map(normalizeTask);
+      checkUpcomingFollowupAlerts();
+    })
+    .catch(() => {})
+    .finally(() => { followupAlertRefreshPromise = null; });
+  await followupAlertRefreshPromise;
+}
+
+function startFollowupAlertMonitor() {
+  if (followupAlertTimer) return;
+  checkUpcomingFollowupAlerts();
+  refreshFollowupAlertTasks();
+  followupAlertTimer = window.setInterval(refreshFollowupAlertTasks, 30 * 1000);
+}
+
+async function markViewedSystemRemindersRead() {
+  const ids = systemNotificationRows()
+    .filter(row => row.taskId && notificationIsDue(row) && !state.notificationRead[row.id])
+    .map(row => row.id);
+  if (!ids.length) return;
+  try {
+    await persistNotificationRead(ids, true);
+    ids.forEach(id => { state.notificationRead[id] = true; });
+    localStorage.setItem("youai.crm.notificationRead", JSON.stringify(state.notificationRead));
+    render();
+  } catch (error) {
+    toast(`已读状态保存失败：${error.message}`);
+  }
 }
 
 function updateNotificationChrome() {
@@ -2460,8 +2696,15 @@ function updateNotificationChrome() {
   const dot = document.querySelector(".notification-button span");
   if (!popover || !dot) return;
   const rows = systemNotificationRows();
-  const unread = rows.filter(row => !state.notificationRead[row.id]);
+  const unread = rows.filter(row => notificationIsDue(row) && !state.notificationRead[row.id]);
   dot.hidden = unread.length === 0;
+  const badge = document.querySelector("#messageBadge");
+  if (badge) {
+    const unreadCount = conversations.reduce((sum, conversation) => sum + Number(conversation.unread || 0), 0)
+      + unread.filter(row => !row.conversationId).length;
+    badge.textContent = String(unreadCount);
+    badge.hidden = unreadCount === 0;
+  }
   popover.innerHTML = `<div class="popover-title"><span>最新通知${unread.length ? ` · ${unread.length} 条未读` : ""}</span><button type="button" id="readNotifications" ${unread.length ? "" : "disabled"}>全部已读</button></div>${rows.slice(0, 4).map(row => `<button class="notification-item ${state.notificationRead[row.id] ? "read" : ""}" type="button" data-popover-notification="${escapeHtml(row.id)}"><span class="notification-icon">${icon(row.taskId ? "task" : row.conversationId ? "message" : row.customerId ? "phone" : "users")}</span><div><p>${escapeHtml(row.title)}</p><time>${escapeHtml(row.detail)} · ${escapeHtml(formatRelativeDate(row.at))}</time></div></button>`).join("") || `<div class="notification-empty">暂无待处理通知</div>`}<button class="popover-more" type="button" data-open-notification-center>查看全部通知</button>`;
 }
 
@@ -2478,7 +2721,7 @@ async function markSystemNotification(id) {
   try {
     await persistNotificationRead([id], true);
     state.notificationRead[id] = true;
-    localStorage.setItem("youke.crm.notificationRead", JSON.stringify(state.notificationRead));
+  localStorage.setItem("youai.crm.notificationRead", JSON.stringify(state.notificationRead));
     render();
   } catch (error) { toast(`通知状态保存失败：${error.message}`); }
 }
@@ -2488,7 +2731,7 @@ async function markAllSystemNotificationsRead() {
   try {
     await persistNotificationRead(ids, true);
     ids.forEach(id => { state.notificationRead[id] = true; });
-    localStorage.setItem("youke.crm.notificationRead", JSON.stringify(state.notificationRead));
+  localStorage.setItem("youai.crm.notificationRead", JSON.stringify(state.notificationRead));
     render();
     toast("系统通知已全部标记为已读");
   } catch (error) { toast(`通知状态保存失败：${error.message}`); }
@@ -2529,7 +2772,7 @@ function systemNotificationsView() {
 }
 
 function saveMessageTemplates() {
-  localStorage.setItem("youke.crm.messageTemplates", JSON.stringify(state.messageTemplates));
+  localStorage.setItem("youai.crm.messageTemplates", JSON.stringify(state.messageTemplates));
 }
 
 function messageTemplatesView() {
@@ -2697,7 +2940,7 @@ function performanceUploadView() {
   </div></section>`;
 }
 
-function saveOrderRefunds() { localStorage.setItem("youke.crm.orderRefunds", JSON.stringify(state.orderRefunds)); }
+function saveOrderRefunds() { localStorage.setItem("youai.crm.orderRefunds", JSON.stringify(state.orderRefunds)); }
 
 function refundView() {
   const rows = state.orderRefunds.filter(refund => !state.orderKeyword.trim() || `${refund.orderId} ${refund.customer}`.toLowerCase().includes(state.orderKeyword.trim().toLowerCase()));
@@ -2960,6 +3203,21 @@ function enhanceCustomerListColumns() {
   });
 }
 
+function positionCustomerFollowUpDatePopover() {
+  const trigger = document.querySelector("#openCustomerFollowUpDateRange");
+  const popover = document.querySelector(".customer-followup-date-popover");
+  if (!trigger || !popover) return;
+  const gutter = 12;
+  const gap = 5;
+  const triggerRect = trigger.getBoundingClientRect();
+  const popoverRect = popover.getBoundingClientRect();
+  const left = Math.max(gutter, Math.min(triggerRect.right - popoverRect.width, window.innerWidth - popoverRect.width - gutter));
+  const belowTop = triggerRect.bottom + gap;
+  const top = Math.max(gutter, Math.min(belowTop, window.innerHeight - popoverRect.height - gutter));
+  popover.style.left = `${Math.round(left)}px`;
+  popover.style.top = `${Math.round(top)}px`;
+}
+
 function render() {
   if (!viewMeta[state.view]) state.view = "dashboard";
   ensureCurrentWorkspaceTab();
@@ -2975,6 +3233,7 @@ function render() {
   renderWorkspaceTabs();
   document.title = `${workspaceTabLabel(state.view, currentWorkspaceSection())} - 优爱 YOUAI`;
   bindViewEvents();
+  positionCustomerFollowUpDatePopover();
   updateNotificationChrome();
 }
 
@@ -3056,9 +3315,7 @@ function renderImportedCustomerFields() {
       { label: "性别", key: "gender" }, { label: "婚况", key: "maritalStatus" }, { label: "年龄", key: "age" }, { label: "学历", key: "education" },
       { label: "收入", key: "income" }, { label: "等级", key: "level" }, { label: "城市", key: "city" }, { label: "跟进次数", key: "followUpCount" },
       { label: "未联系天数", key: "uncontactedDays" }, { label: "前归属人", key: "owner" }, { label: "深沟时长" }, { label: "最后跟进", key: "lastFollowUpAt" },
-      { label: "最后登录", key: "lastLoginAt" }, { label: "电话号码" }, { label: "生日" }, { label: "身高" }, { label: "月收入" }, { label: "年收入" },
-      { label: "职业" }, { label: "住房" }, { label: "购车" }, { label: "籍贯" }, { label: "工作地" }, { label: "微信号" }, { label: "身份证号" },
-      { label: "备注说明" }, { label: "来源" }, { label: "归属员工" }, { label: "操作", className: "operation-column" }
+      { label: "最后登录", key: "lastLoginAt" }, { label: "标签", key: "tags" }, { label: "来源", key: "source", className: "pool-source-column" }, { label: "操作", className: "operation-column" }
     ]
     : [
       { label: "", className: "select-column" }, { label: "标注", key: "tag" }, { label: "ID", key: "id" }, { label: "客户姓名/昵称", key: "customer" },
@@ -3082,10 +3339,10 @@ function renderImportedCustomerFields() {
       ? `<button class="button ghost" type="button" data-claim-customer="${escapeHtml(customer.id)}">领取</button>`
       : operation.innerHTML;
     const values = isPool
-      ? [customer.gender, customer.maritalStatus, customer.age, customer.education, customer.monthlyIncome || customer.annualIncome || customer.amount, customer.level, customer.city, customer.followUpCount || 0, customer.uncontactedDays, customer.previousOwner, customer.deepTalkDuration || "00:00", customer.lastContact, customer.lastLogin, customer.phone, customer.birthday, customer.height, customer.monthlyIncome, customer.annualIncome, customer.occupation, customer.housing, customer.car, customer.nativePlace, customer.workLocation, customer.wechat, customer.idCard, customer.remark || customer.note, customer.source, customer.owner]
+      ? [customer.gender, customer.maritalStatus, customer.age, customer.education, customer.monthlyIncome || customer.annualIncome || customer.amount, customer.level, customer.city, customer.followUpCount || 0, customer.uncontactedDays, customer.previousOwner, customer.deepTalkDuration || "00:00", customer.lastContact, customer.lastLogin, (customer.tags || []).join("、") || "+ 增加标签", customer.source || customer.origin || customer.channel || customer.sourceName || "—"]
       : [customer.gender, customer.maritalStatus, customer.age, customer.education, customer.monthlyIncome || customer.annualIncome || customer.amount, customer.level, customer.city, customer.followUpCount || 0, customer.uncontactedDays, customer.owner, customer.inviter, customer.collaborator, customer.serviceOwner];
     const identity = `<td class="select-column"><input type="checkbox" data-select-customer="${escapeHtml(customer.id)}" aria-label="选择${escapeHtml(customer.name)}" ${state.selectedCustomerIds.includes(customer.id) ? "checked" : ""} onclick="event.stopPropagation()"></td><td>⚑</td><td><a class="table-link" onclick="event.stopPropagation()">${escapeHtml(customer.id)}</a></td><td><div class="customer-cell"><span class="person-avatar">${escapeHtml(customer.name[0])}</span><span><strong>${escapeHtml(customer.name)}</strong></span></div></td>`;
-    row.innerHTML = identity + values.map(value => `<td>${escapeHtml(String(value || "—"))}</td>`).join("") + `<td class="operation-column"><div class="table-actions" onclick="event.stopPropagation()">${operationHtml}</div></td>`;
+    row.innerHTML = identity + values.map((value, index) => `<td${isPool && index === values.length - 1 ? ' class="pool-source-column"' : ""}>${escapeHtml(String(value || "—"))}</td>`).join("") + `<td class="operation-column"><div class="table-actions" onclick="event.stopPropagation()">${operationHtml}</div></td>`;
   });
 }
 
@@ -3259,7 +3516,7 @@ function businessModalFields(type, record) {
   if (type === "task") {
     const dueAt = toDateTimeLocal(record?.dueAt) || toDateTimeLocal(new Date(Date.now() + 24 * 60 * 60 * 1000));
     if (record?.corner) {
-      return `<input type="hidden" name="recordId" value=""><input type="hidden" name="customer" value="${escapeHtml(record.customer || "")}"><input type="hidden" name="customerId" value="${escapeHtml(record.customerId || "")}"><div class="form-grid followup-entry-fields">
+      return `<input type="hidden" name="recordId" value=""><input type="hidden" name="reminderTaskId" value="${escapeHtml(record.reminderTaskId || "")}"><input type="hidden" name="customer" value="${escapeHtml(record.customer || "")}"><input type="hidden" name="customerId" value="${escapeHtml(record.customerId || "")}"><div class="form-grid followup-entry-fields">
         <label><span>类型 *</span><select name="type" required><option value="" selected>请选择</option>${customerFollowUpTypes.map(value => `<option value="${value}">${value}</option>`).join("")}</select></label>
         <label><span>时间 *</span><input name="dueAt" type="datetime-local" required value="${dueAt}"></label>
         <label class="form-span-2"><span>模板</span><select name="template"><option>请选择模板</option><option>首次跟进</option><option>报价跟进</option><option>会议确认</option></select></label>
@@ -3361,6 +3618,7 @@ function openBusinessModal(type, record = null) {
   backdrop.classList.toggle("resource-allocation-backdrop", type === "customer-assignment" || type === "customer-pool");
   backdrop.classList.toggle("customer-pool-backdrop", type === "customer-pool");
   form.dataset.type = type;
+  form.dataset.corner = type === "task" && Boolean(record?.corner) ? "true" : "false";
   document.querySelector("#businessModalEyebrow").textContent = labels[type][0];
   document.querySelector("#businessModalTitle").textContent = labels[type][1];
   form.innerHTML = businessModalFields(type, record);
@@ -3518,6 +3776,18 @@ async function loadCustomerFollowUps(customerId) {
     toast(`跟进记录加载失败：${error.message}`);
   }
 }
+async function applyCustomerFollowUpFilter() {
+  state.customerFollowUpFilterType = document.querySelector("#customerFollowUpTypeFilter")?.value || "";
+  state.customerFollowUpKeyword = document.querySelector("#customerFollowUpKeyword")?.value || "";
+  if (state.customerFollowUpFrom && state.customerFollowUpTo && state.customerFollowUpTo < state.customerFollowUpFrom) {
+    toast("结束日期不能早于开始日期");
+    return;
+  }
+  const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(state.customerDetailId));
+  if (!customer) return;
+  state.customerFollowUpLoaded[customer.id] = false;
+  await loadCustomerFollowUps(customer.id);
+}
 async function openCustomer(id) {
   const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(id));
   if (!customer) return;
@@ -3536,10 +3806,15 @@ async function openCustomer(id) {
   state.customerContactReveals = {};
   state.customerDetailId = customer.id;
   state.customerDetailTab = "profile";
-  state.customerFollowUpFilterType = "all";
+  state.customerFollowUpFilterType = "";
   state.customerFollowUpFrom = "";
   state.customerFollowUpTo = "";
   state.customerFollowUpKeyword = "";
+  state.customerFollowUpDatePickerOpen = false;
+  state.customerFollowUpDateDraftFrom = "";
+  state.customerFollowUpDateDraftTo = "";
+  state.customerFollowUpDateViewMonth = "";
+  state.customerFollowUpDatePicking = "start";
   state.customerFollowUpLoaded[customer.id] = false;
   ensureCurrentWorkspaceTab();
   render();
@@ -4010,11 +4285,18 @@ function normalizeCallDuration(value) {
 }
 
 async function selectConversation(id) {
+  state.activeMessageChannel = "conversation";
   state.activeConversationId = Number(id);
   try {
     if (state.backendOnline && !conversationMessages.has(state.activeConversationId)) {
       const messages = await apiRequest(`/conversations/${state.activeConversationId}/messages`);
       conversationMessages.set(state.activeConversationId, messages.map(normalizeMessage));
+    }
+    const conversation = conversations.find(item => item.id === state.activeConversationId);
+    if (conversation?.unread > 0) {
+      await apiRequest(`/conversations/${state.activeConversationId}/read`, { method: "PATCH" });
+      conversation.unread = 0;
+      state.unread = conversations.reduce((sum, item) => sum + item.unread, 0);
     }
     render();
     setTimeout(() => { const thread = document.querySelector("#messageThread"); if (thread) thread.scrollTop = thread.scrollHeight; }, 0);
@@ -4034,6 +4316,7 @@ async function openConversationForCustomer(name) {
       conversations.unshift(conversation);
     }
     state.activeConversationId = conversation.id;
+    state.activeMessageChannel = "conversation";
     state.messageSection = "消息管理";
     closeDrawer();
     navigate("messages");
@@ -4134,14 +4417,14 @@ async function submitBusinessForm(event) {
       const saved = mergeCustomerRecord(result);
       saved.collaborators = collaborators;
       state.customerCollaborators[customer.id] = collaborators;
-      localStorage.setItem("youke.crm.customerCollaborators", JSON.stringify(state.customerCollaborators));
+      localStorage.setItem("youai.crm.customerCollaborators", JSON.stringify(state.customerCollaborators));
       closeBusinessModal();
       render();
       toast(`已保存 ${collaborators.length} 位协作人`);
     } else if (type === "task") {
       const id = data.recordId;
       const existingTask = id ? tasks.find(item => String(item.id) === String(id)) : null;
-      const payload = { title: data.title, customer: data.customer, customerId: data.customerId || existingTask?.customerId || null, customerStatus: data.customerStatus || existingTask?.customerStatus || null, owner: data.owner || currentOwner(), dueAt: data.dueAt, type: data.type, priority: data.priority, completed: data.completed === "on" };
+      const payload = { title: data.title, customer: data.customer, customerId: data.customerId || existingTask?.customerId || null, customerStatus: data.customerStatus || existingTask?.customerStatus || null, owner: data.owner || currentOwner(), dueAt: data.dueAt, type: data.type, priority: data.priority, completed: form.dataset.corner === "true" ? true : data.completed === "on" };
       const result = await apiRequest(id ? `/tasks/${id}` : "/tasks", { method: id ? "PUT" : "POST", body: JSON.stringify(payload) });
       const normalized = normalizeTask(result);
       const index = tasks.findIndex(item => String(item.id) === String(normalized.id));
@@ -4155,9 +4438,18 @@ async function submitBusinessForm(event) {
         }
       }
       if (!id && data.createNextTask === "on") {
-        const nextResult = await apiRequest("/tasks", { method: "POST", body: JSON.stringify({ title: data.nextTitle, customer: data.customer, owner: data.owner || currentOwner(), dueAt: data.nextDueAt, type: "电话跟进", completed: false }) });
+        const nextResult = await apiRequest("/tasks", { method: "POST", body: JSON.stringify({ title: data.nextTitle, customer: data.customer, customerId: data.customerId || null, owner: data.owner || currentOwner(), dueAt: data.nextDueAt, type: "电话跟进", priority: "普通", completed: false }) });
         tasks.unshift(normalizeTask(nextResult));
       }
+      if (data.reminderTaskId && String(data.reminderTaskId) !== String(normalized.id)) {
+        const reminderResult = await apiRequest(`/tasks/${encodeURIComponent(data.reminderTaskId)}/completion`, { method: "PATCH", body: JSON.stringify({ completed: true }) });
+        const reminderSaved = normalizeTask(reminderResult);
+        const reminderIndex = tasks.findIndex(item => String(item.id) === String(reminderSaved.id));
+        if (reminderIndex >= 0) tasks[reminderIndex] = reminderSaved;
+        state.notificationRead[`task-${data.reminderTaskId}`] = true;
+        localStorage.setItem("youai.crm.notificationRead", JSON.stringify(state.notificationRead));
+      }
+      checkUpcomingFollowupAlerts();
       closeBusinessModal();
       render();
       toast(id ? "任务已更新" : "任务已创建");
@@ -4221,7 +4513,62 @@ function bindViewEvents() {
   document.querySelectorAll("[data-allocate-profile-customer]").forEach(button => { button.innerHTML = `${icon("sliders")}资源调配`; });
   document.querySelectorAll("[data-next-customer]").forEach(button => { button.innerHTML = `${icon("play")}${button.dataset.nextCustomerLabel || "下个客户"}`; });
   document.querySelectorAll("[data-customer-detail-tab]").forEach(button => button.addEventListener("click", async () => { state.customerDetailTab = button.dataset.customerDetailTab; render(); if (state.customerDetailTab === "follow" && state.customerDetailId) await loadCustomerFollowUps(state.customerDetailId); }));
-  document.querySelector("#applyCustomerFollowUpFilter")?.addEventListener("click", async () => { state.customerFollowUpFilterType = document.querySelector("#customerFollowUpTypeFilter")?.value || "all"; state.customerFollowUpFrom = document.querySelector("#customerFollowUpFrom")?.value || ""; state.customerFollowUpTo = document.querySelector("#customerFollowUpTo")?.value || ""; state.customerFollowUpKeyword = document.querySelector("#customerFollowUpKeyword")?.value || ""; if (state.customerFollowUpFrom && state.customerFollowUpTo && state.customerFollowUpTo < state.customerFollowUpFrom) { toast("结束日期不能早于开始日期"); return; } const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(state.customerDetailId)); if (customer) { state.customerFollowUpLoaded[customer.id] = false; await loadCustomerFollowUps(customer.id); } });
+  document.querySelector("#openCustomerFollowUpDateRange")?.addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    state.customerFollowUpFilterType = document.querySelector("#customerFollowUpTypeFilter")?.value || "";
+    state.customerFollowUpKeyword = document.querySelector("#customerFollowUpKeyword")?.value || "";
+    const opening = !state.customerFollowUpDatePickerOpen;
+    if (opening) {
+      state.customerFollowUpDateDraftFrom = state.customerFollowUpFrom;
+      state.customerFollowUpDateDraftTo = state.customerFollowUpTo;
+      state.customerFollowUpDateViewMonth = customerDateRangeMonthValue(state.customerFollowUpFrom || localDateValue(new Date()));
+      state.customerFollowUpDatePicking = state.customerFollowUpFrom && !state.customerFollowUpTo ? "end" : "start";
+    }
+    state.customerFollowUpDatePickerOpen = opening;
+    render();
+  });
+  document.querySelectorAll("[data-followup-date-shift]").forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation();
+    state.customerFollowUpDateViewMonth = customerDateRangeShiftMonth(state.customerFollowUpDateViewMonth, Number(button.dataset.followupDateShift));
+    render();
+  }));
+  document.querySelectorAll("[data-followup-date]").forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation();
+    const selectedDate = button.dataset.followupDate;
+    const draftStart = state.customerFollowUpDateDraftFrom;
+    if (state.customerFollowUpDatePicking === "start" || !draftStart) {
+      state.customerFollowUpDateDraftFrom = selectedDate;
+      state.customerFollowUpDateDraftTo = "";
+      state.customerFollowUpDatePicking = "end";
+      render();
+      return;
+    }
+    if (selectedDate < draftStart) {
+      state.customerFollowUpDateDraftFrom = selectedDate;
+      state.customerFollowUpDateDraftTo = "";
+      state.customerFollowUpDatePicking = "end";
+      render();
+      return;
+    }
+    state.customerFollowUpDateDraftTo = selectedDate;
+    state.customerFollowUpFrom = state.customerFollowUpDateDraftFrom;
+    state.customerFollowUpTo = selectedDate;
+    state.customerFollowUpDatePicking = "start";
+    state.customerFollowUpDatePickerOpen = false;
+    render();
+  }));
+  document.querySelector("[data-clear-followup-date-range]")?.addEventListener("click", event => {
+    event.stopPropagation();
+    state.customerFollowUpFrom = "";
+    state.customerFollowUpTo = "";
+    state.customerFollowUpDateDraftFrom = "";
+    state.customerFollowUpDateDraftTo = "";
+    state.customerFollowUpDatePicking = "start";
+    render();
+  });
+  document.querySelector("#applyCustomerFollowUpFilter")?.addEventListener("click", applyCustomerFollowUpFilter);
+  document.querySelector("#customerFollowUpKeyword")?.addEventListener("keydown", event => { if (event.key === "Enter") applyCustomerFollowUpFilter(); });
   document.querySelectorAll("[data-toggle-private-contact]").forEach(button => button.addEventListener("click", event => {
     event.stopPropagation();
     const key = `${button.dataset.togglePrivateContact}:${button.dataset.privateField}`;
@@ -4857,7 +5204,7 @@ function bindViewEvents() {
     state.customerVisibleColumns = customerTableColumnDefinitions
       .filter(column => selected.has(column.key))
       .map(column => column.key);
-    localStorage.setItem("youke.crm.customerTableColumns", JSON.stringify(state.customerVisibleColumns));
+  localStorage.setItem("youai.crm.customerTableColumns", JSON.stringify(state.customerVisibleColumns));
     state.customerHeaderModalOpen = false;
     render();
     toast("自定义表头已保存");
@@ -5129,6 +5476,26 @@ function bindViewEvents() {
   document.querySelectorAll("[data-execute-ledger]").forEach(button => button.addEventListener("click", async () => { if(!window.confirm("确认执行这笔分账吗？")) return; try { const saved=normalizeLedger(await apiRequest(`/ledger-accounts/${encodeURIComponent(button.dataset.executeLedger)}/execute`,{method:"PATCH"})); const index=ledgerAccounts.findIndex(row=>row.id===saved.id); if(index>=0) ledgerAccounts[index]=saved; render(); toast("分账执行成功"); } catch(error){ toast(`执行失败：${error.message}`); } }));
 
   document.querySelectorAll("[data-conversation]").forEach(item => item.addEventListener("click", () => selectConversation(item.dataset.conversation)));
+  document.querySelector("[data-system-message-channel]")?.addEventListener("click", () => { state.activeMessageChannel = "system"; render(); });
+  if (state.view === "messages" && state.messageSection === "消息管理" && state.activeMessageChannel === "system") {
+    markViewedSystemRemindersRead();
+  }
+  document.querySelector("#markAllSystemMessages")?.addEventListener("click", markAllSystemNotificationsRead);
+  document.querySelectorAll("[data-system-reminder]").forEach(item => item.addEventListener("click", () => {
+    const id = item.dataset.systemReminder;
+    if (!state.notificationRead[id]) markSystemNotification(id);
+  }));
+  document.querySelectorAll("[data-follow-reminder]").forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation();
+    const task = tasks.find(item => String(item.id) === String(button.dataset.followReminder));
+    if (task) openBusinessModal("task", {
+      corner: true,
+      customer: task.customer,
+      customerId: task.customerId,
+      reminderTaskId: task.id,
+      dueAt: new Date().toISOString()
+    });
+  }));
   document.querySelector("#newConversation")?.addEventListener("click", () => openBusinessModal("conversation"));
   document.querySelector("#conversationSearch")?.addEventListener("input", event => { const keyword = event.target.value.trim().toLowerCase(); document.querySelectorAll("[data-conversation]").forEach(item => { item.hidden = Boolean(keyword) && !item.textContent.toLowerCase().includes(keyword); }); });
   document.querySelector("#messageForm")?.addEventListener("submit", sendActiveMessage);
@@ -5342,6 +5709,58 @@ document.querySelector("#workspaceTabs").addEventListener("keydown", event => {
   activateWorkspaceTab(tab.dataset.workspaceTab);
 });
 
+const workspaceTabContextMenu = document.createElement("div");
+workspaceTabContextMenu.className = "workspace-tab-context-menu";
+workspaceTabContextMenu.setAttribute("role", "menu");
+workspaceTabContextMenu.innerHTML = `
+  <button type="button" role="menuitem" data-tab-menu-action="refresh"><span aria-hidden="true">↻</span>刷新</button>
+  <button type="button" role="menuitem" data-tab-menu-action="left"><span aria-hidden="true">←</span>关闭左侧</button>
+  <button type="button" role="menuitem" data-tab-menu-action="right"><span aria-hidden="true">→</span>关闭右侧</button>
+  <button type="button" role="menuitem" data-tab-menu-action="others"><span aria-hidden="true">×</span>关闭其他</button>`;
+document.body.appendChild(workspaceTabContextMenu);
+
+function hideWorkspaceTabContextMenu() {
+  workspaceTabContextMenu.classList.remove("open");
+  workspaceTabContextMenu.removeAttribute("data-tab-id");
+}
+
+document.querySelector("#workspaceTabs").addEventListener("contextmenu", event => {
+  const tabElement = event.target.closest("[data-workspace-tab]");
+  if (!tabElement) return;
+  event.preventDefault();
+  const tabId = tabElement.dataset.workspaceTab;
+  const tabIndex = state.workspaceTabs.findIndex(tab => tab.id === tabId);
+  workspaceTabContextMenu.dataset.tabId = tabId;
+  workspaceTabContextMenu.querySelector('[data-tab-menu-action="left"]').disabled = !state.workspaceTabs.some((tab, index) => index < tabIndex && tab.view !== "dashboard");
+  workspaceTabContextMenu.querySelector('[data-tab-menu-action="right"]').disabled = !state.workspaceTabs.some((tab, index) => index > tabIndex && tab.view !== "dashboard");
+  workspaceTabContextMenu.querySelector('[data-tab-menu-action="others"]').disabled = !state.workspaceTabs.some(tab => tab.id !== tabId && tab.view !== "dashboard");
+  workspaceTabContextMenu.classList.add("open");
+  const menuRect = workspaceTabContextMenu.getBoundingClientRect();
+  const gutter = 8;
+  workspaceTabContextMenu.style.left = `${Math.max(gutter, Math.min(event.clientX, window.innerWidth - menuRect.width - gutter))}px`;
+  workspaceTabContextMenu.style.top = `${Math.max(gutter, Math.min(event.clientY, window.innerHeight - menuRect.height - gutter))}px`;
+  workspaceTabContextMenu.querySelector("button:not(:disabled)")?.focus();
+});
+
+workspaceTabContextMenu.addEventListener("click", event => {
+  const button = event.target.closest("[data-tab-menu-action]");
+  if (!button || button.disabled) return;
+  event.stopPropagation();
+  const tabId = workspaceTabContextMenu.dataset.tabId;
+  const action = button.dataset.tabMenuAction;
+  hideWorkspaceTabContextMenu();
+  if (action === "refresh") refreshWorkspaceTab(tabId);
+  else closeWorkspaceTabsAround(tabId, action);
+});
+document.addEventListener("click", event => {
+  if (!event.target.closest(".workspace-tab-context-menu")) hideWorkspaceTabContextMenu();
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") hideWorkspaceTabContextMenu();
+});
+window.addEventListener("resize", hideWorkspaceTabContextMenu);
+window.addEventListener("scroll", hideWorkspaceTabContextMenu, true);
+
 const navHoverItems = {
   dashboard: [],
   customers: ["客户列表", "公海列表", "诚意资源", "白板列表", "库存资源", "服务库", "过期VIP库", "客户导入"],
@@ -5475,7 +5894,10 @@ document.querySelector("#globalSearch").addEventListener("keydown", event => {
 });
 document.addEventListener("keydown", event => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); document.querySelector("#globalSearch").focus(); }
-  if (event.key === "Escape") { closeDrawer(); closeModal(); closeBusinessModal(); document.querySelectorAll(".popover").forEach(item => item.hidden = true); }
+  if (event.key === "Escape") {
+    closeDrawer(); closeModal(); closeBusinessModal(); document.querySelectorAll(".popover").forEach(item => item.hidden = true);
+    if (state.customerFollowUpDatePickerOpen) { state.customerFollowUpDatePickerOpen = false; render(); }
+  }
 });
 
 const notificationPopover = document.querySelector("#notificationPopover");
@@ -5515,8 +5937,9 @@ document.addEventListener("click", event => {
   if (!event.target.closest(".customer-more-actions")) document.querySelectorAll(".customer-more-menu.open").forEach(item => item.classList.remove("open"));
   let filterStateChanged = false;
   if (!event.target.closest(".date-range-picker-wrap") && !event.target.closest(".advanced-date-range-control")) {
-    if (state.customerDateRangePickerOpen || state.customerAdvancedDatePickerOpen) filterStateChanged = true;
+    if (state.customerDateRangePickerOpen || state.customerFollowUpDatePickerOpen || state.customerAdvancedDatePickerOpen) filterStateChanged = true;
     state.customerDateRangePickerOpen = false;
+    state.customerFollowUpDatePickerOpen = false;
     state.customerAdvancedDatePickerOpen = false;
     state.customerAdvancedDatePickerField = "";
   }
@@ -5531,6 +5954,7 @@ document.addEventListener("click", event => {
 });
 document.querySelectorAll("[data-help]").forEach(button => button.addEventListener("click", () => openHelpModal(button.dataset.help === "学习中心" ? "learning" : "help")));
 window.addEventListener("hashchange", () => { const next = location.hash.replace("#", ""); if (next && next !== state.view) { state.view = next; render(); } });
+window.addEventListener("resize", positionCustomerFollowUpDatePopover);
 
 async function initialize() {
   if (!state.auth.token) {
@@ -5548,6 +5972,3 @@ async function initialize() {
 }
 
 initialize();
-
-
-

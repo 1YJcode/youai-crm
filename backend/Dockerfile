@@ -10,7 +10,7 @@ RUN mvn -B -s /root/.m2/settings.xml -f backend/pom.xml package -DskipTests
 FROM docker.m.daocloud.io/library/eclipse-temurin:21-jre
 
 WORKDIR /app
-COPY --from=build /workspace/backend/target/youke-crm-backend-*.jar app.jar
+COPY --from=build /workspace/backend/target/youai-crm-backend-*.jar app.jar
 EXPOSE 8080
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75 -Djava.security.egd=file:/dev/./urandom"
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

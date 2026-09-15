@@ -1,1 +1,1 @@
-window.YOUKE_API_BASE = "/api";
+window.YOUAI_API_BASE = "/api";

@@ -67,7 +67,7 @@ docker compose ps
 Docker 前端已经通过 Nginx 将 `/api` 代理到后端，内网设备不需要直接访问 `8080` 或 `3308`。如果 Windows 防火墙拦截访问，请使用管理员 PowerShell 放行前端端口：
 
 ```powershell
-New-NetFirewallRule -DisplayName "Youke CRM LAN Frontend" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 4173 -Profile Private
+New-NetFirewallRule -DisplayName "YouAI CRM LAN Frontend" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 4173 -Profile Private
 ```
 
 只在可信的家庭或办公网络使用 `Private` 配置文件，不要把 `4173`、`8080` 或 `3308` 端口暴露到公网。若使用 `scripts\\run-frontend.ps1` 启动非 Docker 前端，脚本也会监听 `0.0.0.0:4173`；此时后端 `8080` 端口也必须允许局域网访问。
