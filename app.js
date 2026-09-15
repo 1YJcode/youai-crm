@@ -398,6 +398,20 @@ const customerOwnerStoreOptions = [
   ["youai-tianjin", "优爱天津店"]
 ];
 
+function normalizeSystemUser(user) {
+  return {
+    id: user.id,
+    account: user.username || user.account,
+    name: user.displayName || user.name || user.username || user.account,
+    gender: user.gender || "—",
+    phone: user.phone || "—",
+    storeDept: user.departmentName || user.storeDept || "—",
+    department: user.departmentName || user.department || "—",
+    roles: user.roles || [],
+    enabled: user.enabled !== false
+  };
+}
+
 function customerOwnerAccountUsers() {
   const loadedUsers = state.systemUsers.length
     ? state.systemUsers
@@ -409,9 +423,10 @@ function customerOwnerAccountUsers() {
       name: user.displayName || user.name || user.username || user.account || "",
       departmentCode: user.departmentCode || "",
       departmentName: user.departmentName || user.department || "",
-      roles: user.roles || []
+      roles: user.roles || [],
+      enabled: user.enabled !== false
     }))
-    .filter(user => user.name && user.name !== "公海" && user.name !== "白板")
+    .filter(user => user.enabled !== false && user.name && user.name !== "公海" && user.name !== "白板")
     .filter((user, index, users) => users.findIndex(item => item.id === user.id || item.name === user.name) === index);
 }
 
@@ -1053,7 +1068,7 @@ async function hydrateFromApi() {
     state.messageTemplates = templateData.length ? templateData.map(normalizeMessageTemplate) : defaultMessageTemplates;
     state.notificationRead = Object.fromEntries(notificationReadData.map(id => [id, true]));
     state.callReviews = callReviewData;
-    state.systemUsers = systemUserData.map(user => ({ id: user.id, account: user.username, name: user.displayName || user.username, gender: user.gender || "—", phone: user.phone || "—", storeDept: user.departmentName || "—", department: user.departmentName || "—", roles: user.roles || [] }));
+    state.systemUsers = systemUserData.map(normalizeSystemUser);
     invitations = invitationData.map(normalizeInvitation);
     ledgerAccounts = ledgerData.map(normalizeLedger);
     localStorage.setItem("youai.crm.notificationRead", JSON.stringify(state.notificationRead));
@@ -1467,7 +1482,7 @@ function exportFollowUpRecords() {
 }
 
 function taskRow(task) {
-  return `<li class="task-row ${task.done ? "done" : ""}" data-task-id="${task.id}"><button class="task-check" type="button" aria-label="${task.done ? "标记未完成" : "标记完成"}">${icon("check")}</button><div><div class="task-name">${task.title}</div><div class="task-meta">${task.customer} · ${task.type} · ${task.owner}</div></div><span class="task-due ${task.status === "overdue" ? "overdue" : ""}">${icon("clock")}${task.due}</span></li>`;
+  return `<li class="task-row ${task.done ? "done" : ""}" data-task-id="${escapeHtml(task.id)}"><button class="task-check" type="button" aria-label="${task.done ? "标记未完成" : "标记完成"}">${icon("check")}</button><div><div class="task-name">${escapeHtml(task.title)}</div><div class="task-meta">${escapeHtml(task.customer)} · ${escapeHtml(task.type)} · ${escapeHtml(task.owner)}</div></div><span class="task-due ${task.status === "overdue" ? "overdue" : ""}">${icon("clock")}${escapeHtml(task.due)}</span></li>`;
 }
 
 function taskDateKey(task) {
@@ -1494,7 +1509,7 @@ function calendarView() {
     const key = calendarDateKey(date);
     const inMonth = date.getMonth() === month;
     const dayTasks = tasks.filter(task => taskDateKey(task) === key);
-    return `<div class="calendar-day ${inMonth ? "" : "outside"} ${key === todayKey ? "today" : ""}"><div class="calendar-day-header"><span>${date.getDate()}</span>${dayTasks.length ? `<small>${dayTasks.length} 项</small>` : ""}</div><div class="calendar-events">${dayTasks.map(task => `<button class="calendar-event ${task.done ? "completed" : ""}" type="button" data-task-card="${task.id}" title="${escapeHtml(task.title)}"><span class="calendar-event-dot"></span><span>${escapeHtml(task.title)}</span></button>`).join("")}</div></div>`;
+    return `<div class="calendar-day ${inMonth ? "" : "outside"} ${key === todayKey ? "today" : ""}"><div class="calendar-day-header"><span>${date.getDate()}</span>${dayTasks.length ? `<small>${dayTasks.length} 项</small>` : ""}</div><div class="calendar-events">${dayTasks.map(task => `<button class="calendar-event ${task.done ? "completed" : ""}" type="button" data-task-card="${escapeHtml(task.id)}" title="${escapeHtml(task.title)}"><span class="calendar-event-dot"></span><span>${escapeHtml(task.title)}</span></button>`).join("")}</div></div>`;
   }).join("");
   const monthLabel = `${year} 年 ${month + 1} 月`;
   return `<section class="data-panel calendar-panel"><div class="data-toolbar calendar-toolbar"><div class="panel-title"><h2>${monthLabel}</h2><span>按任务截止时间查看安排</span></div><div class="calendar-controls"><button class="icon-button" type="button" data-calendar-shift="-1" aria-label="上个月">${icon("chevron-left")}</button><button class="button secondary" type="button" data-calendar-today>今天</button><button class="icon-button" type="button" data-calendar-shift="1" aria-label="下个月">${icon("chevron-right")}</button></div></div><div class="calendar-weekdays">${["周一", "周二", "周三", "周四", "周五", "周六", "周日"].map(day => `<span>${day}</span>`).join("")}</div><div class="calendar-grid">${cells}</div></section>`;
@@ -2491,7 +2506,7 @@ function tasksView() {
     ? calendarView()
     : state.taskMode === "activity"
       ? followUpRecordsView()
-    : `<div class="kanban">${columns.map(column => { const items = tasks.filter(task => task.status === column.key); return `<section class="kanban-column"><header class="kanban-header"><span class="kanban-title"><i class="kanban-dot"></i>${column.title}</span><span class="kanban-count">${items.length}</span></header>${items.map(task => `<article class="kanban-card" data-task-card="${task.id}"><span class="pill ${task.priority === "逾期" ? "red" : task.priority === "高" || task.priority === "紧急" ? "amber" : task.done ? "green" : "gray"}">${task.priority}</span><h3>${task.title}</h3><p>${task.customer} · ${task.type}</p><footer class="kanban-card-footer"><span>${icon("clock")}${task.due}</span><span class="person-avatar">${task.owner[0]}</span></footer></article>`).join("") || `<div class="empty-state" style="padding:35px 8px">暂无任务</div>`}</section>`; }).join("")}</div>`;
+    : `<div class="kanban">${columns.map(column => { const items = tasks.filter(task => task.status === column.key); return `<section class="kanban-column"><header class="kanban-header"><span class="kanban-title"><i class="kanban-dot"></i>${column.title}</span><span class="kanban-count">${items.length}</span></header>${items.map(task => `<article class="kanban-card" data-task-card="${escapeHtml(task.id)}"><span class="pill ${task.priority === "逾期" ? "red" : task.priority === "高" || task.priority === "紧急" ? "amber" : task.done ? "green" : "gray"}">${escapeHtml(task.priority)}</span><h3>${escapeHtml(task.title)}</h3><p>${escapeHtml(task.customer)} · ${escapeHtml(task.type)}</p><footer class="kanban-card-footer"><span>${icon("clock")}${escapeHtml(task.due)}</span><span class="person-avatar">${escapeHtml(task.owner?.[0] || "")}</span></footer></article>`).join("") || `<div class="empty-state" style="padding:35px 8px">暂无任务</div>`}</section>`; }).join("")}</div>`;
   const active = state.taskMode === "calendar" ? "日历视图" : state.taskMode === "activity" ? "跟进记录" : "任务看板";
   return `<section class="page">
     ${subnav(["任务看板", "日历视图", "跟进记录"], active, ["任务看板", "日历视图", "跟进记录"])}
@@ -2525,7 +2540,7 @@ function callTasksView() {
   return `<section class="page">${callNav("通话任务")}<div class="page-content">
     ${pageHeading(`<button class="button secondary" id="exportCallTasks" type="button">${icon("download")}导出任务</button><button class="button primary" id="newCallTask" type="button">${icon("plus")}新建通话任务</button>`)}
     <section class="metric-grid">${metric("通话任务", String(phoneTasks.length), "项", "实时", "blue", "task")}${metric("待处理", String(phoneTasks.filter(task => !task.done).length), "项", "实时", "amber", "clock")}${metric("已完成", String(phoneTasks.filter(task => task.done).length), "项", "实时", "green", "check")}</section>
-    <section class="data-panel"><div class="data-toolbar"><div class="data-tabs"><button class="data-tab ${state.callTaskFilter === "all" ? "active" : ""}" data-call-task-filter="all">全部任务</button><button class="data-tab ${state.callTaskFilter === "pending" ? "active" : ""}" data-call-task-filter="pending">待处理</button><button class="data-tab ${state.callTaskFilter === "done" ? "active" : ""}" data-call-task-filter="done">已完成</button></div><span class="pill gray">${phoneTasks.length} 项电话跟进</span></div><div class="table-wrap">${phoneTasks.length ? `<table class="data-table"><thead><tr><th>任务</th><th>客户</th><th>负责人</th><th>截止时间</th><th>优先级</th><th>状态</th><th>操作</th></tr></thead><tbody>${phoneTasks.map(task => `<tr data-task-id="${task.id}"><td><div class="task-name">${escapeHtml(task.title)}</div></td><td>${escapeHtml(task.customer)}</td><td>${escapeHtml(task.owner)}</td><td>${escapeHtml(task.due)}</td><td><span class="pill ${task.priority === "紧急" ? "red" : task.priority === "高" ? "amber" : "gray"}">${escapeHtml(task.priority)}</span></td><td><span class="pill ${task.done ? "green" : task.status === "overdue" ? "red" : "blue"}">${task.done ? "已完成" : task.status === "overdue" ? "已逾期" : "待处理"}</span></td><td><div class="table-actions"><button class="task-check" type="button" aria-label="${task.done ? "标记未完成" : "标记完成"}">${icon("check")}</button><button class="button ghost" type="button" data-task-card="${task.id}">编辑</button></div></td></tr>`).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("phone")}</span><strong>暂无通话任务</strong><p>新建电话跟进任务后，会在这里统一安排和完成。</p><button class="button primary" type="button" id="newCallTaskEmpty">${icon("plus")}新建通话任务</button></div>`}</div></section>
+    <section class="data-panel"><div class="data-toolbar"><div class="data-tabs"><button class="data-tab ${state.callTaskFilter === "all" ? "active" : ""}" data-call-task-filter="all">全部任务</button><button class="data-tab ${state.callTaskFilter === "pending" ? "active" : ""}" data-call-task-filter="pending">待处理</button><button class="data-tab ${state.callTaskFilter === "done" ? "active" : ""}" data-call-task-filter="done">已完成</button></div><span class="pill gray">${phoneTasks.length} 项电话跟进</span></div><div class="table-wrap">${phoneTasks.length ? `<table class="data-table"><thead><tr><th>任务</th><th>客户</th><th>负责人</th><th>截止时间</th><th>优先级</th><th>状态</th><th>操作</th></tr></thead><tbody>${phoneTasks.map(task => `<tr data-task-id="${escapeHtml(task.id)}"><td><div class="task-name">${escapeHtml(task.title)}</div></td><td>${escapeHtml(task.customer)}</td><td>${escapeHtml(task.owner)}</td><td>${escapeHtml(task.due)}</td><td><span class="pill ${task.priority === "紧急" ? "red" : task.priority === "高" ? "amber" : "gray"}">${escapeHtml(task.priority)}</span></td><td><span class="pill ${task.done ? "green" : task.status === "overdue" ? "red" : "blue"}">${task.done ? "已完成" : task.status === "overdue" ? "已逾期" : "待处理"}</span></td><td><div class="table-actions"><button class="task-check" type="button" aria-label="${task.done ? "标记未完成" : "标记完成"}">${icon("check")}</button><button class="button ghost" type="button" data-task-card="${escapeHtml(task.id)}">编辑</button></div></td></tr>`).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("phone")}</span><strong>暂无通话任务</strong><p>新建电话跟进任务后，会在这里统一安排和完成。</p><button class="button primary" type="button" id="newCallTaskEmpty">${icon("plus")}新建通话任务</button></div>`}</div></section>
   </div></section>`;
 }
 
@@ -2596,7 +2611,7 @@ function customerMessagesInteractiveView(active, messages) {
   });
   return `<section class="page compact-message-page">${subnav(["消息管理", "短信记录"], "消息管理", ["消息管理", "短信记录"])}<div class="page-content compact-message-content">
     ${pageHeading(`<button class="button secondary" id="markAllRead" type="button">${icon("check")}全部已读</button><button class="button primary" id="newConversation" type="button">${icon("plus")}新建会话</button>`)}
-    <section class="message-layout"><aside class="conversation-list"><div class="conversation-search"><label class="global-search">${icon("search")}<input id="conversationSearch" placeholder="搜索会话"></label></div><article class="conversation-item system-conversation ${systemActive ? "active" : ""}" data-system-message-channel><span class="system-message-avatar">${icon("bell")}</span><div class="conversation-copy"><strong>系统消息</strong><span>${reminders.length ? `您有 ${reminders.length} 条跟进提醒` : "暂无跟进提醒"}</span></div><div class="conversation-meta">${unreadReminders.length ? `<span class="unread">${unreadReminders.length}</span>` : ""}</div></article>${conversations.map(conversation => `<article class="conversation-item ${!systemActive && conversation.id === active?.id ? "active" : ""}" data-conversation="${conversation.id}"><span class="person-avatar">${escapeHtml(conversation.name?.[0] || "客")}</span><div class="conversation-copy"><strong>${escapeHtml(conversation.name)}</strong><span>${escapeHtml(conversation.preview || "")}</span></div><div class="conversation-meta"><time>${escapeHtml(conversation.time || "")}</time>${conversation.unread ? `<span class="unread">${conversation.unread}</span>` : ""}</div></article>`).join("")}</aside><div class="chat-pane">${systemActive ? systemMessageThreadView(reminders) : active ? `<header class="chat-header"><h2>${escapeHtml(active.name)}</h2><p>${escapeHtml(active.company || "")}</p></header><div class="messages" id="messageThread">${messages.map(message => `<div class="message ${message.outgoing ? "outgoing" : ""}"><span class="person-avatar">${escapeHtml(message.sender?.[0] || "客")}</span><div class="message-bubble">${escapeHtml(message.content)}<time>${escapeHtml(message.time || "")}</time></div></div>`).join("") || `<div class="empty-state">暂无消息，发送第一条消息开始沟通</div>`}</div><form class="composer" id="messageForm"><textarea id="messageInput" placeholder="输入消息内容，Enter 发送"></textarea><button class="button primary" type="submit">发送</button></form>` : `<div class="empty-state">还没有会话</div>`}</div></section></div></section>`;
+    <section class="message-layout"><aside class="conversation-list"><div class="conversation-search"><label class="global-search">${icon("search")}<input id="conversationSearch" placeholder="搜索会话"></label></div><article class="conversation-item system-conversation ${systemActive ? "active" : ""}" data-system-message-channel><span class="system-message-avatar">${icon("bell")}</span><div class="conversation-copy"><strong>系统消息</strong><span>${reminders.length ? `您有 ${reminders.length} 条跟进提醒` : "暂无跟进提醒"}</span></div><div class="conversation-meta">${unreadReminders.length ? `<span class="unread">${unreadReminders.length}</span>` : ""}</div></article>${conversations.map(conversation => `<article class="conversation-item ${!systemActive && conversation.id === active?.id ? "active" : ""}" data-conversation="${escapeHtml(conversation.id)}"><span class="person-avatar">${escapeHtml(conversation.name?.[0] || "客")}</span><div class="conversation-copy"><strong>${escapeHtml(conversation.name)}</strong><span>${escapeHtml(conversation.preview || "")}</span></div><div class="conversation-meta"><time>${escapeHtml(conversation.time || "")}</time>${conversation.unread ? `<span class="unread">${conversation.unread}</span>` : ""}</div></article>`).join("")}</aside><div class="chat-pane">${systemActive ? systemMessageThreadView(reminders) : active ? `<header class="chat-header"><h2>${escapeHtml(active.name)}</h2><p>${escapeHtml(active.company || "")}</p></header><div class="messages" id="messageThread">${messages.map(message => `<div class="message ${message.outgoing ? "outgoing" : ""}"><span class="person-avatar">${escapeHtml(message.sender?.[0] || "客")}</span><div class="message-bubble">${escapeHtml(message.content)}<time>${escapeHtml(message.time || "")}</time></div></div>`).join("") || `<div class="empty-state">暂无消息，发送第一条消息开始沟通</div>`}</div><form class="composer" id="messageForm"><textarea id="messageInput" placeholder="输入消息内容，Enter 发送"></textarea><button class="button primary" type="submit">发送</button></form>` : `<div class="empty-state">还没有会话</div>`}</div></section></div></section>`;
 }
 
 function systemMessageThreadView(reminders) {
@@ -3188,7 +3203,21 @@ function systemView() {
   const active = sections.includes(state.systemSection) ? state.systemSection : sections[0];
   if (active === "用户管理") {
     const records = state.systemUsers;
-    const userRows = records.map(user => `<tr><td><input type="checkbox" aria-label="选择${user.name}"></td><td>${user.id}</td><td>${user.account}</td><td>${user.name}</td><td>${user.gender}</td><td>${user.phone}</td><td>${user.storeDept}</td><td>${user.department}</td><td><span class="pill green">正常</span></td><td class="system-user-operation-cell"><div class="system-user-row-actions"><button class="table-link" type="button" data-edit-system-user="${user.id}">编辑</button><div class="system-user-more"><button class="table-link table-more-link" type="button" data-system-user-more-toggle="${user.id}" aria-expanded="false">更多<span class="dropdown-chevron"></span></button><div class="system-user-more-menu" data-system-user-more-menu="${user.id}" hidden><button type="button" data-system-user-more-action="detail" data-system-user-id="${user.id}">详情</button><button type="button" data-system-user-more-action="password" data-system-user-id="${user.id}">密码</button><button type="button" data-system-user-more-action="delete" data-system-user-id="${user.id}">删除</button><button type="button" data-system-user-more-action="freeze" data-system-user-id="${user.id}">冻结</button><button type="button" data-system-user-more-action="leave-inherit" data-system-user-id="${user.id}">离职继承</button></div></div></div></td></tr>`).join("");
+    const userRows = records.map(user => {
+      const frozen = user.enabled === false;
+      const administrator = customerOwnerIsAdminUser(user);
+      const statusAction = frozen ? "unfreeze" : "freeze";
+      const statusLabel = frozen ? "解冻" : "冻结";
+      const statusTitle = administrator ? "管理员账号不能冻结" : "";
+      const safeId = escapeHtml(user.id);
+      const safeAccount = escapeHtml(user.account);
+      const safeName = escapeHtml(user.name);
+      const safeGender = escapeHtml(user.gender);
+      const safePhone = escapeHtml(user.phone);
+      const safeStoreDept = escapeHtml(user.storeDept);
+      const safeDepartment = escapeHtml(user.department);
+      return `<tr><td><input type="checkbox" aria-label="选择${safeName}"></td><td>${safeId}</td><td>${safeAccount}</td><td>${safeName}</td><td>${safeGender}</td><td>${safePhone}</td><td>${safeStoreDept}</td><td>${safeDepartment}</td><td><span class="pill ${frozen ? "red" : "green"}">${frozen ? "已冻结" : "正常"}</span></td><td class="system-user-operation-cell"><div class="system-user-row-actions"><button class="table-link" type="button" data-edit-system-user="${safeId}">编辑</button><div class="system-user-more"><button class="table-link table-more-link" type="button" data-system-user-more-toggle="${safeId}" aria-expanded="false">更多<span class="dropdown-chevron"></span></button><div class="system-user-more-menu" data-system-user-more-menu="${safeId}" hidden><button type="button" data-system-user-more-action="detail" data-system-user-id="${safeId}">详情</button><button type="button" data-system-user-more-action="password" data-system-user-id="${safeId}">密码</button><button type="button" data-system-user-more-action="delete" data-system-user-id="${safeId}">删除</button><button type="button" data-system-user-more-action="${statusAction}" data-system-user-id="${safeId}" ${administrator ? `disabled title="${escapeHtml(statusTitle)}"` : ""}>${statusLabel}</button><button type="button" data-system-user-more-action="leave-inherit" data-system-user-id="${safeId}">离职继承</button></div></div></div></td></tr>`;
+    }).join("");
     return `<section class="page system-user-reference">${subnav(sections, active, sections)}<div class="system-user-content"><section class="system-user-filter"><div class="system-user-filter-row"><label>姓名：<input placeholder="输入姓名模糊查询"></label><label>门店：<select><option>请选择门店</option></select></label><label>部门：<select><option>请选择部门</option></select></label></div><div class="system-user-actions"><button class="button primary" type="button">${icon("search")}查询</button><button class="button primary" type="button">${icon("repeat")}重置</button><button class="text-button dropdown-trigger" type="button">展开<span class="dropdown-chevron"></span></button></div><button class="button primary add-user-button" type="button" data-add-system-user>${icon("plus")}添加用户</button></section><section class="data-panel system-user-panel"><div class="selected-user-bar">已选择 <strong>0</strong> 项　<a>清空</a></div><div class="table-wrap"><table class="data-table system-user-table"><thead><tr><th><input type="checkbox" aria-label="全选"></th><th>ID</th><th>账号</th><th>姓名</th><th>性别</th><th>手机号码</th><th>门店-部门</th><th>负责部门</th><th>状态</th><th>操作</th></tr></thead><tbody>${userRows}</tbody></table></div></section></div></section>`;
   }
   if (active === "菜单管理") {
@@ -3578,7 +3607,7 @@ function businessModalFields(type, record) {
         <div class="followup-next-task-group form-span-2"><label class="followup-next-task"><input name="createNextTask" type="checkbox"><span class="followup-switch" aria-hidden="true"></span><span class="followup-next-copy"><strong>创建下次跟进任务</strong></span></label><div class="followup-next-fields is-collapsed"><label><span>下次跟进时间</span><input name="nextDueAt" type="datetime-local" value="${dueAt}"></label><label><span>跟进内容</span><input name="nextTitle" maxlength="2000" placeholder="请输入下次跟进内容"></label></div></div>
       </div>${businessModalFooter(false, "提交")}`;
     }
-    return `<input type="hidden" name="recordId" value="${record?.id || ""}"><div class="form-grid">
+    return `<input type="hidden" name="recordId" value="${escapeHtml(record?.id || "")}"><div class="form-grid">
       <label><span>类型 *</span><select name="type">${["电话跟进","发送资料","会议","合同","记录"].map(value => `<option ${value === record?.type ? "selected" : ""}>${value}</option>`).join("")}</select></label>
       <label><span>时间 *</span><input name="dueAt" type="datetime-local" required value="${dueAt}"></label>
       <label class="form-span-2"><span>模板</span><select><option>请选择模板</option><option>首次跟进</option><option>报价跟进</option><option>会议确认</option></select></label>
@@ -3591,7 +3620,7 @@ function businessModalFields(type, record) {
     </div>${businessModalFooter(Boolean(record), "提交")}`;
   }
   if (type === "order") {
-    return `<input type="hidden" name="recordId" value="${record?.id || ""}"><div class="form-grid">
+    return `<input type="hidden" name="recordId" value="${escapeHtml(record?.id || "")}"><div class="form-grid">
       <label><span>订单编号</span><input name="orderNo" maxlength="32" value="${escapeHtml(record?.id || "")}" ${record ? "readonly" : ""} placeholder="留空自动生成"></label>
       <label><span>客户 *</span><select name="customer" required>${customers.map(customer => `<option value="${escapeHtml(customer.name)}" ${customer.name === record?.customer ? "selected" : ""}>${escapeHtml(customer.name)} · ${escapeHtml(customer.company)}</option>`).join("")}</select></label>
       <label class="form-span-2"><span>商品 / 套餐 *</span><input name="product" required maxlength="128" value="${escapeHtml(record?.product || "")}" placeholder="例如：专业版 · 20 席位"></label>
@@ -3613,10 +3642,10 @@ function businessModalFields(type, record) {
   }
   if (type === "call") {
     const matched = customers.find(customer => customer.name === record?.name);
-    return `<div class="form-grid"><label><span>客户 *</span><select name="customerId" required>${customers.map(customer => `<option value="${customer.id}" ${customer.id === matched?.id ? "selected" : ""}>${escapeHtml(customer.name)} · ${escapeHtml(customer.phone)}</option>`).join("")}</select></label><label><span>呼叫结果 *</span><select name="status"><option>已接通</option><option>未接通</option><option>待回拨</option></select></label><label><span>通话时长（秒）</span><input name="durationSeconds" type="number" min="0" value="0"></label><label><span>方向</span><select name="direction"><option>呼出</option><option>呼入</option></select></label><label class="form-span-2"><span>沟通备注</span><textarea name="note" rows="4" placeholder="记录本次沟通结果和下一步安排"></textarea></label></div>${businessModalFooter(false, "保存通话记录")}`;
+    return `<div class="form-grid"><label><span>客户 *</span><select name="customerId" required>${customers.map(customer => `<option value="${escapeHtml(customer.id)}" ${customer.id === matched?.id ? "selected" : ""}>${escapeHtml(customer.name)} · ${escapeHtml(customer.phone)}</option>`).join("")}</select></label><label><span>呼叫结果 *</span><select name="status"><option>已接通</option><option>未接通</option><option>待回拨</option></select></label><label><span>通话时长（秒）</span><input name="durationSeconds" type="number" min="0" value="0"></label><label><span>方向</span><select name="direction"><option>呼出</option><option>呼入</option></select></label><label class="form-span-2"><span>沟通备注</span><textarea name="note" rows="4" placeholder="记录本次沟通结果和下一步安排"></textarea></label></div>${businessModalFooter(false, "保存通话记录")}`;
   }
   if (type === "conversation") {
-    return `<div class="form-grid"><label class="form-span-2"><span>选择客户 *</span><select name="customerId" required>${customers.map(customer => `<option value="${customer.id}">${escapeHtml(customer.name)} · ${escapeHtml(customer.company)}</option>`).join("")}</select></label></div>${businessModalFooter(false, "创建会话")}`;
+    return `<div class="form-grid"><label class="form-span-2"><span>选择客户 *</span><select name="customerId" required>${customers.map(customer => `<option value="${escapeHtml(customer.id)}">${escapeHtml(customer.name)} · ${escapeHtml(customer.company)}</option>`).join("")}</select></label></div>${businessModalFooter(false, "创建会话")}`;
   }
   if (type === "profile") {
     const user = state.auth.user || {};
@@ -3819,6 +3848,63 @@ function closeSystemUserPasswordModal() {
   document.body.style.overflow = "";
 }
 
+function closeSystemUserFreezeConfirm() {
+  const confirm = document.querySelector("[data-system-user-freeze-confirm]");
+  if (!confirm) return;
+  confirm.remove();
+}
+
+function openSystemUserStatusConfirm(user, trigger, action = "freeze") {
+  const isUnfreeze = action === "unfreeze";
+  closeSystemUserFreezeConfirm();
+  const confirm = document.createElement("div");
+  confirm.className = "system-user-freeze-confirm";
+  confirm.dataset.systemUserFreezeConfirm = "true";
+  confirm.setAttribute("role", "dialog");
+  confirm.setAttribute("aria-label", `${isUnfreeze ? "解冻" : "冻结"}用户确认`);
+  confirm.innerHTML = `<p><span class="system-user-confirm-icon" aria-hidden="true">!</span><span>确定${isUnfreeze ? "解冻" : "冻结"}吗?</span></p><div><button type="button" class="button secondary" data-system-user-freeze-cancel>取消</button><button type="button" class="button primary" data-system-user-freeze-confirm-action>确定</button></div>`;
+  document.body.append(confirm);
+
+  const triggerRect = trigger.getBoundingClientRect();
+  const confirmRect = confirm.getBoundingClientRect();
+  const left = Math.min(
+    Math.max(8, triggerRect.right - confirmRect.width),
+    window.innerWidth - confirmRect.width - 8
+  );
+  const top = triggerRect.bottom + 8;
+  confirm.style.left = `${Math.round(left)}px`;
+  confirm.style.top = `${Math.round(top)}px`;
+
+  const close = () => {
+    document.removeEventListener("mousedown", handleOutsideClick, true);
+    document.removeEventListener("keydown", handleEscape);
+    closeSystemUserFreezeConfirm();
+  };
+  const handleOutsideClick = event => {
+    if (!confirm.contains(event.target) && event.target !== trigger) close();
+  };
+  const handleEscape = event => { if (event.key === "Escape") close(); };
+  confirm.querySelector("[data-system-user-freeze-cancel]").addEventListener("click", close);
+  confirm.querySelector("[data-system-user-freeze-confirm-action]").addEventListener("click", async () => {
+    const buttons = confirm.querySelectorAll("button");
+    buttons.forEach(button => { button.disabled = true; });
+    try {
+      const saved = normalizeSystemUser(await apiRequest(`/auth/users/${encodeURIComponent(user.id)}/${isUnfreeze ? "unfreeze" : "freeze"}`, { method: "PATCH" }));
+      const index = state.systemUsers.findIndex(item => String(item.id) === String(saved.id));
+      if (index >= 0) state.systemUsers[index] = saved;
+      close();
+      render();
+      toast(`${isUnfreeze ? "已解冻" : "已冻结"}“${saved.name || saved.account}”${isUnfreeze ? "，现在可以重新登录" : "，该账号的登录已失效"}`);
+    } catch (error) {
+      toast(`${isUnfreeze ? "解冻" : "冻结"}失败：${error.message}`, "error");
+      buttons.forEach(button => { button.disabled = false; });
+    }
+  });
+  document.addEventListener("mousedown", handleOutsideClick, true);
+  document.addEventListener("keydown", handleEscape);
+  confirm.querySelector("[data-system-user-freeze-cancel]")?.focus();
+}
+
 function openSystemUserPasswordReset(user) {
   closeSystemUserPasswordModal();
   const backdrop = document.createElement("div");
@@ -3901,7 +3987,7 @@ function openSystemUserCreator() {
     submit.disabled = true;
     try {
       const user = await apiRequest("/auth/users", { method: "POST", body: JSON.stringify({ username: data.username, password: data.password, displayName: data.displayName, phone: data.phone }) });
-      state.systemUsers.push({ id: user.id, account: user.username, name: user.displayName || user.username, gender: data.gender || "—", phone: user.phone || "—", storeDept: user.departmentName || "—", department: user.departmentName || "—", roles: user.roles || [] });
+      state.systemUsers.push(normalizeSystemUser({ ...user, gender: data.gender }));
       state.systemUsers.sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-CN"));
       closeDrawer();
       render();
@@ -4777,11 +4863,16 @@ function bindViewEvents() {
     event.stopPropagation();
     const user = state.systemUsers.find(item => String(item.id) === String(button.dataset.systemUserId));
     if (!user) return;
+    const moreToggle = button.closest(".system-user-more")?.querySelector("[data-system-user-more-toggle]") || button;
     const labels = { detail: "详情", password: "密码", delete: "删除", freeze: "冻结", "leave-inherit": "离职继承" };
     document.querySelectorAll("[data-system-user-more-menu]").forEach(item => { item.hidden = true; });
     document.querySelectorAll("[data-system-user-more-toggle]").forEach(item => item.setAttribute("aria-expanded", "false"));
     if (button.dataset.systemUserMoreAction === "detail") { openSystemUserEditor(user.id); return; }
     if (button.dataset.systemUserMoreAction === "password") { openSystemUserPasswordReset(user); return; }
+    if (["freeze", "unfreeze"].includes(button.dataset.systemUserMoreAction)) {
+      openSystemUserStatusConfirm(user, moreToggle, button.dataset.systemUserMoreAction);
+      return;
+    }
     toast(`${labels[button.dataset.systemUserMoreAction] || "操作"}功能已打开`);
   }));
   document.querySelectorAll("[data-add-system-user]").forEach(button => button.addEventListener("click", openSystemUserCreator));

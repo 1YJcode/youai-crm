@@ -128,6 +128,42 @@ public class AuthService {
     }
 
     @Transactional
+    public UserResponse freezeEmployee(Authentication authentication, Long id) {
+        requireAdmin(authentication);
+        CrmUser user = userRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("员工用户不存在"));
+        boolean administrator = user.getRoles().stream()
+                .anyMatch(role -> "ADMIN".equals(role.getCode()));
+        if (administrator) {
+            throw new IllegalArgumentException("管理员账号不能冻结");
+        }
+        if (user.isEnabled()) {
+            user.setEnabled(false);
+            user.setCredentialVersion(user.getCredentialVersion() + 1);
+            userRepository.save(user);
+            SECURITY_AUDIT.info("event=employee_frozen operator={} target={}",
+                    auditValue(authentication.getName()), auditValue(user.getUsername()));
+        }
+        return UserResponse.from(user);
+    }
+
+    @Transactional
+    public UserResponse unfreezeEmployee(Authentication authentication, Long id) {
+        requireAdmin(authentication);
+        CrmUser user = userRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("员工用户不存在"));
+        if (!user.isEnabled()) {
+            user.setEnabled(true);
+            // Keep every token issued before the status transition invalid.
+            user.setCredentialVersion(user.getCredentialVersion() + 1);
+            userRepository.save(user);
+            SECURITY_AUDIT.info("event=employee_unfrozen operator={} target={}",
+                    auditValue(authentication.getName()), auditValue(user.getUsername()));
+        }
+        return UserResponse.from(user);
+    }
+
+    @Transactional
     public void logout(Authentication authentication) {
         CrmPrincipal currentPrincipal = principal(authentication);
         CrmUser user = userRepository.findById(currentPrincipal.getUser().getId())
@@ -140,7 +176,7 @@ public class AuthService {
     @Transactional(readOnly = true)
     public List<UserResponse> users(Authentication authentication) {
         requireAdmin(authentication);
-        return userRepository.findAllByEnabledTrueOrderByDisplayNameAsc().stream()
+        return userRepository.findAllByOrderByDisplayNameAsc().stream()
                 .map(UserResponse::from)
                 .toList();
     }

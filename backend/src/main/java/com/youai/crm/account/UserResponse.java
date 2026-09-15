@@ -9,7 +9,8 @@ public record UserResponse(
         String phone,
         String departmentCode,
         String departmentName,
-        List<String> roles) {
+        List<String> roles,
+        boolean enabled) {
 
     public static UserResponse from(CrmUser user) {
         return new UserResponse(
@@ -19,7 +20,8 @@ public record UserResponse(
                 user.getPhone(),
                 user.getDepartment().getCode(),
                 user.getDepartment().getName(),
-                user.getRoles().stream().map(Role::getCode).sorted().toList());
+                user.getRoles().stream().map(Role::getCode).sorted().toList(),
+                user.isEnabled());
     }
 }
 

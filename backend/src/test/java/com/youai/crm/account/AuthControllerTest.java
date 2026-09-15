@@ -125,4 +125,51 @@ class AuthControllerTest {
                         .content("{\"username\":\"credentialreset\",\"password\":\"Changed123\"}"))
                 .andExpect(status().isOk());
     }
+
+    @Test
+    void administratorCanFreezeEmployeeAndInvalidateExistingToken() throws Exception {
+        String registration = mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"freezetest\",\"password\":\"Password123\",\"displayName\":\"冻结测试\",\"phone\":\"13800138003\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String employeeToken = JsonPath.read(registration, "$.accessToken");
+        Number employeeId = JsonPath.read(registration, "$.user.id");
+
+        String adminLogin = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"admin\",\"password\":\"Admin@123\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String adminToken = JsonPath.read(adminLogin, "$.accessToken");
+
+        mockMvc.perform(patch("/api/auth/users/{id}/freeze", employeeId.longValue())
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(false));
+
+        mockMvc.perform(get("/api/auth/me")
+                        .header("Authorization", "Bearer " + employeeToken))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"freezetest\",\"password\":\"Password123\"}"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/auth/users")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.username == 'freezetest')].enabled").value(false));
+
+        mockMvc.perform(patch("/api/auth/users/{id}/unfreeze", employeeId.longValue())
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(true));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"freezetest\",\"password\":\"Password123\"}"))
+                .andExpect(status().isOk());
+    }
 }

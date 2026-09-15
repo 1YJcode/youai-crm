@@ -64,6 +64,20 @@ public class AuthController {
         return service.resetEmployeePassword(authentication, id, request);
     }
 
+    @PatchMapping("/users/{id}/freeze")
+    public UserResponse freezeEmployee(
+            Authentication authentication,
+            @PathVariable Long id) {
+        return service.freezeEmployee(authentication, id);
+    }
+
+    @PatchMapping("/users/{id}/unfreeze")
+    public UserResponse unfreezeEmployee(
+            Authentication authentication,
+            @PathVariable Long id) {
+        return service.unfreezeEmployee(authentication, id);
+    }
+
     @PostMapping("/switch")
     public AuthResponse switchAccount(
             Authentication authentication,

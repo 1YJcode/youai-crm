@@ -75,6 +75,17 @@ public class UserDataSeeder {
             Department department,
             Set<Role> roles,
             PasswordEncoder passwordEncoder) {
+        // A legacy or intentionally frozen account may already exist under the
+        // requested username. Do not try to insert it again (the username is
+        // unique), and never re-enable it as a side effect of startup seeding.
+        CrmUser existingByUsername = repository.findByUsernameIgnoreCase(username).orElse(null);
+        if (existingByUsername != null) {
+            if (!displayName.equals(existingByUsername.getDisplayName())) {
+                existingByUsername.setDisplayName(displayName);
+                repository.save(existingByUsername);
+            }
+            return;
+        }
         boolean exists = repository.findAllByEnabledTrueOrderByDisplayNameAsc().stream()
                 .anyMatch(existing -> displayName.equals(existing.getDisplayName()));
         if (!exists) {

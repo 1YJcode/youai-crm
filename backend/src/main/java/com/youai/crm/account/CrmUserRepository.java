@@ -13,5 +13,8 @@ public interface CrmUserRepository extends JpaRepository<CrmUser, Long> {
 
     @EntityGraph(attributePaths = {"department", "roles"})
     List<CrmUser> findAllByEnabledTrueOrderByDisplayNameAsc();
+
+    @EntityGraph(attributePaths = {"department", "roles"})
+    List<CrmUser> findAllByOrderByDisplayNameAsc();
 }
 
