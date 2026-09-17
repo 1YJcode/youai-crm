@@ -65,7 +65,8 @@ class CommunicationControllerTest {
 
         mockMvc.perform(get("/api/calls").param("status", "待回拨"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].status").value("待回拨"));
+                .andExpect(jsonPath("$.content[0].status").value("待回拨"))
+                .andExpect(jsonPath("$.totalElements").isNumber());
     }
 
     @Test

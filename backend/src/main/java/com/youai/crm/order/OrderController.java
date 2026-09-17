@@ -1,7 +1,5 @@
 package com.youai.crm.order;
 
-import java.util.List;
-
 import java.math.BigDecimal;
 import java.util.Map;
 
@@ -18,6 +16,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.core.Authentication;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 
 @RestController
 @RequestMapping("/api/orders")
@@ -30,12 +31,13 @@ public class OrderController {
     }
 
     @GetMapping
-    public List<OrderResponse> list(
+    public Page<OrderResponse> list(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String paymentStatus,
             @RequestParam(required = false) String serviceStatus,
+            @PageableDefault(size = 20) Pageable pageable,
             Authentication authentication) {
-        return service.list(keyword, paymentStatus, serviceStatus, authentication);
+        return service.list(keyword, paymentStatus, serviceStatus, pageable, authentication);
     }
 
     @GetMapping("/{orderNo}")

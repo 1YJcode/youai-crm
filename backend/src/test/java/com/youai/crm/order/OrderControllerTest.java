@@ -36,7 +36,8 @@ class OrderControllerTest {
 
         mockMvc.perform(get("/api/orders").param("keyword", "SO-TEST-001"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value("SO-TEST-001"));
+                .andExpect(jsonPath("$.content[0].id").value("SO-TEST-001"))
+                .andExpect(jsonPath("$.totalElements").value(1));
 
         mockMvc.perform(patch("/api/orders/SO-TEST-001/payment")
                         .contentType(MediaType.APPLICATION_JSON)

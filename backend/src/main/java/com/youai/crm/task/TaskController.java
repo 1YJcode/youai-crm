@@ -1,6 +1,5 @@
 package com.youai.crm.task;
 
-import java.util.List;
 import java.util.Map;
 
 import jakarta.validation.Valid;
@@ -17,6 +16,9 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.core.Authentication;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 
 @RestController
 @RequestMapping("/api/tasks")
@@ -29,12 +31,13 @@ public class TaskController {
     }
 
     @GetMapping
-    public List<TaskResponse> list(
+    public Page<TaskResponse> list(
             @RequestParam(required = false) String owner,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Boolean completed,
+            @PageableDefault(size = 20) Pageable pageable,
             Authentication authentication) {
-        return service.list(owner, status, completed, authentication);
+        return service.list(owner, status, completed, pageable, authentication);
     }
 
     @GetMapping("/{id}")

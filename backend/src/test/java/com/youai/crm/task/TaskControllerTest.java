@@ -31,7 +31,8 @@ class TaskControllerTest {
     void filtersTasksAndChangesCompletion() throws Exception {
         mockMvc.perform(get("/api/tasks").param("status", "today"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].status").value("today"));
+                .andExpect(jsonPath("$.content[0].status").value("today"))
+                .andExpect(jsonPath("$.totalElements").isNumber());
 
         mockMvc.perform(patch("/api/tasks/1/completion")
                         .contentType(MediaType.APPLICATION_JSON)

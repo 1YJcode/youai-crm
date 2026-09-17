@@ -30,7 +30,8 @@ class CustomerControllerTest {
     void listsSeededCustomers() throws Exception {
         mockMvc.perform(get("/api/customers"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].name").isNotEmpty());
+                .andExpect(jsonPath("$.content[0].name").isNotEmpty())
+                .andExpect(jsonPath("$.totalElements").isNumber());
     }
 
     @Test
@@ -111,7 +112,7 @@ class CustomerControllerTest {
     void salesOnlySeesOwnedCustomers() throws Exception {
         mockMvc.perform(get("/api/customers"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].owner").value(org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.equalTo("林夕"))));
+                .andExpect(jsonPath("$.content[*].owner").value(org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.equalTo("林夕"))));
     }
 
     @Test
@@ -119,8 +120,8 @@ class CustomerControllerTest {
     void adminCanFilterCustomersByOwner() throws Exception {
         mockMvc.perform(get("/api/customers").param("owner", "林夕"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isNotEmpty())
-                .andExpect(jsonPath("$[*].owner").value(org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.equalTo("林夕"))));
+                .andExpect(jsonPath("$.content").isNotEmpty())
+                .andExpect(jsonPath("$.content[*].owner").value(org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.equalTo("林夕"))));
     }
 
     @Test
@@ -254,9 +255,9 @@ class CustomerControllerTest {
 
         mockMvc.perform(get("/api/customers/pool").with(user("chenchen").roles("SALES")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.id == '%s')].phone".formatted(customerNo)).value("138****5555"))
-                .andExpect(jsonPath("$[?(@.id == '%s')].wechat".formatted(customerNo)).value("c****5"))
-                .andExpect(jsonPath("$[?(@.id == '%s')].contactVisible".formatted(customerNo)).value(false));
+                .andExpect(jsonPath("$.content[?(@.id == '%s')].phone".formatted(customerNo)).value("138****5555"))
+                .andExpect(jsonPath("$.content[?(@.id == '%s')].wechat".formatted(customerNo)).value("c****5"))
+                .andExpect(jsonPath("$.content[?(@.id == '%s')].contactVisible".formatted(customerNo)).value(false));
 
         mockMvc.perform(patch("/api/customers/{customerNo}/assignment", customerNo)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"owner\":\"林夕\"}"))

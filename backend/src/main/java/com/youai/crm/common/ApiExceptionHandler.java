@@ -13,6 +13,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import com.youai.crm.account.LoginRateLimitException;
+import com.youai.crm.account.AccountFrozenException;
+import com.youai.crm.account.AccountUnavailableException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -28,6 +30,16 @@ public class ApiExceptionHandler {
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<ApiError> handleAuthentication(AuthenticationException exception) {
         return response(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "用户名或密码错误", Map.of());
+    }
+
+    @ExceptionHandler(AccountUnavailableException.class)
+    public ResponseEntity<ApiError> handleAccountUnavailable(AccountUnavailableException exception) {
+        return response(HttpStatus.UNAUTHORIZED, "ACCOUNT_UNAVAILABLE", exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(AccountFrozenException.class)
+    public ResponseEntity<ApiError> handleAccountFrozen(AccountFrozenException exception) {
+        return response(HttpStatus.UNAUTHORIZED, "ACCOUNT_FROZEN", exception.getMessage(), Map.of());
     }
 
     @ExceptionHandler(NotFoundException.class)

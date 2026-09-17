@@ -45,6 +45,21 @@ class AuthControllerTest {
     }
 
     @Test
+    void logsInRegisteredAccountByPhone() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"phonelogintest\",\"password\":\"Password123\",\"displayName\":\"手机号登录测试\",\"phone\":\"13800138009\"}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/auth/login/phone")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phone\":\"13800138009\",\"password\":\"Password123\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.user.username").value("phonelogintest"));
+    }
+
+    @Test
     void rejectsProtectedRequestWithoutToken() throws Exception {
         mockMvc.perform(get("/api/auth/me"))
                 .andExpect(status().isUnauthorized());

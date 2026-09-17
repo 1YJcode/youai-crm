@@ -214,7 +214,10 @@ const state = {
   customerAdvancedDraftAvatar: "all",
   customerScope: "all",
   customerPage: 1,
+  poolCustomerPage: 1,
   customerPageSize: 20,
+  customerPageMeta: { page: 0, size: 20, totalElements: 0, totalPages: 1 },
+  poolCustomerPageMeta: { page: 0, size: 20, totalElements: 0, totalPages: 1 },
   customerSort: { key: "", direction: "" },
   customerHeaderModalOpen: false,
   customerVisibleColumns: [...defaultCustomerTableColumns],
@@ -266,12 +269,17 @@ const state = {
   quickFilter: "全部客户",
   taskFilter: "全部",
   taskMode: "board",
+  taskPage: 1,
+  taskPageSize: 20,
+  taskPageMeta: { page: 0, size: 20, totalElements: 0, totalPages: 1 },
   calendarDate: new Date(),
   orderKeyword: "",
   orderPaymentStatus: "全部状态",
   orderServiceStatus: "全部状态",
   orderSection: "订单列表",
   orderPage: 1,
+  orderPageSize: 10,
+  orderPageMeta: { page: 0, size: 10, totalElements: 0, totalPages: 1 },
   orderRefunds: JSON.parse(localStorage.getItem("youai.crm.orderRefunds") || "[]"),
   systemSection: "用户管理",
   systemUsers: [],
@@ -285,10 +293,14 @@ const state = {
   callSection: "通话记录",
   callTaskFilter: "all",
   callAgentFilter: "全部坐席",
+  callPage: 1,
+  callPageSize: 20,
+  callPageMeta: { page: 0, size: 20, totalElements: 0, totalPages: 1 },
   callReviews: JSON.parse(localStorage.getItem("youai.crm.callReviews") || "{}"),
   messageSection: "消息管理",
   notificationFilter: "all",
   notificationRead: JSON.parse(localStorage.getItem("youai.crm.notificationRead") || "{}"),
+  systemNotifications: [],
   messageTemplates: JSON.parse(localStorage.getItem("youai.crm.messageTemplates") || "null") || defaultMessageTemplates,
   messageTemplateSearch: "",
   editingTemplateId: null,
@@ -319,6 +331,8 @@ const state = {
 const shownFollowupAlertIds = new Set();
 let followupAlertTimer = null;
 let followupAlertRefreshPromise = null;
+let customerSyncTimer = null;
+let customerSyncPromise = null;
 
 const customerStatusOptions = [
   "未注册",
@@ -398,6 +412,39 @@ const customerOwnerStoreOptions = [
   ["youai-tianjin", "优爱天津店"]
 ];
 
+// Roles available from the employee user editor. Keep the codes stable because
+// they are also persisted in crm_user_role and used by the backend authorities.
+const systemRoleOptions = [
+  { code: "OPERATIONS", label: "运营" },
+  { code: "RND", label: "研发" },
+  { code: "FINANCE", label: "财务" },
+  { code: "SALES", label: "销售" },
+  { code: "SALES_MANAGER", label: "销售经理" },
+  { code: "STORE_MANAGER", label: "店长" },
+  { code: "SERVICE_TEACHER", label: "服务老师" },
+  { code: "SERVICE_MANAGER", label: "服务经理" }
+];
+const systemRoleLabels = new Map([
+  ["ADMIN", "系统管理员"],
+  ...systemRoleOptions.map(role => [role.code, role.label])
+]);
+
+function systemRoleCode(role) {
+  const raw = typeof role === "string" ? role : role?.code || role?.name;
+  if (!raw) return "";
+  const byLabel = systemRoleOptions.find(option => option.label === raw);
+  return (byLabel?.code || String(raw)).trim().toUpperCase();
+}
+
+function systemRoleLabel(role) {
+  const code = systemRoleCode(role);
+  return systemRoleLabels.get(code) || (typeof role === "object" ? role?.name : role) || code;
+}
+
+function systemRoleCodes(roles) {
+  return [...new Set((Array.isArray(roles) ? roles : [roles]).map(systemRoleCode).filter(Boolean))];
+}
+
 function normalizeSystemUser(user) {
   return {
     id: user.id,
@@ -407,7 +454,7 @@ function normalizeSystemUser(user) {
     phone: user.phone || "—",
     storeDept: user.departmentName || user.storeDept || "—",
     department: user.departmentName || user.department || "—",
-    roles: user.roles || [],
+    roles: systemRoleCodes(user.roles),
     enabled: user.enabled !== false
   };
 }
@@ -447,14 +494,14 @@ function customerOwnerStoreLabel(value) {
   return customerOwnerStoreOptions.find(([optionValue]) => optionValue === value)?.[1] || "所属人";
 }
 
-function customerOwnerTree() {
+function customerOwnerTree(includeAdmins = true) {
   const users = customerOwnerAccountUsers();
-  const adminUsers = users.filter(customerOwnerIsAdminUser).map(user => ({
+  const adminUsers = includeAdmins ? users.filter(customerOwnerIsAdminUser).map(user => ({
     id: `user:${user.id}`,
     label: user.name,
     owner: user.name,
     children: []
-  }));
+  })) : [];
   const employees = users.filter(user => !customerOwnerIsAdminUser(user)).map(user => ({
     id: `user:${user.id}`,
     label: user.name,
@@ -604,7 +651,7 @@ async function apiRequest(path, options = {}) {
       signal: controller.signal,
       headers
     });
-    if (response.status === 401 && path !== "/auth/login") {
+    if (response.status === 401 && path !== "/auth/login" && path !== "/auth/login/phone") {
       clearAuth();
       showLogin("登录已过期，请重新登录");
       throw new Error("登录已过期，请重新登录");
@@ -612,7 +659,9 @@ async function apiRequest(path, options = {}) {
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       const fieldError = Object.values(error.fieldErrors || {})[0];
-      throw new Error(fieldError || error.message || `请求失败 (${response.status})`);
+      const apiError = new Error(fieldError || error.message || `请求失败 (${response.status})`);
+      apiError.code = error.code || "";
+      throw apiError;
     }
     if (response.status === 204) return null;
     return await response.json();
@@ -680,18 +729,50 @@ function createCaptcha() {
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
-function showLogin(message = "") {
+function showLogin(message = "", mode = "account") {
   document.body.classList.remove("app-booting");
   const captcha = createCaptcha();
   document.querySelector(".topbar").hidden = true;
   document.querySelector(".help-rail").hidden = true;
   document.querySelector("#workspaceTabs").hidden = true;
   document.querySelector("#followupAlertRegion")?.setAttribute("hidden", "");
-  document.querySelector("#app").innerHTML = `<main class="login-screen"><section class="login-panel reference-login"><div class="reference-logo"><img src="logo-youai.png" alt="优爱 YOUAI"></div><div class="reference-name"><strong>客户经营管理平台</strong><span>让每一次客户沟通都有记录、有结果</span></div><div class="login-tabs"><button class="active" type="button">账号密码登录</button><button type="button" disabled title="即将开放">手机号登录</button></div><form class="login-form" id="loginForm"><label><span>登录账号</span><input name="username" autocomplete="username" required placeholder="请输入账号名，例如 admin"></label><label><span>登录密码</span><input name="password" type="password" autocomplete="current-password" required placeholder="请输入登录密码"></label><div class="captcha-row"><label><span>验证码</span><input name="captcha" required maxlength="4" autocomplete="off" placeholder="请输入验证码"></label><button type="button" class="captcha-code" id="refreshCaptcha" aria-label="刷新验证码" title="点击刷新验证码">${captcha}</button></div><label class="auto-login"><input type="checkbox" checked> <span>记住登录状态</span></label><p class="login-error" id="loginError" ${message ? "" : "hidden"}>${escapeHtml(message)}</p><button class="button primary" type="submit" id="loginSubmit">登录系统</button></form><button class="auth-switch" type="button" id="showRegister">没有账号？注册销售账号</button><p class="demo-account">演示管理员：admin / Admin@123</p><footer class="reference-footer">Copyright © 2026<br><span>优爱 YOUAI</span> 出品</footer></section></main>`;
+  document.querySelector("#app").innerHTML = `<main class="login-screen"><section class="login-panel reference-login"><div class="reference-logo"><img src="logo-youai.png" alt="优爱 YOUAI"></div><div class="reference-name"><strong>客户经营管理平台</strong><span>让每一次客户沟通都有记录、有结果</span></div><div class="login-tabs"><button class="${mode === "account" ? "active" : ""}" type="button" data-login-mode="account">账号密码登录</button><button class="${mode === "phone" ? "active" : ""}" type="button" data-login-mode="phone">手机号登录</button></div><form class="login-form" id="loginForm" data-login-mode="${mode}"><label><span id="loginIdentityLabel">${mode === "phone" ? "手机号码" : "登录账号"}</span><input name="${mode === "phone" ? "phone" : "username"}" type="${mode === "phone" ? "tel" : "text"}" inputmode="${mode === "phone" ? "numeric" : "text"}" autocomplete="${mode === "phone" ? "tel" : "username"}" pattern="${mode === "phone" ? "1[3-9][0-9]{9}" : "[A-Za-z][A-Za-z0-9_.-]*"}" required placeholder="${mode === "phone" ? "请输入 11 位手机号" : "请输入账号名，例如 admin"}"></label><label><span>登录密码</span><input name="password" type="password" autocomplete="current-password" required placeholder="请输入登录密码"></label><div class="captcha-row"><label><span>验证码</span><input name="captcha" required maxlength="4" autocomplete="off" placeholder="请输入验证码"></label><button type="button" class="captcha-code" id="refreshCaptcha" aria-label="刷新验证码" title="点击刷新验证码">${captcha}</button></div><label class="auto-login"><input type="checkbox" checked> <span>记住登录状态</span></label><p class="login-error" id="loginError" ${message ? "" : "hidden"}>${escapeHtml(message)}</p><button class="button primary" type="submit" id="loginSubmit">登录系统</button></form><button class="auth-switch" type="button" id="showRegister">没有账号？注册销售账号</button><p class="demo-account">账号登录：admin / Admin@123；手机号登录使用员工绑定的手机号和密码</p><footer class="reference-footer">Copyright © 2026<br><span>优爱 YOUAI</span> 出品</footer></section></main>`;
   document.querySelector("#loginForm").addEventListener("submit", submitLogin);
-  document.querySelector("#refreshCaptcha").addEventListener("click", () => showLogin());
+  document.querySelector("#refreshCaptcha").addEventListener("click", () => showLogin("", document.querySelector("#loginForm")?.dataset.loginMode || "account"));
   document.querySelector("#showRegister").addEventListener("click", showRegister);
+  document.querySelectorAll("[data-login-mode]").forEach(button => button.addEventListener("click", () => switchLoginMode(button.dataset.loginMode)));
   document.querySelector("#loginForm input").focus();
+}
+
+function pageContent(response) {
+  if (Array.isArray(response)) {
+    return { content: response, page: 0, size: response.length || 20, totalElements: response.length, totalPages: 1 };
+  }
+  return {
+    content: Array.isArray(response?.content) ? response.content : [],
+    page: Number(response?.number || 0),
+    size: Number(response?.size || 20),
+    totalElements: Number(response?.totalElements || 0),
+    totalPages: Math.max(1, Number(response?.totalPages || 1))
+  };
+}
+
+function switchLoginMode(mode) {
+  const form = document.querySelector("#loginForm");
+  const identity = form?.querySelector("label:first-child input");
+  const label = document.querySelector("#loginIdentityLabel");
+  if (!form || !identity) return;
+  const phoneMode = mode === "phone";
+  document.querySelectorAll("[data-login-mode]").forEach(button => button.classList.toggle("active", button.dataset.loginMode === mode));
+  identity.name = phoneMode ? "phone" : "username";
+  identity.type = phoneMode ? "tel" : "text";
+  identity.inputMode = phoneMode ? "numeric" : "text";
+  identity.autocomplete = phoneMode ? "tel" : "username";
+  identity.pattern = phoneMode ? "1[3-9][0-9]{9}" : "[A-Za-z][A-Za-z0-9_.-]*";
+  identity.placeholder = phoneMode ? "请输入 11 位手机号" : "请输入账号名，例如 admin";
+  label.textContent = phoneMode ? "手机号码" : "登录账号";
+  form.dataset.loginMode = mode;
+  identity.focus();
 }
 
 function showRegister(message = "") {
@@ -719,13 +800,26 @@ async function submitLogin(event) {
       submit.disabled = false;
       return;
     }
-    const auth = await apiRequest("/auth/login", { method: "POST", body: JSON.stringify(data) });
+    const mode = form.dataset.loginMode || "account";
+    const authPayload = mode === "phone"
+      ? { phone: data.phone, password: data.password }
+      : { username: data.username, password: data.password };
+    const auth = await apiRequest(mode === "phone" ? "/auth/login/phone" : "/auth/login", { method: "POST", body: JSON.stringify(authPayload) });
     saveAuth(auth);
     showApp();
     await hydrateFromApi();
     toast(`欢迎回来，${auth.user.displayName || auth.user.username}`);
   } catch (requestError) {
-    error.textContent = requestError.message.includes("请求失败") ? "账号或密码不正确" : requestError.message;
+    const message = requestError.message || "";
+    error.textContent = requestError.code === "ACCOUNT_UNAVAILABLE" || message.includes("ACCOUNT_UNAVAILABLE")
+      ? "该账号已被删除或已被继承"
+      : requestError.code === "ACCOUNT_FROZEN" || message.includes("ACCOUNT_FROZEN")
+        ? "该账号已被冻结"
+        : requestError.code === "LOGIN_RATE_LIMITED" || message.includes("LOGIN_RATE_LIMITED") || message.includes("临时锁定")
+          ? "该账号因多次登录失败已被临时锁定，请联系管理员解锁"
+          : message.includes("请求失败")
+            ? "账号或密码不正确"
+            : message;
     error.hidden = false;
   } finally {
     submit.disabled = false;
@@ -911,7 +1005,7 @@ function customerAssignmentOwnerTreeView(node, selectedOwners, isRoot = false) {
 function customerAssignmentOwnerControl(selected = "") {
   const selectedOwners = String(selected || "").split(/[、,，]/).map(value => value.trim()).filter(Boolean);
   const chips = selectedOwners.map(owner => `<span class="resource-owner-chip">${escapeHtml(owner)}<span role="button" tabindex="0" data-resource-owner-remove="${escapeHtml(owner)}" aria-label="移除${escapeHtml(owner)}">×</span></span>`).join("");
-  const tree = customerOwnerTree();
+  const tree = customerOwnerTree(false);
   return `<div class="resource-owner-select" data-resource-owner-select>
     <input type="hidden" name="owner" value="${escapeHtml(selectedOwners.join("、"))}">
     <button type="button" class="resource-owner-control" data-resource-owner-control aria-haspopup="listbox" aria-expanded="false"><span class="resource-owner-chips">${chips || '<span class="resource-owner-placeholder">请选择接受对象</span>'}</span><span class="resource-owner-arrow" aria-hidden="true"></span></button>
@@ -1034,39 +1128,165 @@ async function refreshCustomerSearchFromApi() {
   if (!state.auth.token) return;
   const params = new URLSearchParams();
   const isPoolPage = Boolean(document.querySelector(".pool-page"));
+  const pageKey = isPoolPage ? "poolCustomerPage" : "customerPage";
+  params.set("page", String(Math.max(0, (state[pageKey] || 1) - 1)));
+  params.set("size", String(Math.min(Math.max(state.customerPageSize || 20, 1), 100)));
   if (state.customerSearch.trim()) params.set("keyword", state.customerSearch.trim());
-  if (isPoolPage) params.set("inPool", "true");
   const advanced = { customerType: state.customerAdvancedDraftCustomerType, customerStatus: state.customerAdvancedDraftStatus || "", gender: state.customerGender !== "all" ? state.customerGender : "", maritalStatus: state.customerMaritalStatus !== "all" ? state.customerMaritalStatus : "", ageMin: state.customerAgeMin, ageMax: state.customerAgeMax, heightMin: state.customerHeightMin, heightMax: state.customerHeightMax, incomeMin: state.customerIncomeMin, incomeMax: state.customerIncomeMax, education: selectedCustomerEducations().join(","), uncontactedDays: selectedCustomerUncontactedDaysThreshold() ?? "", registrationStart: state.customerAdvancedDateRanges.registration?.start, registrationEnd: state.customerAdvancedDateRanges.registration?.end, firstAllocationStart: state.customerAdvancedDateRanges.firstAllocation?.start, firstAllocationEnd: state.customerAdvancedDateRanges.firstAllocation?.end, lastFollowUpStart: state.customerAdvancedDateRanges.lastFollowUp?.start, lastFollowUpEnd: state.customerAdvancedDateRanges.lastFollowUp?.end, nextFollowStart: state.customerAdvancedDateRanges.nextFollow?.start, nextFollowEnd: state.customerAdvancedDateRanges.nextFollow?.end };
   Object.entries(advanced).forEach(([key, value]) => { if (value != null && String(value).trim()) params.set(key, value); });
-  try { const data = await apiRequest(`/customers?${params.toString()}`); const normalized = data.map(normalizeCustomer); if (isPoolPage) state.poolCustomers = normalized; else customers = normalized; state.customerPage = 1; render(); } catch (error) { toast(error.message); }
+  try {
+    const endpoint = isPoolPage ? "/customers/pool" : "/customers";
+    const pageData = pageContent(await apiRequest(`${endpoint}?${params.toString()}`));
+    const normalized = pageData.content.map(normalizeCustomer);
+    if (isPoolPage) state.poolCustomerPageMeta = pageData; else state.customerPageMeta = pageData;
+    state[pageKey] = pageData.page + 1;
+    if (isPoolPage) state.poolCustomers = normalized; else customers = normalized;
+    render();
+  } catch (error) { toast(error.message); }
 }
+
+async function refreshTasksFromApi() {
+  if (!state.auth.token) return;
+  const params = new URLSearchParams({ page: String(Math.max(0, (state.taskPage || 1) - 1)), size: String(Math.min(Math.max(state.taskPageSize || 20, 1), 100)) });
+  if (state.taskFilter === "done") params.set("completed", "true");
+  else if (state.taskFilter === "overdue" || state.taskFilter === "today" || state.taskFilter === "upcoming") params.set("status", state.taskFilter);
+  try {
+    const data = pageContent(await apiRequest(`/tasks?${params.toString()}`));
+    tasks = data.content.map(normalizeTask);
+    state.taskPageMeta = data;
+    state.taskPage = data.page + 1;
+    render();
+  } catch (error) { toast(error.message); }
+}
+
+async function refreshOrdersFromApi() {
+  if (!state.auth.token) return;
+  const params = new URLSearchParams({ page: String(Math.max(0, (state.orderPage || 1) - 1)), size: String(Math.min(Math.max(state.orderPageSize || 10, 1), 100)) });
+  if (state.orderKeyword.trim()) params.set("keyword", state.orderKeyword.trim());
+  if (state.orderPaymentStatus && state.orderPaymentStatus !== "全部状态") params.set("paymentStatus", state.orderPaymentStatus);
+  if (state.orderServiceStatus && state.orderServiceStatus !== "全部状态") params.set("serviceStatus", state.orderServiceStatus);
+  try {
+    const data = pageContent(await apiRequest(`/orders?${params.toString()}`));
+    orders = data.content.map(normalizeOrder);
+    state.orderPageMeta = data;
+    state.orderPage = data.page + 1;
+    render();
+  } catch (error) { toast(error.message); }
+}
+
+async function refreshCallsFromApi() {
+  if (!state.auth.token) return;
+  const params = new URLSearchParams({ page: String(Math.max(0, (state.callPage || 1) - 1)), size: String(Math.min(Math.max(state.callPageSize || 20, 1), 100)) });
+  if (state.callKeyword.trim()) params.set("keyword", state.callKeyword.trim());
+  if (state.callNameKeyword.trim()) params.set("customerName", state.callNameKeyword.trim());
+  if (state.callDirectionFilter && state.callDirectionFilter !== "全部") params.set("direction", state.callDirectionFilter);
+  if (state.callAgentFilter && state.callAgentFilter !== "全部坐席") params.set("agent", state.callAgentFilter);
+  if (state.callStatusFilter && state.callStatusFilter !== "全部") params.set("status", state.callStatusFilter);
+  try {
+    const data = pageContent(await apiRequest(`/calls?${params.toString()}`));
+    calls = data.content.map(normalizeCall);
+    state.callPageMeta = data;
+    state.callPage = data.page + 1;
+    render();
+  } catch (error) { toast(error.message); }
+}
+
+function bindServerPaginationControls() {
+  const bindPager = (selector, pageKey, sizeKey, refresh) => {
+    document.querySelectorAll(selector).forEach(button => button.addEventListener("click", () => {
+      if (button.disabled) return;
+      state[pageKey] = Math.max(1, Number(button.dataset[pageKey.replace("Page", "") + "Page"] || button.dataset.customerPage || button.dataset.orderPage || button.dataset.taskPage || button.dataset.callPage));
+      refresh();
+    }));
+    const select = document.querySelector(`#${pageKey}Size`);
+    if (!select) return;
+    select.addEventListener("change", event => {
+      state[sizeKey] = Number(event.target.value);
+      state[pageKey] = 1;
+      refresh();
+    });
+  };
+  document.querySelectorAll("[data-customer-page]").forEach(button => button.addEventListener("click", () => {
+    if (button.disabled) return;
+    const page = Math.max(1, Number(button.dataset.customerPage));
+    const pageKey = document.querySelector(".pool-page") ? "poolCustomerPage" : "customerPage";
+    state[pageKey] = page;
+    refreshCustomerSearchFromApi();
+  }));
+  const customerPageSize = document.querySelector("#customerPageSize");
+  customerPageSize?.addEventListener("change", event => {
+    state.customerPageSize = Number(event.target.value);
+    state.customerPage = 1;
+    state.poolCustomerPage = 1;
+    refreshCustomerSearchFromApi();
+  });
+  bindPager("[data-order-page]", "orderPage", "orderPageSize", refreshOrdersFromApi);
+  bindPager("[data-task-page]", "taskPage", "taskPageSize", refreshTasksFromApi);
+  bindPager("[data-call-page]", "callPage", "callPageSize", refreshCallsFromApi);
+  const addSizeSelect = (containerSelector, id, options, sizeKey, pageKey, refresh) => {
+    const container = document.querySelector(containerSelector);
+    if (!container || document.querySelector(`#${id}`)) return;
+    const select = document.createElement("select");
+    select.id = id;
+    select.setAttribute("aria-label", "每页条数");
+    options.forEach(value => { const option = document.createElement("option"); option.value = value; option.textContent = `${value} 条/页`; option.selected = Number(value) === state[sizeKey]; select.appendChild(option); });
+    select.addEventListener("change", event => { state[sizeKey] = Number(event.target.value); state[pageKey] = 1; refresh(); });
+    container.appendChild(select);
+  };
+  addSizeSelect(".order-reference-pagination", "orderPageSize", [10, 20, 50, 100], "orderPageSize", "orderPage", refreshOrdersFromApi);
+  addSizeSelect(".task-pagination", "taskPageSize", [20, 50, 100], "taskPageSize", "taskPage", refreshTasksFromApi);
+  addSizeSelect(".call-pagination", "callPageSize", [10, 20, 50, 100], "callPageSize", "callPage", refreshCallsFromApi);
+}
+
 async function hydrateFromApi() {
   if (!state.auth.token) return;
   try {
-    const [customerData, taskData, orderData, dashboardData, callData, conversationData, poolData, refundData, templateData, notificationReadData, callReviewData, systemUserData, invitationData, ledgerData] = await Promise.all([
-      apiRequest("/customers"),
-      apiRequest("/tasks"),
-      apiRequest("/orders"),
+    const [customerData, taskData, orderData, dashboardData, callData, conversationData, poolData, refundData, templateData, notificationReadData, callReviewData, systemUserData, invitationData, ledgerData, systemNotificationData] = await Promise.all([
+      apiRequest("/customers?page=0&size=20"),
+      apiRequest("/tasks?page=0&size=20"),
+      apiRequest("/orders?page=0&size=10"),
       apiRequest("/dashboard"),
-      apiRequest("/calls"),
+      apiRequest("/calls?page=0&size=20"),
       apiRequest("/conversations"),
-      apiRequest("/customers/pool"),
+      apiRequest("/customers/pool?page=0&size=20"),
       apiRequest("/order-refunds"),
       apiRequest("/message-templates"),
       apiRequest("/notifications/read"),
       apiRequest("/call-reviews"),
       isAdmin() ? apiRequest("/auth/users") : Promise.resolve([]),
       apiRequest("/invitations"),
-      apiRequest("/ledger-accounts")
+      apiRequest("/ledger-accounts"),
+      apiRequest("/system-notifications")
     ]);
-    customers = customerData.map(normalizeCustomer);
-    tasks = taskData.map(normalizeTask);
-    orders = orderData.map(normalizeOrder);
+    const customerPageData = pageContent(customerData);
+    const taskPageData = pageContent(taskData);
+    const orderPageData = pageContent(orderData);
+    const callPageData = pageContent(callData);
+    const poolPageData = pageContent(poolData);
+    customers = customerPageData.content.map(normalizeCustomer);
+    state.customerPageMeta = customerPageData;
+    tasks = taskPageData.content.map(normalizeTask);
+    state.taskPageMeta = taskPageData;
+    orders = orderPageData.content.map(normalizeOrder);
+    state.orderPageMeta = orderPageData;
     state.orderRefunds = refundData.map(normalizeRefund);
     saveOrderRefunds();
-    calls = callData.map(normalizeCall);
+    calls = callPageData.content.map(normalizeCall);
+    state.callPageMeta = callPageData;
     state.messageTemplates = templateData.length ? templateData.map(normalizeMessageTemplate) : defaultMessageTemplates;
     state.notificationRead = Object.fromEntries(notificationReadData.map(id => [id, true]));
+    state.systemNotifications = Array.isArray(systemNotificationData) ? systemNotificationData.map(item => ({
+      id: item.id,
+      type: "系统消息",
+      title: item.title,
+      detail: item.content,
+      owner: "系统",
+      at: item.createdAt,
+      tone: "green",
+      customerId: item.customerNo,
+      read: Boolean(item.read)
+    })) : [];
+    state.systemNotifications.filter(item => item.read).forEach(item => { state.notificationRead[item.id] = true; });
     state.callReviews = callReviewData;
     state.systemUsers = systemUserData.map(normalizeSystemUser);
     invitations = invitationData.map(normalizeInvitation);
@@ -1074,7 +1294,7 @@ async function hydrateFromApi() {
     localStorage.setItem("youai.crm.notificationRead", JSON.stringify(state.notificationRead));
     localStorage.setItem("youai.crm.callReviews", JSON.stringify(state.callReviews));
     conversations = conversationData.map(normalizeConversation);
-    state.poolCustomers = poolData.map(normalizeCustomer);
+    state.poolCustomers = poolPageData.content.map(normalizeCustomer);
     state.activeConversationId = conversations.some(item => item.id === state.activeConversationId) ? state.activeConversationId : conversations[0]?.id;
     if (state.activeConversationId) {
       const messages = await apiRequest(`/conversations/${state.activeConversationId}/messages`);
@@ -1335,26 +1555,24 @@ function dashboardReferenceView() {
   const duration = Math.max(0, Number(summary.callDurationSeconds || 0));
   const durationText = [Math.floor(duration / 3600), Math.floor(duration % 3600 / 60), duration % 60].map(value => String(value).padStart(2, "0")).join(":");
   const cards = [
-    ["新增客户数", summary.newCustomers ?? 0, "人", "customers"],
-    ["跟进客户数", summary.followUpsToday ?? 0, "人", "tasks"],
-    ["通话时长", durationText, "", "calls"],
-    ["深沟次数", summary.deepCalls ?? 0, "次", "calls"],
-    ["总库容", summary.totalCustomers ?? customers.length, "人", "customers"],
-    ["实际到店客户数", summary.arrivedCustomers ?? 0, "人", "analytics"],
-    ["成交客户数", summary.closedCustomers ?? 0, "人", "orders"]
+    ["新增客户数", summary.newCustomers ?? 0, "人", "customers", ""],
+    ["跟进客户数", summary.followUpsToday ?? 0, "人", "tasks", `回访客户数：${summary.followUpsToday ?? 0}人 / 跟进 0人`],
+    ["通话时长", durationText, "", "calls", ""],
+    ["深沟次数", summary.deepCalls ?? 0, "次", "calls", ""],
+    ["总库容", summary.totalCustomers ?? customers.length, "人", "customers", ""],
+    ["实际到店客户数", summary.arrivedCustomers ?? 0, "人", "analytics", ""],
+    ["成交客户数", summary.closedCustomers ?? 0, "人", "orders", ""]
   ];
-  const stores = [...new Set(invitations.map(item => item.storeName || item.store).filter(Boolean))];
-  const storeOptions = ["", ...stores].map(store => `<option value="${escapeHtml(store)}" ${state.dashboardFilters.store === store ? "selected" : ""}>${escapeHtml(store || "全部门店")}</option>`).join("");
   const emptyRank = `<tr><td colspan="6"><div class="home-rank-empty">当前筛选范围暂无数据</div></td></tr>`;
-  const visitRows = (summary.visitRanking || []).map(row => `<tr><td><b class="rank-badge">${row.rank}</b></td><td><button class="rank-person" type="button" data-dashboard-owner="${escapeHtml(row.employee)}">${escapeHtml(row.employee)}</button></td><td>${escapeHtml(row.department)}</td><td>${row.arrivedCustomers}</td><td>${row.closedCustomers}</td><td>${Number(row.conversionRate || 0).toFixed(1)}%</td></tr>`).join("") || emptyRank;
-  const salesRows = (summary.salesRanking || []).map(row => `<tr><td><b class="rank-badge">${row.rank}</b></td><td><button class="rank-person" type="button" data-dashboard-owner="${escapeHtml(row.employee)}">${escapeHtml(row.employee)}</button></td><td>${escapeHtml(row.department)}</td><td>${money(row.salesAmount || 0)}</td><td>${money(row.paidAmount || 0)}</td><td>${Number(row.completionRate || 0).toFixed(1)}%</td></tr>`).join("") || emptyRank;
+  const salesEmptyRank = `<tr><td colspan="4"><div class="home-rank-empty">当前筛选范围暂无数据</div></td></tr>`;
+  const visitRows = (summary.visitRanking || []).map(row => `<tr><td><b class="rank-badge">${row.rank}</b></td><td>${escapeHtml(row.department)}</td><td><button class="rank-person" type="button" data-dashboard-owner="${escapeHtml(row.employee)}">${escapeHtml(row.employee)}</button></td><td>${row.arrivedCustomers}</td><td>${row.closedCustomers}</td><td>${Number(row.conversionRate || 0).toFixed(1)}%</td></tr>`).join("") || emptyRank;
+  const salesRows = (summary.salesRanking || []).map(row => `<tr><td><b class="rank-badge">${row.rank}</b></td><td><button class="rank-person" type="button" data-dashboard-owner="${escapeHtml(row.employee)}">${escapeHtml(row.employee)}</button></td><td>${escapeHtml(row.department)}</td><td>${money(row.salesAmount || 0)}</td></tr>`).join("") || salesEmptyRank;
   const wan = value => (Number(value || 0) / 10000).toFixed(2);
-  const serviceCards = [["待开启服务会员", summary.pendingServiceCustomers ?? 0], ["在服务期内会员", summary.activeServiceCustomers ?? 0], ["即将到期会员", summary.expiringServiceCustomers ?? 0]];
+  const rankFilter = (id, label) => `<form class="home-rank-filter" id="${id}" data-dashboard-filter-form><select aria-label="${label}排行范围"><option>销售部 / 个人排行</option></select><input name="from" type="date" aria-label="开始日期" value="${escapeHtml(state.dashboardFilters.from)}"><span>→</span><input name="to" type="date" aria-label="结束日期" value="${escapeHtml(state.dashboardFilters.to)}"><button class="icon-button home-rank-search" type="submit" aria-label="查询${label}">${icon("search")}</button></form>`;
   return `<section class="page dashboard-reference"><div class="page-content">
-    <section class="home-dashboard-bar"><div class="home-dashboard-tabs"><button class="active" type="button">数据概览</button><button type="button" data-dashboard-target="analytics">客户到店登记</button></div><form id="dashboardFilterForm" class="home-dashboard-controls"><select id="dashboardStore">${storeOptions}</select><label><span>统计日期</span><input id="dashboardFrom" type="date" value="${state.dashboardFilters.from}"></label><i>—</i><input id="dashboardTo" type="date" value="${state.dashboardFilters.to}"><button class="button primary" type="submit">${icon("search")}查询</button><button class="button secondary" id="resetDashboardFilters" type="button">重置</button></form></section>
-    <section class="home-metric-grid">${cards.map(([label, value, unit, target]) => `<button class="home-metric" type="button" data-dashboard-target="${target}"><h3>${label}</h3><strong>${value}<small>${unit}</small></strong><span>查看明细 →</span></button>`).join("")}</section>
-    <section class="home-service-grid">${serviceCards.map(([label, value]) => `<button class="home-metric" type="button" data-dashboard-target="orders"><h3>${label}</h3><strong>${value}<small>人</small></strong><span>查看会员订单 →</span></button>`).join("")}${isAdmin() ? `<button class="home-metric home-money" type="button" data-dashboard-target="finance"><h3>实收金额</h3><strong>${wan(summary.paidAmount)}<small>万元</small></strong><span>查看收款流水 →</span></button><button class="home-metric home-money" type="button" data-dashboard-target="finance"><h3>退款金额</h3><strong>${wan(summary.refundAmount)}<small>万元</small></strong><span>查看退款明细 →</span></button>` : ""}</section>
-    <section class="home-rank-grid"><article class="panel"><header class="panel-header"><h2>到店排行</h2><span>${escapeHtml(state.dashboardFilters.store || "全部门店")} / 个人排行</span></header><div class="table-wrap"><table class="data-table"><thead><tr><th>排名</th><th>员工</th><th>部门</th><th>到店客户数</th><th>成交人数</th><th>成交率</th></tr></thead><tbody>${visitRows}</tbody></table></div></article><article class="panel"><header class="panel-header"><h2>业绩排行</h2><span>销售部 / 个人排行</span></header><div class="table-wrap"><table class="data-table"><thead><tr><th>排名</th><th>员工</th><th>部门</th><th>销售额</th><th>回款额</th><th>完成率</th></tr></thead><tbody>${salesRows}</tbody></table></div></article></section>
+    <section class="home-metric-grid">${cards.map(([label, value, unit, target, note]) => `<button class="home-metric" type="button" data-dashboard-target="${target}" aria-label="${label}"><h3>${label}</h3><span class="home-metric-note">${note}</span><strong>${value}<small>${unit}</small></strong></button>`).join("")}</section>
+    <section class="home-money-grid"><button class="home-metric home-money" type="button" data-dashboard-target="orders" aria-label="实收金额"><h3>实收金额</h3><span class="home-metric-note">实际到账金额</span><strong>${wan(summary.paidAmount)}<small>万元</small></strong></button><button class="home-metric home-money" type="button" data-dashboard-target="orders" aria-label="退款金额"><h3>退款金额</h3><span class="home-metric-note">已审核退款金额</span><strong>${wan(summary.refundAmount)}<small>万元</small></strong></button></section>
+    <section class="home-rank-grid"><article class="panel"><header class="panel-header home-rank-header"><h2>到店执行</h2>${rankFilter("dashboardVisitFilterForm", "到店")}</header><div class="table-wrap"><table class="data-table"><thead><tr><th>排名</th><th>部门</th><th>姓名</th><th>新增客户数</th><th>成交人数</th><th>成交率</th></tr></thead><tbody>${visitRows}</tbody></table></div></article><article class="panel"><header class="panel-header home-rank-header"><h2>业绩排行</h2>${rankFilter("dashboardSalesFilterForm", "业绩")}</header><div class="table-wrap"><table class="data-table"><thead><tr><th>排名</th><th>员工</th><th>部门</th><th>销售额</th></tr></thead><tbody>${salesRows}</tbody></table></div></article></section>
   </div></section>`;
 }
 
@@ -1976,11 +2194,18 @@ function customerHeaderModalView() {
 }
 
 function customerListView({ isPool = false } = {}) {
-  const rows = sortedCustomerRows(isPool ? publicPoolCustomers() : filteredCustomers());
-  const totalPages = Math.max(1, Math.ceil(rows.length / state.customerPageSize));
-  state.customerPage = Math.min(state.customerPage, totalPages);
-  const pageStart = (state.customerPage - 1) * state.customerPageSize;
-  const pageRows = rows.slice(pageStart, pageStart + state.customerPageSize);
+  const meta = (isPool ? state.poolCustomerPageMeta : state.customerPageMeta) || { page: 0, size: state.customerPageSize, totalElements: 0, totalPages: 1 };
+  const rows = sortedCustomerRows(isPool ? state.poolCustomers : customers);
+  const totalElements = Number(meta.totalElements || 0);
+  const totalPages = Math.max(1, Number(meta.totalPages || 1));
+  const currentPage = Math.min(Math.max(1, Number(meta.page || 0) + 1), totalPages);
+  state[isPool ? "poolCustomerPage" : "customerPage"] = currentPage;
+  const pageRows = rows;
+  const pageSize = Number(meta.size || state.customerPageSize || 20);
+  const pageStart = totalElements ? (currentPage - 1) * pageSize + 1 : 0;
+  const pageEnd = pageRows.length ? pageStart + pageRows.length - 1 : 0;
+  const firstPage = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
+  const visiblePages = Array.from({ length: Math.min(totalPages, 5) }, (_, index) => firstPage + index);
   return `<section class="page customer-list-page ${isPool ? "pool-page" : ""}">
     ${subnav(["客户列表", "公海列表", "客户导入"], state.customerSection, ["客户列表", "公海列表", "客户导入"])}
     <div class="page-content">
@@ -1997,9 +2222,9 @@ function customerListView({ isPool = false } = {}) {
       </section>
       <div class="customer-batch-actions"><label class="wechat-toggle"><input type="checkbox"> 添加微信客户</label><div class="batch-action-row">${!isPool && isAdmin() ? `<button class="button primary" type="button" id="customerAllocate">${icon("sliders")}资源调配</button>` : ""}${isPool ? `<button class="button secondary" id="batchClaimCustomers" type="button">${icon("users")}领取客户</button>` : `<button class="button primary" type="button" data-add-customer>${icon("plus")}增加用户</button><button class="button secondary" id="batchPoolCustomers" type="button">${icon("user-transfer")}移入公海</button>`}${isPool ? "" : `<button class="button secondary" id="batchMessageCustomers" type="button">${icon("chat-circle")}发送消息</button>`}<button class="button secondary" type="button">${icon("user-transfer")}转为库存</button>${isPool ? "" : `<button class="button secondary" type="button" id="openCustomerHeader">${icon("table-grid")}自定义表头</button>`}</div><div class="customer-selection-summary">已选择 <strong>${state.selectedCustomerIds.length}</strong> 项${state.selectedCustomerIds.length ? `　<button class="text-button" id="clearCustomerSelection">清空</button>` : ""}</div>${isPool ? "" : `<div class="customer-id-hints"><span class="unregistered-id">*橙色ID为未注册用户</span><span class="unavailable-id">灰色ID为当前不可拨打用户</span></div>`}</div>
       <section class="data-panel">
-        <div class="data-toolbar"><div class="data-tabs"><button class="data-tab ${isPool || state.customerScope === "all" ? "active" : ""}" type="button" ${isPool ? "" : `data-customer-scope="all"`}>全部 <span class="count">${rows.length}</span></button>${isPool ? "" : `<button class="data-tab ${state.customerScope === "mine" ? "active" : ""}" type="button" data-customer-scope="mine">我负责的</button><button class="data-tab" type="button" disabled>我协作的</button>`}</div><div class="toolbar-actions"><span class="pill gray">当前显示 ${rows.length} 项</span></div></div>
+        <div class="data-toolbar"><div class="data-tabs"><button class="data-tab ${isPool || state.customerScope === "all" ? "active" : ""}" type="button" ${isPool ? "" : `data-customer-scope="all"`}>全部 <span class="count">${totalElements}</span></button>${isPool ? "" : `<button class="data-tab ${state.customerScope === "mine" ? "active" : ""}" type="button" data-customer-scope="mine">我负责的</button><button class="data-tab" type="button" disabled>我协作的</button>`}</div><div class="toolbar-actions"><span class="pill gray">当前显示 ${pageRows.length} 项</span></div></div>
       <div class="table-wrap">${rows.length ? `<table class="data-table customer-detail-table"><thead><tr><th class="select-column"><input id="selectPageCustomers" type="checkbox" aria-label="选择本页客户" ${pageRows.length && pageRows.every(c => state.selectedCustomerIds.includes(c.id)) ? "checked" : ""}></th><th>标注</th><th>ID</th><th>客户姓名/昵称</th><th>性别</th><th>婚况</th><th>年龄</th><th>学历</th><th>收入</th><th>等级</th><th>城市</th><th>跟进次数</th><th>未联系天数</th><th>${isPool ? "前归属人" : "归属人"}</th><th>邀约人</th><th>协作人</th><th>服务人</th>${isPool ? "<th>标签</th><th>来源</th>" : ""}<th class="operation-column">操作</th></tr></thead><tbody>${pageRows.map(customer => `<tr data-customer-id="${escapeHtml(customer.id)}"><td class="select-column"><input type="checkbox" data-select-customer="${escapeHtml(customer.id)}" aria-label="选择${escapeHtml(customer.name)}" ${state.selectedCustomerIds.includes(customer.id) ? "checked" : ""} onclick="event.stopPropagation()"></td><td>⚑</td><td><a class="table-link" onclick="event.stopPropagation()">${escapeHtml(customer.id)}</a></td><td><div class="customer-cell"><span class="person-avatar">${escapeHtml(customer.name[0])}</span><span><strong>${escapeHtml(customer.name)}</strong><small>${escapeHtml(customer.phone)}</small></span></div></td><td>${escapeHtml(customer.gender || "—")}</td><td>${escapeHtml(customer.maritalStatus || "—")}</td><td>${escapeHtml(customer.age || "—")}</td><td>${escapeHtml(customer.education || "—")}</td><td>${escapeHtml(customer.monthlyIncome || customer.annualIncome || "—")}</td><td>${escapeHtml(customer.level || "—")}</td><td>${escapeHtml(customer.city || "—")}</td><td>${escapeHtml(String(customer.followUpCount || 0))}</td><td>${escapeHtml(customerUncontactedDaysLabel(customer))}</td><td>${escapeHtml(isPool ? customerOwnerDisplay(customer.previousOwner) : customerOwnerDisplay(customer.owner))}</td><td>${escapeHtml(customer.inviter || "—")}</td><td>${escapeHtml(customer.collaborator || "—")}</td><td>${escapeHtml(customer.servicePerson || "—")}</td>${isPool ? `<td>${escapeHtml((customer.tags || []).join("、") || "+ 增加标签")}</td><td>${escapeHtml(customer.source || customer.origin || customer.channel || customer.sourceName || "—")}</td>` : ""}<td class="operation-column"><div class="table-actions" onclick="event.stopPropagation()"><button class="table-icon" type="button" data-call="${escapeHtml(customer.id)}" aria-label="呼叫客户">${icon("phone")}</button><button class="table-icon" type="button" data-open-customer="${escapeHtml(customer.id)}" aria-label="查看详情">${icon("chevron")}</button><button class="button ghost" type="button" ${isPool ? `data-claim-customer="${escapeHtml(customer.id)}"` : `data-release-customer="${escapeHtml(customer.id)}"`}>${isPool ? "领取" : "放入公海"}</button></div></td></tr>`).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon(isPool ? "users" : "search")}</span><strong>${isPool ? "公海暂无客户" : "没有匹配的客户"}</strong><p>${isPool ? "可以从客户列表将客户放入公海。" : "调整筛选条件后再试一次"}</p></div>`}</div>
-        <footer class="pagination"><span>${rows.length ? `${pageStart + 1}-${Math.min(pageStart + state.customerPageSize, rows.length)}` : "0"} 共 ${rows.length} 条</span><button class="page-button" data-customer-page="${state.customerPage - 1}" type="button" ${state.customerPage <= 1 ? "disabled" : ""}>‹</button>${Array.from({length: Math.min(totalPages, 5)}, (_, i) => i + 1).map(page => `<button class="page-button ${page === state.customerPage ? "active" : ""}" data-customer-page="${page}" type="button">${page}</button>`).join("")}<button class="page-button" data-customer-page="${state.customerPage + 1}" type="button" ${state.customerPage >= totalPages ? "disabled" : ""}>›</button><select id="customerPageSize"><option ${state.customerPageSize===20?"selected":""}>20</option><option ${state.customerPageSize===50?"selected":""}>50</option><option ${state.customerPageSize===100?"selected":""}>100</option></select><span>条/页</span></footer>
+        <footer class="pagination"><span>${pageStart}-${pageEnd} 共 ${totalElements} 条</span><button class="page-button" data-customer-page="${currentPage - 1}" type="button" ${currentPage <= 1 ? "disabled" : ""}>‹</button>${visiblePages.map(page => `<button class="page-button ${page === currentPage ? "active" : ""}" data-customer-page="${page}" type="button">${page}</button>`).join("")}<button class="page-button" data-customer-page="${currentPage + 1}" type="button" ${currentPage >= totalPages ? "disabled" : ""}>›</button><select id="customerPageSize"><option value="20" ${state.customerPageSize===20?"selected":""}>20</option><option value="50" ${state.customerPageSize===50?"selected":""}>50</option><option value="100" ${state.customerPageSize===100?"selected":""}>100</option></select><span>条/页</span></footer>
       </section>
     </div>
   </section>${state.customerAdvancedOpen ? whiteboardAdvancedFilterView() : ""}${!isPool && state.customerHeaderModalOpen ? customerHeaderModalView() : ""}`;
@@ -2499,6 +2724,12 @@ function customerDetailView(id) {
 }
 
 function tasksView() {
+  const taskMeta = state.taskPageMeta || { page: 0, size: state.taskPageSize, totalElements: 0, totalPages: 1 };
+  const taskTotalPages = Math.max(1, Number(taskMeta.totalPages || 1));
+  const taskCurrentPage = Math.min(Math.max(1, Number(taskMeta.page || 0) + 1), taskTotalPages);
+  const taskPageStart = taskMeta.totalElements ? (taskCurrentPage - 1) * Number(taskMeta.size || state.taskPageSize) + 1 : 0;
+  const taskPageEnd = taskMeta.totalElements ? Math.min(taskPageStart + tasks.length - 1, Number(taskMeta.totalElements)) : 0;
+  const taskPagination = `<footer class="pagination task-pagination"><span>${taskPageStart}-${taskPageEnd} 鍏?${Number(taskMeta.totalElements || 0)} 鏉?/span><button class="page-button" data-task-page="${taskCurrentPage - 1}" type="button" ${taskCurrentPage <= 1 ? "disabled" : ""}>鈥?/button><span>${taskCurrentPage} / ${taskTotalPages}</span><button class="page-button" data-task-page="${taskCurrentPage + 1}" type="button" ${taskCurrentPage >= taskTotalPages ? "disabled" : ""}>鈥?/button><select id="taskPageSize"><option ${state.taskPageSize === 20 ? "selected" : ""}>20</option><option ${state.taskPageSize === 50 ? "selected" : ""}>50</option><option ${state.taskPageSize === 100 ? "selected" : ""}>100</option></select><span>鏉?椤?/span></footer>`;
   const columns = [
     { key: "overdue", title: "已逾期" }, { key: "today", title: "今天" }, { key: "upcoming", title: "即将开始" }, { key: "done", title: "已完成" }
   ];
@@ -2513,20 +2744,28 @@ function tasksView() {
     <div class="page-content">
       ${pageHeading(`<button class="button secondary" id="toggleTaskView" type="button">${icon("calendar")}${state.taskMode === "calendar" ? "任务看板" : "日历视图"}</button><button class="button primary" id="newTask" type="button">${icon("plus")}新建任务</button>`)}
       ${content}
+      ${state.taskMode === "board" ? taskPagination : ""}
     </div>
   </section>`;
 }
 
 function callRecordsView() {
-  const keyword = state.callKeyword.trim().toLowerCase();
-  const nameKeyword = state.callNameKeyword.trim().toLowerCase();
-  const records = calls.filter(call => (!keyword || `${call.customerId || ""} ${call.phone || ""}`.toLowerCase().includes(keyword)) && (!nameKeyword || (call.customer || "").toLowerCase().includes(nameKeyword)) && (state.callAgentFilter === "全部坐席" || call.agent === state.callAgentFilter || call.owner === state.callAgentFilter) && (state.callDirectionFilter === "全部" || call.direction === state.callDirectionFilter) && (state.callStatusFilter === "全部" || call.status === state.callStatusFilter));
+  const meta = state.callPageMeta || { page: 0, size: state.callPageSize, totalElements: 0, totalPages: 1 };
+  const records = calls;
+  const totalElements = Number(meta.totalElements || 0);
+  const totalPages = Math.max(1, Number(meta.totalPages || 1));
+  const currentPage = Math.min(Math.max(1, Number(meta.page || 0) + 1), totalPages);
+  const pageSize = Number(meta.size || state.callPageSize || 20);
+  const pageStart = totalElements ? (currentPage - 1) * pageSize + 1 : 0;
+  const pageEnd = records.length ? pageStart + records.length - 1 : 0;
+  const firstPage = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
+  const visiblePages = Array.from({ length: Math.min(totalPages, 5) }, (_, index) => firstPage + index);
   const agents = [...new Set(calls.map(call => call.agent || call.owner).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN"));
   return `<section class="page call-record-page"><div class="page-content"><section class="call-record-filter">
     <label><b>ID/手机号：</b><input id="callKeyword" value="${escapeHtml(state.callKeyword)}" placeholder="请输入用户Id或者手机号"></label><label><b>昵称/姓名：</b><input id="callNameKeyword" value="${escapeHtml(state.callNameKeyword)}" placeholder="请输入用户昵称或姓名"></label><label><b>呼出时间：</b><span class="call-date-range"><input type="date" aria-label="开始日期"><i>→</i><input type="date" aria-label="结束日期"></span></label>
     <label><b>处理人：</b><select id="callAgentFilter"><option value="全部坐席">请选择</option>${agents.map(agent => `<option ${agent === state.callAgentFilter ? "selected" : ""}>${escapeHtml(agent)}</option>`).join("")}</select></label><label><b>呼叫类型：</b><select id="callDirectionFilter"><option>全部</option><option ${state.callDirectionFilter === "呼出" ? "selected" : ""}>呼出</option><option ${state.callDirectionFilter === "呼入" ? "selected" : ""}>呼入</option></select></label><label><b>通话状态：</b><select id="callStatusFilter"><option>全部</option><option ${state.callStatusFilter === "已接通" ? "selected" : ""}>已接通</option><option ${state.callStatusFilter === "未接通" ? "selected" : ""}>未接通</option><option ${state.callStatusFilter === "待回拨" ? "selected" : ""}>待回拨</option></select></label>
     <label><b>呼叫时长：</b><select><option>请选择</option></select></label><label><b>通话时长：</b><select><option>请选择</option></select></label><div class="call-filter-actions"><button class="button primary" id="applyCallFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCallFilters" type="button">${icon("repeat")}重置</button></div>
-  </section><section class="call-record-panel"><div class="call-record-tools"><label>AI分析展开预览 <input id="callAiPreview" type="checkbox" ${state.callAiPreview ? "checked" : ""}><span></span></label><button class="button primary" type="button">通话相关数据</button></div><div class="table-wrap"><table class="call-record-table"><thead><tr><th>用户ID</th><th>真实姓名</th><th>呼出时间</th><th>呼叫类型</th><th>处理人</th><th>中间号码</th><th>通话状态</th><th>呼叫时长</th><th>通话时长 ↕</th><th>AI分析状态 ◉</th><th>操作</th></tr></thead><tbody>${records.map(call => `<tr><td><button class="call-id-link">${escapeHtml((call.customerId || String(call.id)).replace(/\D/g, "").slice(-10) || String(call.id))}</button></td><td>${escapeHtml(call.customer || "-")}</td><td>${escapeHtml(call.started || "-")}</td><td>${escapeHtml(call.direction || "-")}</td><td>${escapeHtml(call.agent || call.owner || "-")}</td><td>99915400${String(call.id).slice(-1)}</td><td>${call.status === "未接通" ? "客户未接听" : escapeHtml(call.status || "-")}</td><td>${formatDuration(call.durationSeconds || 0)}</td><td>${call.status === "已接通" ? formatDuration(call.durationSeconds || 0) : "00:00"}</td><td>• ${state.callAiPreview ? "分析完成" : "不分析"}</td><td>${call.recording ? "查看录音" : "无录音"}</td></tr>`).join("") || `<tr><td colspan="11" class="call-empty">暂无通话记录</td></tr>`}</tbody></table></div><footer class="call-pagination"><span>1-${records.length} 共${records.length}条</span><button disabled>‹</button><button class="active">1</button><button disabled>›</button><select><option>10 条/页</option></select></footer></section><footer class="call-copyright">版权所有：爱乐云科技有限公司 京ICP备2021032120号</footer>
+  </section><section class="call-record-panel"><div class="call-record-tools"><label>AI分析展开预览 <input id="callAiPreview" type="checkbox" ${state.callAiPreview ? "checked" : ""}><span></span></label><button class="button primary" type="button">通话相关数据</button></div><div class="table-wrap"><table class="call-record-table"><thead><tr><th>用户ID</th><th>真实姓名</th><th>呼出时间</th><th>呼叫类型</th><th>处理人</th><th>中间号码</th><th>通话状态</th><th>呼叫时长</th><th>通话时长 ↕</th><th>AI分析状态 ◉</th><th>操作</th></tr></thead><tbody>${records.map(call => `<tr><td><button class="call-id-link">${escapeHtml((call.customerId || String(call.id)).replace(/\D/g, "").slice(-10) || String(call.id))}</button></td><td>${escapeHtml(call.customer || "-")}</td><td>${escapeHtml(call.started || "-")}</td><td>${escapeHtml(call.direction || "-")}</td><td>${escapeHtml(call.agent || call.owner || "-")}</td><td>99915400${String(call.id).slice(-1)}</td><td>${call.status === "未接通" ? "客户未接听" : escapeHtml(call.status || "-")}</td><td>${formatDuration(call.durationSeconds || 0)}</td><td>${call.status === "已接通" ? formatDuration(call.durationSeconds || 0) : "00:00"}</td><td>• ${state.callAiPreview ? "分析完成" : "不分析"}</td><td>${call.recording ? "查看录音" : "无录音"}</td></tr>`).join("") || `<tr><td colspan="11" class="call-empty">暂无通话记录</td></tr>`}</tbody></table></div><footer class="call-pagination"><span>${pageStart}-${pageEnd} 共${totalElements}条</span><button data-call-page="${currentPage - 1}" ${currentPage <= 1 ? "disabled" : ""}>‹</button>${visiblePages.map(page => `<button data-call-page="${page}" class="${page === currentPage ? "active" : ""}">${page}</button>`).join("")}<button data-call-page="${currentPage + 1}" ${currentPage >= totalPages ? "disabled" : ""}>›</button><select id="callPageSize"><option value="10" ${state.callPageSize===10?"selected":""}>10 条/页</option><option value="20" ${state.callPageSize===20?"selected":""}>20 条/页</option><option value="50" ${state.callPageSize===50?"selected":""}>50 条/页</option><option value="100" ${state.callPageSize===100?"selected":""}>100 条/页</option></select></footer></section><footer class="call-copyright">版权所有：爱乐云科技有限公司 京ICP备2021032120号</footer>
   </div></section>`;
 }
 
@@ -2638,6 +2877,7 @@ function systemMessageThreadView(reminders) {
 
 function systemNotificationRows() {
   const rows = [];
+  state.systemNotifications.forEach(notification => rows.push(notification));
   tasks.filter(task => !task.done).forEach(task => rows.push(taskReminderRow(task)));
   conversations.filter(conversation => conversation.unread > 0).forEach(conversation => rows.push({ id: `conversation-${conversation.id}`, type: "客户消息", title: "有未读客户消息", detail: `${conversation.name}：${conversation.preview}`, owner: conversation.owner || "客户顾问", at: conversation.lastMessageAt || new Date().toISOString(), tone: "blue", conversationId: conversation.id }));
   calls.filter(call => ["未接通", "待回拨"].includes(call.status)).forEach(call => rows.push({ id: `call-${call.id}`, type: "通话提醒", title: call.status === "待回拨" ? "客户等待回拨" : "通话未接通", detail: `${call.customer} · ${call.phone}`, owner: call.agent || call.owner, at: call.startedAt || new Date().toISOString(), tone: "red", customerId: call.customerId }));
@@ -2718,9 +2958,11 @@ function checkUpcomingFollowupAlerts() {
 
 async function refreshFollowupAlertTasks() {
   if (!state.auth.token || followupAlertRefreshPromise) return;
-  followupAlertRefreshPromise = apiRequest("/tasks")
+  followupAlertRefreshPromise = apiRequest("/tasks?page=0&size=100")
     .then(data => {
-      tasks = data.map(normalizeTask);
+      const pageData = pageContent(data);
+      tasks = pageData.content.map(normalizeTask);
+      state.taskPageMeta = pageData;
       checkUpcomingFollowupAlerts();
     })
     .catch(() => {})
@@ -2728,8 +2970,47 @@ async function refreshFollowupAlertTasks() {
   await followupAlertRefreshPromise;
 }
 
+async function refreshAssignedCustomers() {
+  if (!state.auth.token || customerSyncPromise) return;
+  customerSyncPromise = Promise.all([
+    apiRequest("/customers?page=0&size=100"),
+    apiRequest("/system-notifications")
+  ]).then(([customerData, notificationData]) => {
+    const customerPageData = pageContent(customerData);
+    const nextCustomers = customerPageData.content.map(normalizeCustomer);
+    state.customerPageMeta = customerPageData;
+    const nextSystemNotifications = Array.isArray(notificationData) ? notificationData.map(item => ({
+      id: item.id,
+      type: "系统消息",
+      title: item.title,
+      detail: item.content,
+      owner: "系统",
+      at: item.createdAt,
+      tone: "green",
+      customerId: item.customerNo,
+      read: Boolean(item.read)
+    })) : [];
+    const previousCustomers = customers.map(item => `${item.id}:${item.owner}:${item.updatedAt || ""}`).join("|");
+    const previousNotifications = state.systemNotifications.map(item => `${item.id}:${item.read ? "1" : "0"}`).join("|");
+    customers = nextCustomers;
+    state.systemNotifications = nextSystemNotifications;
+    state.systemNotifications.filter(item => item.read).forEach(item => { state.notificationRead[item.id] = true; });
+    localStorage.setItem("youai.crm.notificationRead", JSON.stringify(state.notificationRead));
+    const nextCustomerSignature = nextCustomers.map(item => `${item.id}:${item.owner}:${item.updatedAt || ""}`).join("|");
+    const nextNotificationSignature = nextSystemNotifications.map(item => `${item.id}:${item.read ? "1" : "0"}`).join("|");
+    if (previousCustomers !== nextCustomerSignature || previousNotifications !== nextNotificationSignature) render();
+  }).catch(() => {}).finally(() => { customerSyncPromise = null; });
+  await customerSyncPromise;
+}
+
+function startCustomerSyncMonitor() {
+  if (customerSyncTimer) return;
+  customerSyncTimer = window.setInterval(refreshAssignedCustomers, 30 * 1000);
+}
+
 function startFollowupAlertMonitor() {
   if (followupAlertTimer) return;
+  startCustomerSyncMonitor();
   checkUpcomingFollowupAlerts();
   refreshFollowupAlertTasks();
   followupAlertTimer = window.setInterval(refreshFollowupAlertTasks, 30 * 1000);
@@ -2939,21 +3220,25 @@ function orderRowsForSection() {
 }
 
 function orderListView() {
-  const rows = filteredOrders();
-  const pageSize = 10;
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
-  const currentPage = Math.min(Math.max(1, state.orderPage || 1), totalPages);
-  if (currentPage !== state.orderPage) state.orderPage = currentPage;
-  const pageRows = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const meta = state.orderPageMeta || { page: 0, size: state.orderPageSize, totalElements: 0, totalPages: 1 };
+  const rows = orders;
+  const pageSize = Number(meta.size || state.orderPageSize || 10);
+  const totalElements = Number(meta.totalElements || 0);
+  const totalPages = Math.max(1, Number(meta.totalPages || 1));
+  const currentPage = Math.min(Math.max(1, Number(meta.page || 0) + 1), totalPages);
+  state.orderPage = currentPage;
+  const pageRows = rows;
+  const firstPage = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
+  const visiblePages = Array.from({ length: Math.min(totalPages, 5) }, (_, index) => firstPage + index);
   const tableRows = pageRows.map((order, index) => {
     const memberId = `14300${String(33376 - index * 846).padStart(5, "0")}`;
     const invitee = index % 3 === 1 ? "管理员" : "赵娜";
     return `<tr data-order-id="${escapeHtml(order.id)}"><td><button class="table-link legacy-order-id">${escapeHtml(order.id.replace(/^SO2026/, "27"))}</button></td><td>优爱天津店</td><td><button class="table-link">${memberId}</button></td><td>${escapeHtml(order.customer)}</td><td>线下VIP</td><td>${order.amount}/${order.paid}</td><td>${orderPill(order.status)}</td><td>${escapeHtml(order.service === "待开通" ? "待服务" : order.service)}</td><td>${escapeHtml(order.created)}</td><td>${invitee}</td><td>${escapeHtml(order.owner)}</td><td>—</td><td><button class="button ghost order-detail-button" type="button" data-order-detail="${escapeHtml(order.id)}">详情</button></td></tr>`;
   }).join("");
-  const pageButtons = `<button class="page-button" type="button" data-order-page="${currentPage - 1}" ${currentPage === 1 ? "disabled" : ""}>‹</button>${Array.from({ length: totalPages }, (_, index) => `<button class="page-button ${index + 1 === currentPage ? "active" : ""}" type="button" data-order-page="${index + 1}">${index + 1}</button>`).join("")}<button class="page-button" type="button" data-order-page="${currentPage + 1}" ${currentPage === totalPages ? "disabled" : ""}>›</button>`;
-  const rangeStart = rows.length ? (currentPage - 1) * pageSize + 1 : 0;
-  const rangeEnd = Math.min(currentPage * pageSize, rows.length);
-  return `<section class="page order-list-reference">${orderNav("订单列表")}<div class="order-reference-content"><section class="data-panel order-reference-panel"><div class="table-wrap">${rows.length ? `<table class="data-table order-reference-table"><thead><tr><th>订单ID</th><th>所属门店</th><th>会员ID</th><th>会员姓名</th><th>套餐</th><th>应付/实付金额</th><th>订单状态</th><th>服务状态</th><th>创建时间</th><th>邀约</th><th>销售</th><th>共同单人</th><th>操作</th></tr></thead><tbody>${tableRows}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("search")}</span><strong>暂无订单</strong><p>当前没有可展示的订单。</p></div>`}</div><footer class="order-reference-pagination"><span>${rangeStart}-${rangeEnd} 共${rows.length}条</span>${pageButtons}<select aria-label="每页条数"><option>10 条/页</option></select>${totalPages > 1 ? `<span>跳至</span><input aria-label="跳转页码"><span>页</span>` : ""}</footer></section></div></section>`;
+  const pageButtons = `<button class="page-button" type="button" data-order-page="${currentPage - 1}" ${currentPage === 1 ? "disabled" : ""}>‹</button>${visiblePages.map(page => `<button class="page-button ${page === currentPage ? "active" : ""}" type="button" data-order-page="${page}">${page}</button>`).join("")}<button class="page-button" type="button" data-order-page="${currentPage + 1}" ${currentPage === totalPages ? "disabled" : ""}>›</button>`;
+  const rangeStart = totalElements && rows.length ? (currentPage - 1) * pageSize + 1 : 0;
+  const rangeEnd = rows.length ? rangeStart + rows.length - 1 : 0;
+  return `<section class="page order-list-reference">${orderNav("订单列表")}<div class="order-reference-content"><section class="data-panel order-reference-panel"><div class="table-wrap">${rows.length ? `<table class="data-table order-reference-table"><thead><tr><th>订单ID</th><th>所属门店</th><th>会员ID</th><th>会员姓名</th><th>套餐</th><th>应付/实付金额</th><th>订单状态</th><th>服务状态</th><th>创建时间</th><th>邀约</th><th>销售</th><th>共同单人</th><th>操作</th></tr></thead><tbody>${tableRows}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("search")}</span><strong>暂无订单</strong><p>当前没有可展示的订单。</p></div>`}</div><footer class="order-reference-pagination"><span>${rangeStart}-${rangeEnd} 共${totalElements}条</span>${pageButtons}<select id="orderPageSize" aria-label="每页条数"><option value="10" ${state.orderPageSize===10?"selected":""}>10 条/页</option><option value="20" ${state.orderPageSize===20?"selected":""}>20 条/页</option><option value="50" ${state.orderPageSize===50?"selected":""}>50 条/页</option><option value="100" ${state.orderPageSize===100?"selected":""}>100 条/页</option></select>${totalPages > 1 ? `<span>跳至</span><input aria-label="跳转页码"><span>页</span>` : ""}</footer></section></div></section>`;
   /* legacy layout retained below for reference */
   /* return `<section class="page">${orderNav("订单列表")}<div class="page-content">
     ${pageHeading(`<button class="button secondary" id="exportOrders">${icon("download")}导出订单</button><button class="button primary" id="newOrder">${icon("plus")}新建订单</button>`)}
@@ -3216,7 +3501,7 @@ function systemView() {
       const safePhone = escapeHtml(user.phone);
       const safeStoreDept = escapeHtml(user.storeDept);
       const safeDepartment = escapeHtml(user.department);
-      return `<tr><td><input type="checkbox" aria-label="选择${safeName}"></td><td>${safeId}</td><td>${safeAccount}</td><td>${safeName}</td><td>${safeGender}</td><td>${safePhone}</td><td>${safeStoreDept}</td><td>${safeDepartment}</td><td><span class="pill ${frozen ? "red" : "green"}">${frozen ? "已冻结" : "正常"}</span></td><td class="system-user-operation-cell"><div class="system-user-row-actions"><button class="table-link" type="button" data-edit-system-user="${safeId}">编辑</button><div class="system-user-more"><button class="table-link table-more-link" type="button" data-system-user-more-toggle="${safeId}" aria-expanded="false">更多<span class="dropdown-chevron"></span></button><div class="system-user-more-menu" data-system-user-more-menu="${safeId}" hidden><button type="button" data-system-user-more-action="detail" data-system-user-id="${safeId}">详情</button><button type="button" data-system-user-more-action="password" data-system-user-id="${safeId}">密码</button><button type="button" data-system-user-more-action="delete" data-system-user-id="${safeId}">删除</button><button type="button" data-system-user-more-action="${statusAction}" data-system-user-id="${safeId}" ${administrator ? `disabled title="${escapeHtml(statusTitle)}"` : ""}>${statusLabel}</button><button type="button" data-system-user-more-action="leave-inherit" data-system-user-id="${safeId}">离职继承</button></div></div></div></td></tr>`;
+      return `<tr><td><input type="checkbox" aria-label="选择${safeName}"></td><td>${safeId}</td><td>${safeAccount}</td><td>${safeName}</td><td>${safeGender}</td><td>${safePhone}</td><td>${safeStoreDept}</td><td>${safeDepartment}</td><td><span class="pill ${frozen ? "red" : "green"}">${frozen ? "已冻结" : "正常"}</span></td><td class="system-user-operation-cell"><div class="system-user-row-actions"><button class="table-link" type="button" data-edit-system-user="${safeId}">编辑</button><div class="system-user-more"><button class="table-link table-more-link" type="button" data-system-user-more-toggle="${safeId}" aria-expanded="false">更多<span class="dropdown-chevron"></span></button><div class="system-user-more-menu" data-system-user-more-menu="${safeId}" hidden><button type="button" data-system-user-more-action="detail" data-system-user-id="${safeId}">详情</button><button type="button" data-system-user-more-action="password" data-system-user-id="${safeId}">密码</button><button type="button" data-system-user-more-action="delete" data-system-user-id="${safeId}">删除</button><button type="button" data-system-user-more-action="${statusAction}" data-system-user-id="${safeId}" ${administrator ? `disabled title="${escapeHtml(statusTitle)}"` : ""}>${statusLabel}</button><button type="button" data-system-user-more-action="unlock" data-system-user-id="${safeId}">解锁登录</button><button type="button" data-system-user-more-action="leave-inherit" data-system-user-id="${safeId}">离职继承</button></div></div></div></td></tr>`;
     }).join("");
     return `<section class="page system-user-reference">${subnav(sections, active, sections)}<div class="system-user-content"><section class="system-user-filter"><div class="system-user-filter-row"><label>姓名：<input placeholder="输入姓名模糊查询"></label><label>门店：<select><option>请选择门店</option></select></label><label>部门：<select><option>请选择部门</option></select></label></div><div class="system-user-actions"><button class="button primary" type="button">${icon("search")}查询</button><button class="button primary" type="button">${icon("repeat")}重置</button><button class="text-button dropdown-trigger" type="button">展开<span class="dropdown-chevron"></span></button></div><button class="button primary add-user-button" type="button" data-add-system-user>${icon("plus")}添加用户</button></section><section class="data-panel system-user-panel"><div class="selected-user-bar">已选择 <strong>0</strong> 项　<a>清空</a></div><div class="table-wrap"><table class="data-table system-user-table"><thead><tr><th><input type="checkbox" aria-label="全选"></th><th>ID</th><th>账号</th><th>姓名</th><th>性别</th><th>手机号码</th><th>门店-部门</th><th>负责部门</th><th>状态</th><th>操作</th></tr></thead><tbody>${userRows}</tbody></table></div></section></div></section>`;
   }
@@ -3311,6 +3596,7 @@ function render() {
   renderWorkspaceTabs();
   document.title = `${workspaceTabLabel(state.view, currentWorkspaceSection())} - 优爱 YOUAI`;
   bindViewEvents();
+  bindServerPaginationControls();
   positionCustomerFollowUpDatePopover();
   updateNotificationChrome();
 }
@@ -3828,17 +4114,48 @@ function closeBusinessModal() {
 function openSystemUserEditor(id) {
   const sourceUser = state.systemUsers.find(item => String(item.id) === String(id));
   if (!sourceUser) return;
-  const user = Object.fromEntries(Object.entries(sourceUser).map(([key, value]) => [key, escapeHtml(value)]));
+  const user = { ...sourceUser, roles: systemRoleCodes(sourceUser.roles) };
+  const editableRoleCodes = new Set(systemRoleOptions.map(role => role.code));
+  const retainedRoles = user.roles.filter(code => !editableRoleCodes.has(code));
+  const roleTagMarkup = selected => selected.map(code => `<span class="editor-tag">${escapeHtml(systemRoleLabel(code))}${editableRoleCodes.has(code) ? `<button type="button" class="editor-tag-remove" data-remove-role="${escapeHtml(code)}" aria-label="移除${escapeHtml(systemRoleLabel(code))}">×</button>` : ""}</span>`).join("") || `<span class="editor-selection-placeholder">请选择角色</span>`;
+  const roleOptions = systemRoleOptions.map(role => `<label class="system-role-option"><input type="checkbox" name="roles" value="${role.code}" ${user.roles.includes(role.code) ? "checked" : ""}><span>${role.label}</span></label>`).join("");
+  const roleTags = () => {
+    const selected = [...retainedRoles, ...drawer.querySelectorAll('input[name="roles"]:checked')].map(item => item?.value || item);
+    const tags = drawer.querySelector("[data-role-tags]");
+    if (tags) tags.innerHTML = roleTagMarkup(selected);
+  };
   const drawer = document.querySelector("#detailDrawer");
   const backdrop = document.querySelector("#drawerBackdrop");
-  drawer.innerHTML = `<header class="drawer-header"><div><h2>编辑</h2></div><button class="icon-button" data-close-drawer aria-label="关闭">${icon("close")}</button></header><div class="drawer-body system-user-editor"><div class="system-editor-id">ID：${user.id}</div><form id="systemUserEditForm" class="system-user-editor-form"><label><span><i>*</i>用户账号：</span><input name="account" value="${user.account}" required></label><label><span><i>*</i>手机号码：</span><input name="phone" value="${user.phone}" required></label><label><span><i>*</i>用户姓名：</span><input name="name" value="${user.name}" required></label><label><span>职务：</span><div class="editor-inline"><span class="editor-tag">销售 ×</span><button type="button" class="button primary">${icon("search")}选择</button></div></label><label><span><i>*</i>角色分配：</span><div class="editor-tags"><span class="editor-tag">销售 ×</span></div></label><label><span><i>*</i>部门分配：</span><div class="editor-inline"><input value="销售部"><button type="button" class="button secondary">${icon("search")}选择</button></div></label><label><span>身份：</span><div class="editor-radios"><label><input type="radio" name="identity" checked>普通用户</label><label><input type="radio" name="identity">上级</label></div></label><label><span>头像：</span><div class="avatar-upload"><strong>＋</strong><small>上传</small></div></label><label><span>生日：</span><input type="date" name="birthday"></label><label><span>性别：</span><select name="gender"><option>请选择性别</option><option ${user.gender === "男" ? "selected" : ""}>男</option><option ${user.gender === "女" ? "selected" : ""}>女</option></select></label><label><span>邮箱：</span><input name="email" placeholder="请输入邮箱"></label><label><span>工作流引擎：</span><div class="editor-radios"><label><input type="radio" name="workflow" checked>同步</label><label><input type="radio" name="workflow">不同步</label></div></label></form></div><footer class="drawer-footer"><button type="button" class="button secondary" data-close-drawer>取消</button><button type="submit" form="systemUserEditForm" class="button primary">提交</button></footer>`;
+  drawer.innerHTML = `<header class="drawer-header"><div><h2>编辑</h2></div><button class="icon-button" data-close-drawer aria-label="关闭">${icon("close")}</button></header><div class="drawer-body system-user-editor"><div class="system-editor-id">ID：${escapeHtml(user.id)}</div><form id="systemUserEditForm" class="system-user-editor-form"><label><span><i>*</i>用户账号：</span><input name="account" value="${escapeHtml(user.account)}" required></label><label><span><i>*</i>手机号码：</span><input name="phone" value="${escapeHtml(user.phone)}" required></label><label><span><i>*</i>用户姓名：</span><input name="name" value="${escapeHtml(user.name)}" required></label><label><span>职务：</span><div class="editor-inline"><span class="editor-tag">销售 ×</span><button type="button" class="button primary">${icon("search")}选择</button></div></label><label><span><i>*</i>角色分配：</span><div class="editor-role-picker"><div class="editor-tags" data-role-tags>${roleTagMarkup(user.roles)}</div><button type="button" class="button primary" data-role-picker-toggle>${icon("search")}选择</button><div class="system-role-menu" data-role-menu hidden>${roleOptions}</div></div></label><label><span><i>*</i>部门分配：</span><div class="editor-inline"><input value="${escapeHtml(user.department || "销售部")}" readonly><button type="button" class="button secondary">${icon("search")}选择</button></div></label><label><span>身份：</span><div class="editor-radios"><label><input type="radio" name="identity" checked>普通用户</label><label><input type="radio" name="identity">上级</label></div></label><label><span>头像：</span><div class="avatar-upload"><strong>＋</strong><small>上传</small></div></label><label><span>生日：</span><input type="date" name="birthday"></label><label><span>性别：</span><select name="gender"><option>请选择性别</option><option ${user.gender === "男" ? "selected" : ""}>男</option><option ${user.gender === "女" ? "selected" : ""}>女</option></select></label><label><span>邮箱：</span><input name="email" placeholder="请输入邮箱"></label><label><span>工作流引擎：</span><div class="editor-radios"><label><input type="radio" name="workflow" checked>同步</label><label><input type="radio" name="workflow">不同步</label></div></label></form></div><footer class="drawer-footer"><button type="button" class="button secondary" data-close-drawer>取消</button><button type="submit" form="systemUserEditForm" class="button primary">提交</button></footer>`;
   backdrop.hidden = false;
   drawer.classList.add("system-user-drawer");
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
   document.body.style.overflow = "hidden";
   drawer.querySelectorAll("[data-close-drawer]").forEach(button => button.addEventListener("click", closeDrawer));
-  drawer.querySelector("#systemUserEditForm").addEventListener("submit", event => { event.preventDefault(); closeDrawer(); toast("用户信息已更新"); });
+  const roleMenu = drawer.querySelector("[data-role-menu]");
+  drawer.querySelector("[data-role-picker-toggle]")?.addEventListener("click", () => { roleMenu.hidden = !roleMenu.hidden; });
+  drawer.querySelectorAll('input[name="roles"]').forEach(input => input.addEventListener("change", roleTags));
+  drawer.addEventListener("click", event => {
+    const remove = event.target.closest("[data-remove-role]");
+    if (remove) { const input = drawer.querySelector(`input[name="roles"][value="${remove.dataset.removeRole}"]`); if (input) input.checked = false; roleTags(); }
+    if (!event.target.closest(".editor-role-picker")) roleMenu.hidden = true;
+  });
+  drawer.querySelector("#systemUserEditForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const roles = [...retainedRoles, ...form.querySelectorAll('input[name="roles"]:checked')].map(item => item?.value || item);
+    if (!roles.length) { toast("请至少选择一个角色", "error"); return; }
+    const submit = drawer.querySelector('[type="submit"]');
+    submit.disabled = true;
+    try {
+      requireBackend();
+      const saved = normalizeSystemUser(await apiRequest(`/auth/users/${encodeURIComponent(user.id)}`, { method: "PATCH", body: JSON.stringify({ username: form.elements.namedItem("account").value.trim(), displayName: form.elements.namedItem("name").value.trim(), phone: form.elements.namedItem("phone").value.trim(), roles }) }));
+      const index = state.systemUsers.findIndex(item => String(item.id) === String(saved.id));
+      if (index >= 0) state.systemUsers[index] = saved;
+      closeDrawer(); render(); toast("用户信息已更新");
+    } catch (error) { toast(`保存失败：${error.message}`, "error"); submit.disabled = false; }
+  });
 }
 
 function closeSystemUserPasswordModal() {
@@ -3852,6 +4169,141 @@ function closeSystemUserFreezeConfirm() {
   const confirm = document.querySelector("[data-system-user-freeze-confirm]");
   if (!confirm) return;
   confirm.remove();
+}
+
+function closeSystemUserInheritanceModal() {
+  const backdrop = document.querySelector("#systemUserInheritanceBackdrop");
+  if (!backdrop) return;
+  backdrop.remove();
+  document.body.style.overflow = "";
+}
+
+function closeSystemUserDeleteModal() {
+  const backdrop = document.querySelector("#systemUserDeleteBackdrop");
+  if (!backdrop) return;
+  backdrop.remove();
+  document.body.style.overflow = "";
+}
+
+function openSystemUserInheritance(user) {
+  closeSystemUserInheritanceModal();
+  const backdrop = document.createElement("div");
+  backdrop.id = "systemUserInheritanceBackdrop";
+  backdrop.className = "modal-backdrop system-user-inheritance-backdrop";
+  backdrop.innerHTML = `<section class="system-user-inheritance-modal" role="dialog" aria-modal="true" aria-labelledby="systemUserInheritanceTitle"><header class="system-user-inheritance-header"><h2 id="systemUserInheritanceTitle">${escapeHtml(user.name || user.account)}-离职继承</h2><button type="button" class="icon-button" data-close-system-user-inheritance aria-label="关闭">${icon("close")}</button></header><form id="systemUserInheritanceForm" class="system-user-inheritance-form"><label><span>接收对象：</span><div class="inheritance-owner-picker"><input type="hidden" name="targetOwner"><button type="button" class="inheritance-owner-trigger" data-inheritance-owner-trigger aria-expanded="false"><span data-inheritance-owner-label>请选择接收员工</span><span class="dropdown-chevron"></span></button><div class="inheritance-owner-menu" data-inheritance-owner-menu hidden></div></div></label><p class="system-user-inheritance-hint">该员工名下的全部客户将转移给接收对象。</p><footer class="system-user-inheritance-footer"><button type="button" class="button secondary" data-close-system-user-inheritance>取消</button><button type="submit" class="button primary">确定</button></footer></form></section>`;
+  document.body.append(backdrop);
+  document.body.style.overflow = "hidden";
+
+  const form = backdrop.querySelector("#systemUserInheritanceForm");
+  const menu = backdrop.querySelector("[data-inheritance-owner-menu]");
+  const trigger = backdrop.querySelector("[data-inheritance-owner-trigger]");
+  const targetInput = form.querySelector('input[name="targetOwner"]');
+  const targetLabel = form.querySelector("[data-inheritance-owner-label]");
+  const employees = () => customerOwnerAccountUsers()
+    .filter(item => String(item.name).trim() !== String(user.name).trim())
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-CN"));
+  const renderOwners = (query = "") => {
+    const normalizedQuery = query.trim().toLowerCase();
+    const grouped = employees().reduce((result, item) => {
+      const name = String(item.name || "");
+      const department = item.departmentName || item.department || "销售部";
+      if (normalizedQuery && !name.toLowerCase().includes(normalizedQuery) && !String(department).toLowerCase().includes(normalizedQuery)) return result;
+      (result[department] ||= []).push(item);
+      return result;
+    }, {});
+    const groups = Object.entries(grouped).map(([department, items]) => `<div class="inheritance-owner-group"><strong>${escapeHtml(department)}</strong>${items.map(item => `<button type="button" data-inheritance-owner="${escapeHtml(item.name)}"><span class="inheritance-owner-dot"></span>${escapeHtml(item.name)}</button>`).join("")}</div>`).join("");
+    menu.innerHTML = groups || `<span class="inheritance-owner-empty">暂无可接收的员工</span>`;
+  };
+  renderOwners();
+  trigger.addEventListener("click", () => {
+    const open = menu.hidden;
+    menu.hidden = !open;
+    trigger.setAttribute("aria-expanded", String(open));
+  });
+  menu.addEventListener("click", event => {
+    const option = event.target.closest("[data-inheritance-owner]");
+    if (!option) return;
+    targetInput.value = option.dataset.inheritanceOwner;
+    targetLabel.textContent = option.dataset.inheritanceOwner;
+    menu.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+  });
+  backdrop.querySelectorAll("[data-close-system-user-inheritance]").forEach(button => button.addEventListener("click", closeSystemUserInheritanceModal));
+  backdrop.addEventListener("click", event => { if (event.target === backdrop) closeSystemUserInheritanceModal(); });
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    const targetOwner = targetInput.value.trim();
+    if (!targetOwner) { toast("请选择接收员工", "error"); return; }
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true;
+    try {
+      requireBackend();
+      const result = await apiRequest("/customers/inherit", { method: "POST", body: JSON.stringify({ sourceOwner: user.name, targetOwner, sourceUserId: user.id }) });
+      const customerData = pageContent(await apiRequest("/customers?page=0&size=100"));
+      customers = customerData.content.map(normalizeCustomer);
+      state.customerPageMeta = customerData;
+      state.systemUsers = state.systemUsers.filter(item => String(item.id) !== String(user.id));
+      closeSystemUserInheritanceModal();
+      render();
+      toast(`已将 ${result.transferredCount || 0} 位客户继承给 ${targetOwner}`);
+    } catch (error) {
+      toast(`离职继承失败：${error.message}`, "error");
+      submit.disabled = false;
+    }
+  });
+}
+
+function openSystemUserDeleteConfirm(user) {
+  if (!user) return;
+  if (customerOwnerIsAdminUser(user)) {
+    toast("管理员账号不能删除", "error");
+    return;
+  }
+  const name = user.name || user.account || "该员工";
+  closeSystemUserDeleteModal();
+  const backdrop = document.createElement("div");
+  backdrop.id = "systemUserDeleteBackdrop";
+  backdrop.className = "modal-backdrop system-user-delete-backdrop";
+  backdrop.innerHTML = `<section class="system-user-delete-modal" role="dialog" aria-modal="true" aria-labelledby="systemUserDeleteTitle"><header class="system-user-delete-header"><div><h2 id="systemUserDeleteTitle">删除员工账号</h2><p>此操作不可撤销，请确认后继续</p></div><button type="button" class="icon-button" data-close-system-user-delete aria-label="关闭">${icon("close")}</button></header><div class="system-user-delete-body"><div class="system-user-delete-warning" aria-hidden="true">!</div><div><strong>确定删除“${escapeHtml(name)}”的员工账号吗？</strong><p>如果该账号名下还有客户，请先完成离职继承。</p></div></div><footer class="system-user-delete-footer"><button type="button" class="button secondary" data-close-system-user-delete>取消</button><button type="button" class="button danger" data-confirm-system-user-delete>删除</button></footer></section>`;
+  document.body.append(backdrop);
+  document.body.style.overflow = "hidden";
+  const close = closeSystemUserDeleteModal;
+  backdrop.querySelectorAll("[data-close-system-user-delete]").forEach(button => button.addEventListener("click", close));
+  backdrop.addEventListener("click", event => { if (event.target === backdrop) close(); });
+  backdrop.addEventListener("keydown", event => { if (event.key === "Escape") close(); });
+  backdrop.querySelector("[data-confirm-system-user-delete]")?.addEventListener("click", async event => {
+    const submit = event.currentTarget;
+    submit.disabled = true;
+    backdrop.querySelectorAll("button").forEach(button => { button.disabled = true; });
+    try {
+      requireBackend();
+      await apiRequest(`/auth/users/${encodeURIComponent(user.id)}`, { method: "DELETE" });
+      state.systemUsers = state.systemUsers.filter(item => String(item.id) !== String(user.id));
+      close();
+      render();
+      toast(`员工账号“${name}”已删除`);
+    } catch (error) {
+      toast(`删除员工失败：${error.message}`, "error");
+      backdrop.querySelectorAll("button").forEach(button => { button.disabled = false; });
+      submit.disabled = false;
+    }
+  });
+  backdrop.querySelector("[data-close-system-user-delete]")?.focus();
+}
+
+function deleteSystemUser(user) {
+  openSystemUserDeleteConfirm(user);
+}
+
+async function unlockSystemUser(user) {
+  if (!user) return;
+  try {
+    requireBackend();
+    await apiRequest(`/auth/users/${encodeURIComponent(user.id)}/unlock`, { method: "PATCH" });
+    toast(`已解除“${user.name || user.account}”的登录失败锁定`);
+  } catch (error) {
+    toast(`解锁登录失败：${error.message}`, "error");
+  }
 }
 
 function openSystemUserStatusConfirm(user, trigger, action = "freeze") {
@@ -3943,7 +4395,8 @@ function openSystemUserPasswordReset(user) {
 function openSystemUserCreator() {
   const drawer = document.querySelector("#detailDrawer");
   const backdrop = document.querySelector("#drawerBackdrop");
-  drawer.innerHTML = `<header class="drawer-header"><div><h2>新增</h2></div><button class="icon-button" data-close-drawer aria-label="关闭">${icon("close")}</button></header><div class="drawer-body system-user-editor system-user-create-editor"><div class="system-editor-id">ID：</div><form id="systemUserCreateForm" class="system-user-editor-form system-user-create-form"><label><span><i>*</i>用户账号：</span><input name="username" autocomplete="username" minlength="3" maxlength="32" pattern="[A-Za-z][A-Za-z0-9_.-]*" required placeholder="请输入用户账号"></label><label><span><i>*</i>手机号码：</span><input name="phone" inputmode="numeric" autocomplete="tel" pattern="1[3-9][0-9]{9}" required placeholder="请输入手机号码"></label><label><span><i>*</i>登录密码：</span><div class="editor-input-wrap"><input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required placeholder="请输入登录密码"><button type="button" class="editor-password-toggle" data-password-toggle="password" aria-label="显示登录密码">${icon("eye")}</button></div></label><label><span><i>*</i>确认密码：</span><div class="editor-input-wrap"><input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" maxlength="72" required placeholder="请再次输入登录密码"><button type="button" class="editor-password-toggle" data-password-toggle="confirmPassword" aria-label="显示确认密码">${icon("eye")}</button></div></label><label><span><i>*</i>用户姓名：</span><input name="displayName" autocomplete="name" minlength="2" maxlength="64" required placeholder="请输入用户姓名"></label><label><span>职务：</span><div class="editor-selection"><input name="position" placeholder="请选择职务" readonly><button type="button" class="button primary" data-editor-select="position">${icon("search")}选择</button></div></label><label><span><i>*</i>角色分配：</span><div class="editor-selection"><input name="role" placeholder="请选择用户角色" readonly><button type="button" class="button primary" data-editor-select="role">${icon("search")}选择</button></div></label><label><span><i>*</i>部门分配：</span><div class="editor-selection"><input name="department" placeholder="请选择部门" readonly><button type="button" class="button secondary" data-editor-select="department">${icon("search")}选择</button></div></label><label><span>身份：</span><div class="editor-radios"><label><input type="radio" name="identity" value="普通用户" checked>普通用户</label><label><input type="radio" name="identity" value="上级">上级</label></div></label><label class="editor-avatar-row"><span>头像：</span><div class="avatar-upload"><strong>＋</strong><small>上传</small></div></label><label><span>生日：</span><input type="date" name="birthday"></label><label><span>性别：</span><select name="gender"><option value="">请选择性别</option><option>男</option><option>女</option></select></label><label><span>邮箱：</span><input name="email" type="email" placeholder="请输入邮箱"></label><label><span>工作流引擎：</span><div class="editor-radios"><label><input type="radio" name="workflow" value="同步" checked>同步</label><label><input type="radio" name="workflow" value="不同步">不同步</label></div></label></form></div><footer class="drawer-footer"><button type="button" class="button secondary" data-cancel-system-user>取消</button><button type="submit" form="systemUserCreateForm" class="button primary">提交</button></footer><div class="system-user-cancel-confirm" data-system-user-cancel-confirm hidden role="dialog" aria-label="放弃新增确认"><p><span class="system-user-confirm-icon">!</span>确定放弃并关闭吗?</p><div><button type="button" class="button secondary" data-system-user-discard-cancel>取消</button><button type="button" class="button primary" data-system-user-discard-confirm>确定</button></div></div>`;
+  const createRoles = systemRoleOptions.map(role => `<button type="button" data-create-role-option="${role.label}">${role.label}</button>`).join("");
+  drawer.innerHTML = `<header class="drawer-header"><div><h2>新增</h2></div><button class="icon-button" data-close-drawer aria-label="关闭">${icon("close")}</button></header><div class="drawer-body system-user-editor system-user-create-editor"><div class="system-editor-id">ID：</div><form id="systemUserCreateForm" class="system-user-editor-form system-user-create-form"><label><span><i>*</i>用户账号：</span><input name="username" autocomplete="username" minlength="3" maxlength="32" pattern="[A-Za-z][A-Za-z0-9_.-]*" required placeholder="请输入用户账号"></label><label><span><i>*</i>手机号码：</span><input name="phone" inputmode="numeric" autocomplete="tel" pattern="1[3-9][0-9]{9}" required placeholder="请输入手机号码"></label><label><span><i>*</i>登录密码：</span><div class="editor-input-wrap"><input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required placeholder="请输入登录密码"><button type="button" class="editor-password-toggle" data-password-toggle="password" aria-label="显示登录密码">${icon("eye")}</button></div></label><label><span><i>*</i>确认密码：</span><div class="editor-input-wrap"><input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" maxlength="72" required placeholder="请再次输入登录密码"><button type="button" class="editor-password-toggle" data-password-toggle="confirmPassword" aria-label="显示确认密码">${icon("eye")}</button></div></label><label><span><i>*</i>用户姓名：</span><input name="displayName" autocomplete="name" minlength="2" maxlength="64" required placeholder="请输入用户姓名"></label><label><span>职务：</span><div class="editor-selection"><input name="position" placeholder="请选择职务" readonly><button type="button" class="button primary" data-editor-select="position">${icon("search")}选择</button></div></label><label><span><i>*</i>角色分配：</span><div class="editor-selection editor-role-selection"><input name="role" placeholder="请选择用户角色" readonly required><button type="button" class="button primary" data-editor-select="role">${icon("search")}选择</button><div class="system-role-menu" data-create-role-menu hidden>${createRoles}</div></div></label><label><span><i>*</i>部门分配：</span><div class="editor-selection"><input name="department" placeholder="请选择部门" readonly><button type="button" class="button secondary" data-editor-select="department">${icon("search")}选择</button></div></label><label><span>身份：</span><div class="editor-radios"><label><input type="radio" name="identity" value="普通用户" checked>普通用户</label><label><input type="radio" name="identity" value="上级">上级</label></div></label><label class="editor-avatar-row"><span>头像：</span><div class="avatar-upload"><strong>＋</strong><small>上传</small></div></label><label><span>生日：</span><input type="date" name="birthday"></label><label><span>性别：</span><select name="gender"><option value="">请选择性别</option><option>男</option><option>女</option></select></label><label><span>邮箱：</span><input name="email" type="email" placeholder="请输入邮箱"></label><label><span>工作流引擎：</span><div class="editor-radios"><label><input type="radio" name="workflow" value="同步" checked>同步</label><label><input type="radio" name="workflow" value="不同步">不同步</label></div></label></form></div><footer class="drawer-footer"><button type="button" class="button secondary" data-cancel-system-user>取消</button><button type="submit" form="systemUserCreateForm" class="button primary">提交</button></footer><div class="system-user-cancel-confirm" data-system-user-cancel-confirm hidden role="dialog" aria-label="放弃新增确认"><p><span class="system-user-confirm-icon">!</span>确定放弃并关闭吗?</p><div><button type="button" class="button secondary" data-system-user-discard-cancel>取消</button><button type="button" class="button primary" data-system-user-discard-confirm>确定</button></div></div>`;
   backdrop.hidden = false;
   drawer.classList.add("system-user-drawer", "open");
   drawer.setAttribute("aria-hidden", "false");
@@ -3977,7 +4430,16 @@ function openSystemUserCreator() {
     input.type = visible ? "password" : "text";
     button.setAttribute("aria-label", visible ? "显示密码" : "隐藏密码");
   }));
-  drawer.querySelectorAll("[data-editor-select]").forEach(button => button.addEventListener("click", () => toast(`${button.dataset.editorSelect === "position" ? "职务" : button.dataset.editorSelect === "role" ? "角色" : "部门"}选择功能已打开`)));
+  const createRoleInput = drawer.querySelector('input[name="role"]');
+  drawer.querySelector('[data-editor-select="role"]')?.addEventListener("click", () => {
+    const menu = drawer.querySelector("[data-create-role-menu]");
+    menu.hidden = !menu.hidden;
+  });
+  drawer.querySelectorAll("[data-create-role-option]").forEach(option => option.addEventListener("click", () => {
+    createRoleInput.value = option.dataset.createRoleOption;
+    drawer.querySelector("[data-create-role-menu]").hidden = true;
+  }));
+  drawer.querySelectorAll("[data-editor-select]:not([data-editor-select=role])").forEach(button => button.addEventListener("click", () => toast(`${button.dataset.editorSelect === "position" ? "职务" : "部门"}选择功能已打开`)));
   drawer.querySelector("#systemUserCreateForm").addEventListener("submit", async event => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -3986,7 +4448,8 @@ function openSystemUserCreator() {
     const submit = drawer.querySelector('[type="submit"]');
     submit.disabled = true;
     try {
-      const user = await apiRequest("/auth/users", { method: "POST", body: JSON.stringify({ username: data.username, password: data.password, displayName: data.displayName, phone: data.phone }) });
+      const selectedRole = systemRoleCode(data.role || "SALES");
+      const user = await apiRequest("/auth/users", { method: "POST", body: JSON.stringify({ username: data.username, password: data.password, displayName: data.displayName, phone: data.phone, roles: [selectedRole] }) });
       state.systemUsers.push(normalizeSystemUser({ ...user, gender: data.gender }));
       state.systemUsers.sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-CN"));
       closeDrawer();
@@ -4825,18 +5288,14 @@ function bindViewEvents() {
     state.customerContactReveals[key] = !state.customerContactReveals[key];
     render();
   }));
-  document.querySelector("#dashboardFilterForm")?.addEventListener("submit", async event => {
+  document.querySelectorAll("[data-dashboard-filter-form]").forEach(form => form.addEventListener("submit", async event => {
     event.preventDefault();
-    const from = document.querySelector("#dashboardFrom")?.value || "";
-    const to = document.querySelector("#dashboardTo")?.value || "";
+    const from = form.elements.namedItem("from")?.value || "";
+    const to = form.elements.namedItem("to")?.value || "";
     if (from && to && to < from) { toast("结束日期不能早于开始日期"); return; }
-    state.dashboardFilters = { store: document.querySelector("#dashboardStore")?.value || "", from, to };
+    state.dashboardFilters = { store: "", from, to };
     try { await refreshDashboard(); toast("首页数据已按筛选条件更新"); } catch (error) { toast(`查询失败：${error.message}`); }
-  });
-  document.querySelector("#resetDashboardFilters")?.addEventListener("click", async () => {
-    state.dashboardFilters = { store: "", from: localDateValue(dashboardMonthStart), to: localDateValue(dashboardToday) };
-    try { await refreshDashboard(); } catch (error) { toast(`重置失败：${error.message}`); }
-  });
+  }));
   document.querySelectorAll("[data-dashboard-target]").forEach(button => button.addEventListener("click", () => {
     const target = button.dataset.dashboardTarget;
     if (target === "analytics") state.analyticsSection = "邀约记录";
@@ -4864,13 +5323,25 @@ function bindViewEvents() {
     const user = state.systemUsers.find(item => String(item.id) === String(button.dataset.systemUserId));
     if (!user) return;
     const moreToggle = button.closest(".system-user-more")?.querySelector("[data-system-user-more-toggle]") || button;
-    const labels = { detail: "详情", password: "密码", delete: "删除", freeze: "冻结", "leave-inherit": "离职继承" };
+    const labels = { detail: "详情", password: "密码", delete: "删除", freeze: "冻结", unfreeze: "解冻", unlock: "解锁登录", "leave-inherit": "离职继承" };
     document.querySelectorAll("[data-system-user-more-menu]").forEach(item => { item.hidden = true; });
     document.querySelectorAll("[data-system-user-more-toggle]").forEach(item => item.setAttribute("aria-expanded", "false"));
     if (button.dataset.systemUserMoreAction === "detail") { openSystemUserEditor(user.id); return; }
     if (button.dataset.systemUserMoreAction === "password") { openSystemUserPasswordReset(user); return; }
     if (["freeze", "unfreeze"].includes(button.dataset.systemUserMoreAction)) {
       openSystemUserStatusConfirm(user, moreToggle, button.dataset.systemUserMoreAction);
+      return;
+    }
+    if (button.dataset.systemUserMoreAction === "unlock") {
+      unlockSystemUser(user);
+      return;
+    }
+    if (button.dataset.systemUserMoreAction === "leave-inherit") {
+      openSystemUserInheritance(user);
+      return;
+    }
+    if (button.dataset.systemUserMoreAction === "delete") {
+      openSystemUserDeleteConfirm(user);
       return;
     }
     toast(`${labels[button.dataset.systemUserMoreAction] || "操作"}功能已打开`);
@@ -4939,7 +5410,7 @@ function bindViewEvents() {
   document.querySelector("#whiteboardStatusFilter")?.addEventListener("change", event => { state.whiteboardStatus = event.target.value; render(); });
   const customerNameSearch = document.querySelector("#customerNameSearch");
   customerNameSearch?.addEventListener("input", event => { state.customerNameSearch = event.target.value; });
-  customerNameSearch?.addEventListener("keydown", event => { if (event.key === "Enter") { state.customerPage = 1; render(); } });
+  customerNameSearch?.addEventListener("keydown", event => { if (event.key === "Enter") { state.customerPage = 1; state.poolCustomerPage = 1; render(); } });
   const stageFilter = document.querySelector("#stageFilter");
   stageFilter?.addEventListener("click", () => { state.customerStage = "全部阶段"; const level = document.querySelector("#levelFilter"); level?.focus(); level?.closest(".status-filter")?.classList.add("open"); });
   const levelFilter = document.querySelector("#levelFilter");
@@ -5418,9 +5889,9 @@ function bindViewEvents() {
     state.customerDateRangePicking = "start";
     render();
   });
-  document.querySelectorAll("[data-customer-scene]").forEach(button => button.addEventListener("click", () => { state.customerScene = button.dataset.customerScene; state.customerPage = 1; render(); }));
-  document.querySelectorAll("[data-quick-filter]").forEach(button => button.addEventListener("click", () => { state.quickFilter = button.dataset.quickFilter; render(); }));
-  document.querySelectorAll("[data-customer-scope]").forEach(button => button.addEventListener("click", () => { state.customerScope = button.dataset.customerScope; render(); }));
+  document.querySelectorAll("[data-customer-scene]").forEach(button => button.addEventListener("click", () => { state.customerScene = button.dataset.customerScene; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
+  document.querySelectorAll("[data-quick-filter]").forEach(button => button.addEventListener("click", () => { state.quickFilter = button.dataset.quickFilter; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
+  document.querySelectorAll("[data-customer-scope]").forEach(button => button.addEventListener("click", () => { state.customerScope = button.dataset.customerScope; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
   document.querySelectorAll("[data-customer-sort]").forEach(button => button.addEventListener("click", event => {
     event.stopPropagation();
     const key = event.currentTarget.dataset.customerSort;
@@ -5430,7 +5901,8 @@ function bindViewEvents() {
       : state.customerSort?.key === key && state.customerSort.direction === "asc" ? "desc" : "asc";
     state.customerSort = { key, direction };
     state.customerPage = 1;
-    render();
+    state.poolCustomerPage = 1;
+    refreshCustomerSearchFromApi();
   }));
   document.querySelectorAll("[data-sincere-scope]").forEach(button => button.addEventListener("click", () => { state.sincereScope = button.dataset.sincereScope; render(); }));
   document.querySelectorAll("[data-service-scope]").forEach(button => button.addEventListener("click", () => { state.serviceScope = button.dataset.serviceScope; render(); }));
@@ -5485,10 +5957,8 @@ function bindViewEvents() {
     render();
     toast("自定义表头已保存");
   });
-  document.querySelector("#applyCustomerFilters")?.addEventListener("click", async () => { state.customerPage = 1; render(); await refreshCustomerSearchFromApi(); });
+  document.querySelector("#applyCustomerFilters")?.addEventListener("click", async () => { state.customerPage = 1; state.poolCustomerPage = 1; render(); await refreshCustomerSearchFromApi(); });
   document.querySelector("#resetCustomerFilters")?.addEventListener("click", () => { state.customerSearch = ""; state.customerNameSearch = ""; state.customerStage = "全部阶段"; state.customerLevel = "全部等级"; state.customerStatus = "全部状态"; state.customerScene = "all"; state.customerOwner = "全部负责人"; state.customerOwnerSelection = { nodes: [] }; state.customerAdvancedCollaboratorSelection = { nodes: [] }; state.customerAdvancedDraftCollaboratorSelection = { nodes: [] }; state.customerAdvancedCollaboratorCascadeOpen = false; state.customerOwnerCascadeOpen = false; state.customerOwnerSearch = ""; state.customerOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"]; state.customerStartDate = ""; state.customerEndDate = ""; state.customerDateRangePickerOpen = false; state.customerDateRangeDraftStart = ""; state.customerDateRangeDraftEnd = ""; state.customerDateRangeViewMonth = ""; state.customerDateRangePicking = "start"; state.customerGender = "all"; state.customerMaritalStatus = "all"; state.customerAgeMin = ""; state.customerAgeMax = ""; state.customerHeightMin = ""; state.customerHeightMax = ""; state.customerEducation = []; state.customerEducationMenuOpen = false; state.customerUncontactedDays = "all"; state.customerUncontactedDaysCustom = ""; state.customerAdvancedDraftGender = "all"; state.customerAdvancedDraftMaritalStatus = "all"; state.customerAdvancedDraftAgeMin = ""; state.customerAdvancedDraftAgeMax = ""; state.customerAdvancedDraftHeightMin = ""; state.customerAdvancedDraftHeightMax = ""; state.customerAdvancedDraftEducation = []; state.customerAdvancedOwnerSelection = { nodes: [] }; state.customerAdvancedDraftOwnerSelection = { nodes: [] }; state.customerAdvancedOwnerCascadeOpen = false; state.customerAdvancedOwnerSearch = ""; state.customerAdvancedOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"]; state.customerAdvancedDraftDateRanges = { registration: { start: "", end: "" }, lastLogin: { start: "", end: "" }, firstAllocation: { start: "", end: "" }, lastFollowUp: { start: "", end: "" } }; state.customerAdvancedDateRanges = { registration: { start: "", end: "" }, lastLogin: { start: "", end: "" }, firstAllocation: { start: "", end: "" }, lastFollowUp: { start: "", end: "" } }; state.customerAdvancedDatePickerOpen = false; state.customerAdvancedDatePickerField = ""; state.customerAdvancedDatePickerDraftStart = ""; state.customerAdvancedDatePickerDraftEnd = ""; state.customerAdvancedDatePickerViewMonth = ""; state.customerAdvancedDatePickerPicking = "start"; state.customerAdvancedDraftUncontactedDays = "all"; state.customerAdvancedDraftUncontactedDaysCustom = ""; state.customerAdvancedDialStatus = "all"; state.customerAdvancedDraftDialStatus = "all"; state.customerAvatarFilter = "all"; state.customerAdvancedDraftAvatar = "all"; state.quickFilter = "全部客户"; state.customerPage = 1; render(); });
-  document.querySelectorAll("[data-customer-page]").forEach(button => button.addEventListener("click", () => { if (!button.disabled) { state.customerPage = Number(button.dataset.customerPage); render(); } }));
-  document.querySelector("#customerPageSize")?.addEventListener("change", event => { state.customerPageSize = Number(event.target.value); state.customerPage = 1; render(); });
   document.querySelectorAll("[data-select-customer]").forEach(input => input.addEventListener("change", () => { state.selectedCustomerIds = input.checked ? [...new Set([...state.selectedCustomerIds, input.dataset.selectCustomer])] : state.selectedCustomerIds.filter(id => id !== input.dataset.selectCustomer); render(); }));
   document.querySelector("#selectPageCustomers")?.addEventListener("change", event => { const ids = [...document.querySelectorAll("[data-select-customer]")].map(input => input.dataset.selectCustomer); state.selectedCustomerIds = event.target.checked ? [...new Set([...state.selectedCustomerIds, ...ids])] : state.selectedCustomerIds.filter(id => !ids.includes(id)); render(); });
   document.querySelector("#clearCustomerSelection")?.addEventListener("click", () => { state.selectedCustomerIds = []; render(); });
@@ -5703,10 +6173,9 @@ function bindViewEvents() {
   document.querySelectorAll("tr[data-order-id]").forEach(row => row.addEventListener("click", () => openOrder(row.dataset.orderId)));
   document.querySelectorAll("[data-payment-order]").forEach(button => button.addEventListener("click", () => { const order = orders.find(item => item.id === button.dataset.paymentOrder); if (order) openPaymentModal(order); }));
   document.querySelectorAll("[data-confirm-performance]").forEach(button => button.addEventListener("click", () => confirmOrderPerformance(button.dataset.confirmPerformance)));
-  document.querySelectorAll("[data-order-page]").forEach(button => button.addEventListener("click", () => { if (!button.disabled) { state.orderPage = Number(button.dataset.orderPage); render(); } }));
   document.querySelectorAll("[data-refund-review]").forEach(button => button.addEventListener("click", () => reviewRefund(button.dataset.refundReview)));
-  document.querySelector("#applyOrderFilters")?.addEventListener("click", () => { state.orderKeyword = document.querySelector("#orderKeyword").value; state.orderPaymentStatus = document.querySelector("#orderPaymentFilter").value; state.orderServiceStatus = document.querySelector("#orderServiceFilter").value; state.orderPage = 1; render(); });
-  document.querySelector("#resetOrderFilters")?.addEventListener("click", () => { state.orderKeyword = ""; state.orderPaymentStatus = "全部状态"; state.orderServiceStatus = "全部状态"; state.orderPage = 1; render(); });
+  document.querySelector("#applyOrderFilters")?.addEventListener("click", () => { state.orderKeyword = document.querySelector("#orderKeyword")?.value || ""; state.orderPaymentStatus = document.querySelector("#orderPaymentFilter")?.value || "全部状态"; state.orderServiceStatus = document.querySelector("#orderServiceFilter")?.value || "全部状态"; state.orderPage = 1; refreshOrdersFromApi(); });
+  document.querySelector("#resetOrderFilters")?.addEventListener("click", () => { state.orderKeyword = ""; state.orderPaymentStatus = "全部状态"; state.orderServiceStatus = "全部状态"; state.orderPage = 1; refreshOrdersFromApi(); });
   document.querySelector("#exportOrders")?.addEventListener("click", exportOrders);
   document.querySelector("#newContractOrder")?.addEventListener("click", () => openBusinessModal("order"));
   document.querySelector("#newPaymentRecord")?.addEventListener("click", openFirstPaymentModal);
@@ -5794,11 +6263,11 @@ function bindViewEvents() {
   document.querySelectorAll("[data-use-message-template]").forEach(button => button.addEventListener("click", () => useMessageTemplate(button.dataset.useMessageTemplate)));
   document.querySelectorAll("[data-call-filter]").forEach(button => button.addEventListener("click", () => { state.callFilter = button.dataset.callFilter; render(); }));
   document.querySelectorAll("[data-call-task-filter]").forEach(button => button.addEventListener("click", () => { state.callTaskFilter = button.dataset.callTaskFilter; render(); }));
-  document.querySelector("#callAgentFilter")?.addEventListener("change", event => { state.callAgentFilter = event.target.value; render(); });
+  document.querySelector("#callAgentFilter")?.addEventListener("change", event => { state.callAgentFilter = event.target.value; });
   document.querySelector("#callAiPreview")?.addEventListener("change", event => { state.callAiPreview = event.target.checked; render(); });
-  document.querySelector("#applyCallFilters")?.addEventListener("click", () => { state.callKeyword = document.querySelector("#callKeyword")?.value || ""; state.callNameKeyword = document.querySelector("#callNameKeyword")?.value || ""; state.callAgentFilter = document.querySelector("#callAgentFilter")?.value || "全部坐席"; state.callDirectionFilter = document.querySelector("#callDirectionFilter")?.value || "全部"; state.callStatusFilter = document.querySelector("#callStatusFilter")?.value || "全部"; render(); });
+  document.querySelector("#applyCallFilters")?.addEventListener("click", () => { state.callKeyword = document.querySelector("#callKeyword")?.value || ""; state.callNameKeyword = document.querySelector("#callNameKeyword")?.value || ""; state.callAgentFilter = document.querySelector("#callAgentFilter")?.value || "全部坐席"; state.callDirectionFilter = document.querySelector("#callDirectionFilter")?.value || "全部"; state.callStatusFilter = document.querySelector("#callStatusFilter")?.value || "全部"; state.callPage = 1; refreshCallsFromApi(); });
   document.querySelectorAll("#callKeyword, #callNameKeyword").forEach(input => input.addEventListener("keydown", event => { if (event.key === "Enter") document.querySelector("#applyCallFilters")?.click(); }));
-  document.querySelector("#resetCallFilters")?.addEventListener("click", () => { state.callKeyword = ""; state.callNameKeyword = ""; state.callAgentFilter = "全部坐席"; state.callDirectionFilter = "全部"; state.callStatusFilter = "全部"; render(); });
+  document.querySelector("#resetCallFilters")?.addEventListener("click", () => { state.callKeyword = ""; state.callNameKeyword = ""; state.callAgentFilter = "全部坐席"; state.callDirectionFilter = "全部"; state.callStatusFilter = "全部"; state.callPage = 1; refreshCallsFromApi(); });
   document.querySelector("#querySeatAgents")?.addEventListener("click", () => toast("坐席筛选已应用"));
   document.querySelector("#resetSeatAgents")?.addEventListener("click", () => { const status = document.querySelector("#seatStatusFilter"); const agent = document.querySelector("#seatAgentFilter"); if (status) status.selectedIndex = 0; if (agent) agent.selectedIndex = 0; });
   document.querySelectorAll("[data-seat-monitor]").forEach(button => button.addEventListener("click", () => toast(`${button.dataset.seatMonitor} 当前离线，暂时无法监听`)));
@@ -6212,6 +6681,7 @@ document.addEventListener("keydown", event => {
 
 const notificationPopover = document.querySelector("#notificationPopover");
 document.querySelector("#notificationButton").addEventListener("click", event => { event.stopPropagation(); notificationPopover.hidden = !notificationPopover.hidden; document.querySelector("#userPopover").hidden = true; });
+document.querySelector("#headerCallButton")?.addEventListener("click", () => navigate("calls"));
 document.querySelector("#userMenu").addEventListener("click", event => { event.stopPropagation(); const popover = document.querySelector("#userPopover"); popover.hidden = !popover.hidden; notificationPopover.hidden = true; });
 document.querySelector("#accountSwitchButton").addEventListener("click", () => { document.querySelector("#userPopover").hidden = true; openAccountSwitcher(); });
 document.querySelector("#logoutButton").addEventListener("click", () => { document.querySelector("#userPopover").hidden = true; logout(); });

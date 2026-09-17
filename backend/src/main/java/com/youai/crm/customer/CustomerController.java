@@ -1,7 +1,7 @@
 package com.youai.crm.customer;
 
-import java.util.List;
 import java.util.Map;
+import java.util.List;
 
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -16,6 +16,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.core.Authentication;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 
 @RestController
 @RequestMapping("/api/customers")
@@ -28,7 +31,7 @@ public class CustomerController {
     }
 
     @GetMapping
-    public List<CustomerResponse> search(
+    public Page<CustomerResponse> search(
             Authentication authentication,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String stage,
@@ -36,13 +39,21 @@ public class CustomerController {
             @RequestParam(required = false) String owner,
             @RequestParam(required = false) String tag,
             @RequestParam(required = false) Boolean inPool,
+            @PageableDefault(size = 20) Pageable pageable,
             @RequestParam Map<String, String> advanced) {
-        return service.search(keyword, stage, level, owner, tag, inPool, advanced, authentication);
+        return service.search(keyword, stage, level, owner, tag, inPool, advanced, pageable, authentication);
     }
 
     @GetMapping("/pool")
-    public List<CustomerResponse> pool(Authentication authentication) {
-        return service.pool(authentication);
+    public Page<CustomerResponse> pool(@PageableDefault(size = 20) Pageable pageable, Authentication authentication) {
+        return service.pool(pageable, authentication);
+    }
+
+    @PostMapping("/inherit")
+    public CustomerInheritanceResponse inherit(
+            @Valid @RequestBody CustomerInheritanceRequest request,
+            Authentication authentication) {
+        return service.inherit(request, authentication);
     }
 
     @GetMapping("/tags")

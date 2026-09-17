@@ -2,8 +2,12 @@ package com.youai.crm.account;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import java.util.Set;
 
 import com.youai.crm.common.NotFoundException;
+import com.youai.crm.customer.CustomerRepository;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -26,6 +30,7 @@ public class AuthService {
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
     private final LoginProtectionService loginProtection;
+    private final CustomerRepository customerRepository;
 
     public AuthService(
             AuthenticationManager authenticationManager,
@@ -34,7 +39,8 @@ public class AuthService {
             DepartmentRepository departmentRepository,
             RoleRepository roleRepository,
             PasswordEncoder passwordEncoder,
-            LoginProtectionService loginProtection) {
+            LoginProtectionService loginProtection,
+            CustomerRepository customerRepository) {
         this.authenticationManager = authenticationManager;
         this.userRepository = userRepository;
         this.jwtService = jwtService;
@@ -42,14 +48,48 @@ public class AuthService {
         this.roleRepository = roleRepository;
         this.passwordEncoder = passwordEncoder;
         this.loginProtection = loginProtection;
+        this.customerRepository = customerRepository;
     }
 
     public AuthResponse login(LoginRequest request, String clientIp) {
         String username = request.username().trim();
+        return authenticate(username, request.password(), clientIp);
+    }
+
+    public AuthResponse loginByPhone(PhoneLoginRequest request, String clientIp) {
+        String phone = request.phone().trim();
+        loginProtection.recordIpAttempt(clientIp);
+        CrmUser account = userRepository.findByPhone(phone)
+                .orElse(null);
+        if (account == null) {
+            loginProtection.checkAccount(phone);
+            loginProtection.recordFailure(phone);
+            throw new AccountUnavailableException();
+        }
+        return authenticate(account.getUsername(), request.password(), clientIp, false);
+    }
+
+    private AuthResponse authenticate(String username, String password, String clientIp) {
+        return authenticate(username, password, clientIp, true);
+    }
+
+    private AuthResponse authenticate(String username, String password, String clientIp, boolean recordAttempt) {
         try {
-            loginProtection.checkAndRecordAttempt(clientIp, username);
+            // Apply the same account/IP protections before lookup so unknown
+            // usernames cannot bypass brute-force throttling.
+            if (recordAttempt) loginProtection.checkAndRecordAttempt(clientIp, username);
+            else loginProtection.checkAccount(username);
+            CrmUser account = userRepository.findByUsernameIgnoreCase(username)
+                    .orElse(null);
+            if (account == null) {
+                loginProtection.recordFailure(username);
+                throw new AccountUnavailableException();
+            }
+            if (!account.isEnabled()) {
+                throw new AccountFrozenException();
+            }
             Authentication authentication = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(username, request.password()));
+                    new UsernamePasswordAuthenticationToken(username, password));
             loginProtection.recordSuccess(username);
             SECURITY_AUDIT.info("event=login_success username={} ip={}", auditValue(username), auditValue(clientIp));
             return tokenResponse((CrmPrincipal) authentication.getPrincipal());
@@ -111,7 +151,18 @@ public class AuthService {
         user.setDisplayName(request.displayName().trim());
         user.setPhone(request.phone() == null ? "" : request.phone().trim());
         user.setDepartment(salesDepartment);
-        user.setRoles(java.util.Set.of(salesRole));
+        Set<Role> roles = new LinkedHashSet<>();
+        if (request.roles() == null || request.roles().isEmpty()) {
+            roles.add(salesRole);
+        } else {
+            for (String requestedCode : request.roles()) {
+                String code = requestedCode == null ? "" : requestedCode.trim().toUpperCase(Locale.ROOT);
+                if (code.isBlank()) throw new IllegalArgumentException("角色不能为空");
+                roles.add(roleRepository.findByCode(code)
+                        .orElseThrow(() -> new IllegalArgumentException("角色不存在：" + requestedCode)));
+            }
+        }
+        user.setRoles(roles);
         user.setEnabled(true);
         return UserResponse.from(userRepository.save(user));
     }
@@ -124,7 +175,72 @@ public class AuthService {
                 .orElseThrow(() -> new NotFoundException("员工用户不存在"));
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setCredentialVersion(user.getCredentialVersion() + 1);
+        loginProtection.unlock(user.getUsername());
         return UserResponse.from(userRepository.save(user));
+    }
+
+    @Transactional
+    public UserResponse updateEmployee(
+            Authentication authentication, Long id, UpdateEmployeeRequest request) {
+        requireAdmin(authentication);
+        CrmUser user = userRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("员工用户不存在"));
+        String username = request.username().trim();
+        userRepository.findByUsernameIgnoreCase(username).ifPresent(existing -> {
+            if (!existing.getId().equals(id)) {
+                throw new IllegalArgumentException("账号已存在，请换一个账号");
+            }
+        });
+        List<String> requestedCodes = request.roles() == null ? List.of() : request.roles();
+        Set<Role> roles = new LinkedHashSet<>();
+        for (String requestedCode : requestedCodes) {
+            String code = requestedCode == null ? "" : requestedCode.trim().toUpperCase(Locale.ROOT);
+            if (code.isBlank()) continue;
+            Role role = roleRepository.findByCode(code)
+                    .orElseThrow(() -> new IllegalArgumentException("角色不存在：" + requestedCode));
+            roles.add(role);
+        }
+        if (roles.isEmpty()) {
+            throw new IllegalArgumentException("至少选择一个角色");
+        }
+        user.setUsername(username);
+        user.setDisplayName(request.displayName().trim());
+        user.setPhone(request.phone() == null ? "" : request.phone().trim());
+        user.setRoles(roles);
+        return UserResponse.from(userRepository.save(user));
+    }
+
+    @Transactional
+    public void deleteEmployee(Authentication authentication, Long id) {
+        requireAdmin(authentication);
+        CrmUser user = userRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("员工用户不存在"));
+        boolean administrator = user.getRoles().stream()
+                .anyMatch(role -> "ADMIN".equals(role.getCode()));
+        if (administrator) {
+            throw new IllegalArgumentException("管理员账号不能删除");
+        }
+        long customerCount = customerRepository.countByOwner(user.getDisplayName());
+        if (!user.getUsername().equalsIgnoreCase(user.getDisplayName())) {
+            customerCount += customerRepository.countByOwner(user.getUsername());
+        }
+        if (customerCount > 0) {
+            throw new IllegalArgumentException("该员工名下仍有 " + customerCount + " 位客户，请先办理离职继承");
+        }
+        userRepository.delete(user);
+        SECURITY_AUDIT.info("event=employee_deleted operator={} target={}",
+                auditValue(authentication.getName()), auditValue(user.getUsername()));
+    }
+
+    @Transactional
+    public UserResponse unlockEmployee(Authentication authentication, Long id) {
+        requireAdmin(authentication);
+        CrmUser user = userRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("员工用户不存在"));
+        loginProtection.unlock(user.getUsername());
+        SECURITY_AUDIT.info("event=employee_login_unlocked operator={} target={}",
+                auditValue(authentication.getName()), auditValue(user.getUsername()));
+        return UserResponse.from(user);
     }
 
     @Transactional
@@ -156,6 +272,7 @@ public class AuthService {
             user.setEnabled(true);
             // Keep every token issued before the status transition invalid.
             user.setCredentialVersion(user.getCredentialVersion() + 1);
+            loginProtection.unlock(user.getUsername());
             userRepository.save(user);
             SECURITY_AUDIT.info("event=employee_unfrozen operator={} target={}",
                     auditValue(authentication.getName()), auditValue(user.getUsername()));

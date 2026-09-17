@@ -12,6 +12,9 @@ import com.youai.crm.account.AccessPolicy;
 import jakarta.transaction.Transactional;
 import org.springframework.security.core.Authentication;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -29,18 +32,25 @@ public class OrderService {
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public List<OrderResponse> list(String keyword, String paymentStatus, String serviceStatus, Authentication authentication) {
+    public Page<OrderResponse> list(String keyword, String paymentStatus, String serviceStatus, Pageable pageable, Authentication authentication) {
         String normalizedKeyword = StringUtils.hasText(keyword) ? keyword.trim().toLowerCase(Locale.ROOT) : null;
         accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
-        return repository.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
-                .filter(order -> accessPolicy.canAccessOwner(order.getOwner(), authentication))
-                .filter(order -> normalizedKeyword == null
-                        || order.getOrderNo().toLowerCase(Locale.ROOT).contains(normalizedKeyword)
-                        || order.getCustomerName().toLowerCase(Locale.ROOT).contains(normalizedKeyword))
-                .filter(order -> !StringUtils.hasText(paymentStatus) || order.getPaymentStatus().equals(paymentStatus.trim()))
-                .filter(order -> !StringUtils.hasText(serviceStatus) || order.getServiceStatus().equals(serviceStatus.trim()))
-                .map(OrderResponse::from)
-                .toList();
+        boolean admin = accessPolicy.isAdmin(authentication);
+        var spec = (org.springframework.data.jpa.domain.Specification<SalesOrder>) (root, query, builder) -> {
+            var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
+            if (!admin) predicates.add(builder.equal(root.get("owner"), accessPolicy.currentOwner(authentication)));
+            if (normalizedKeyword != null) {
+                String like = "%" + normalizedKeyword + "%";
+                predicates.add(builder.or(builder.like(builder.lower(root.get("orderNo")), like), builder.like(builder.lower(root.get("customerName")), like)));
+            }
+            if (StringUtils.hasText(paymentStatus)) predicates.add(builder.equal(root.get("paymentStatus"), paymentStatus.trim()));
+            if (StringUtils.hasText(serviceStatus)) predicates.add(builder.equal(root.get("serviceStatus"), serviceStatus.trim()));
+            return builder.and(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
+        };
+        Pageable requested = pageable == null ? PageRequest.of(0, 20) : pageable;
+        Pageable safe = PageRequest.of(Math.max(0, requested.getPageNumber()), Math.min(Math.max(requested.getPageSize(), 1), 100),
+                requested.getSort().isSorted() ? requested.getSort() : Sort.by(Sort.Direction.DESC, "createdAt"));
+        return repository.findAll(spec, safe).map(OrderResponse::from);
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)

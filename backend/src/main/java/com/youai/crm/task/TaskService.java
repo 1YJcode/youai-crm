@@ -10,6 +10,10 @@ import com.youai.crm.customer.Customer;
 import com.youai.crm.customer.CustomerRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.security.core.Authentication;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -28,16 +32,21 @@ public class TaskService {
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public List<TaskResponse> list(String owner, String status, Boolean completed, Authentication authentication) {
+    public Page<TaskResponse> list(String owner, String status, Boolean completed, Pageable pageable, Authentication authentication) {
         accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
         boolean admin = accessPolicy.isAdmin(authentication);
-        return repository.findAllByOrderByDueAtAsc().stream()
-                .filter(task -> accessPolicy.canAccessOwner(task.getOwner(), authentication))
-                .filter(task -> admin || !StringUtils.hasText(owner) || task.getOwner().equalsIgnoreCase(owner.trim()))
-                .filter(task -> !StringUtils.hasText(status) || task.getStatus().equalsIgnoreCase(status.trim()))
-                .filter(task -> completed == null || task.isCompleted() == completed)
-                .map(TaskResponse::from)
-                .toList();
+        var spec = (org.springframework.data.jpa.domain.Specification<FollowUpTask>) (root, query, builder) -> {
+            var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
+            if (!admin) predicates.add(builder.equal(root.get("owner"), accessPolicy.currentOwner(authentication)));
+            else if (StringUtils.hasText(owner)) predicates.add(builder.equal(root.get("owner"), owner.trim()));
+            if (StringUtils.hasText(status)) predicates.add(builder.equal(root.get("status"), status.trim()));
+            if (completed != null) predicates.add(builder.equal(root.get("completed"), completed));
+            return builder.and(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
+        };
+        Pageable requested = pageable == null ? PageRequest.of(0, 20) : pageable;
+        Pageable safe = PageRequest.of(Math.max(0, requested.getPageNumber()), Math.min(Math.max(requested.getPageSize(), 1), 100),
+                requested.getSort().isSorted() ? requested.getSort() : Sort.by(Sort.Direction.ASC, "dueAt"));
+        return repository.findAll(spec, safe).map(TaskResponse::from);
     }
 
     public TaskResponse find(Long id, Authentication authentication) {

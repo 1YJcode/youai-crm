@@ -3,6 +3,7 @@ package com.youai.crm.account;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import java.util.List;
 
 /** Payload used by administrators to add an employee from user management. */
 public record CreateEmployeeRequest(
@@ -20,5 +21,7 @@ public record CreateEmployeeRequest(
         String displayName,
 
         @Pattern(regexp = "^$|1[3-9]\\d{9}$", message = "手机号格式不正确")
-        String phone) {
+        String phone,
+
+        List<String> roles) {
 }

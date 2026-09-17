@@ -43,6 +43,19 @@ public class LoginProtectionService {
 
     public void checkAndRecordAttempt(String clientIp, String username) {
         Instant now = clock.instant();
+        recordIpAttempt(clientIp, now);
+        checkAccount(username, now);
+    }
+
+    public void recordIpAttempt(String clientIp) {
+        recordIpAttempt(clientIp, clock.instant());
+    }
+
+    public void checkAccount(String username) {
+        checkAccount(username, clock.instant());
+    }
+
+    private void recordIpAttempt(String clientIp, Instant now) {
         String ipKey = normalizeIp(clientIp);
         ArrayDeque<Instant> attempts = ipAttempts.computeIfAbsent(ipKey, ignored -> new ArrayDeque<>());
         synchronized (attempts) {
@@ -54,7 +67,9 @@ public class LoginProtectionService {
             }
             attempts.addLast(now);
         }
+    }
 
+    private void checkAccount(String username, Instant now) {
         FailureState state = accountFailures.get(normalizeUsername(username));
         if (state != null && state.lockedUntil != null && state.lockedUntil.isAfter(now)) {
             throw new LoginRateLimitException("该账号因多次登录失败已被临时锁定",
@@ -75,6 +90,17 @@ public class LoginProtectionService {
 
     public void recordSuccess(String username) {
         accountFailures.remove(normalizeUsername(username));
+    }
+
+    /** Clears the temporary failed-login lock for an account. */
+    public void unlock(String username) {
+        accountFailures.remove(normalizeUsername(username));
+    }
+
+    public boolean isAccountLocked(String username) {
+        FailureState state = accountFailures.get(normalizeUsername(username));
+        Instant now = clock.instant();
+        return state != null && state.lockedUntil != null && state.lockedUntil.isAfter(now);
     }
 
     private String normalizeUsername(String username) {

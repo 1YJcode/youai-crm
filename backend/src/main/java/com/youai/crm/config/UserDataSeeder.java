@@ -33,6 +33,13 @@ public class UserDataSeeder {
                     .orElseGet(() -> roleRepository.save(role("ADMIN", "系统管理员", "管理账号、组织和全部业务数据")));
             Role salesRole = roleRepository.findByCode("SALES")
                     .orElseGet(() -> roleRepository.save(role("SALES", "销售顾问", "查看和跟进本人负责的客户")));
+            seedRole(roleRepository, "OPERATIONS", "运营", "运营管理");
+            seedRole(roleRepository, "RND", "研发", "研发管理");
+            seedRole(roleRepository, "FINANCE", "财务", "财务管理");
+            seedRole(roleRepository, "SALES_MANAGER", "销售经理", "销售团队管理");
+            seedRole(roleRepository, "STORE_MANAGER", "店长", "门店管理");
+            seedRole(roleRepository, "SERVICE_TEACHER", "服务老师", "客户服务");
+            seedRole(roleRepository, "SERVICE_MANAGER", "服务经理", "服务团队管理");
 
             CrmUser adminUser = userRepository.findByUsernameIgnoreCase("admin").orElse(null);
             if (adminUser == null) {
@@ -118,6 +125,10 @@ public class UserDataSeeder {
         role.setName(name);
         role.setDescription(description);
         return role;
+    }
+
+    private Role seedRole(RoleRepository repository, String code, String name, String description) {
+        return repository.findByCode(code).orElseGet(() -> repository.save(role(code, name, description)));
     }
 
     private CrmUser user(

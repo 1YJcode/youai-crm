@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,6 +31,11 @@ public class AuthController {
     @PostMapping("/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         return service.login(request, httpRequest.getRemoteAddr());
+    }
+
+    @PostMapping("/login/phone")
+    public AuthResponse loginByPhone(@Valid @RequestBody PhoneLoginRequest request, HttpServletRequest httpRequest) {
+        return service.loginByPhone(request, httpRequest.getRemoteAddr());
     }
 
     @PostMapping("/register")
@@ -64,6 +70,22 @@ public class AuthController {
         return service.resetEmployeePassword(authentication, id, request);
     }
 
+    @PatchMapping("/users/{id}")
+    public UserResponse updateEmployee(
+            Authentication authentication,
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateEmployeeRequest request) {
+        return service.updateEmployee(authentication, id, request);
+    }
+
+    @DeleteMapping("/users/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteEmployee(
+            Authentication authentication,
+            @PathVariable Long id) {
+        service.deleteEmployee(authentication, id);
+    }
+
     @PatchMapping("/users/{id}/freeze")
     public UserResponse freezeEmployee(
             Authentication authentication,
@@ -76,6 +98,13 @@ public class AuthController {
             Authentication authentication,
             @PathVariable Long id) {
         return service.unfreezeEmployee(authentication, id);
+    }
+
+    @PatchMapping("/users/{id}/unlock")
+    public UserResponse unlockEmployee(
+            Authentication authentication,
+            @PathVariable Long id) {
+        return service.unlockEmployee(authentication, id);
     }
 
     @PostMapping("/switch")
