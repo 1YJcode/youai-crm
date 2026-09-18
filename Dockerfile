@@ -1,7 +1,14 @@
+FROM docker.m.daocloud.io/library/node:22-alpine AS build
+
+WORKDIR /app
+COPY package.json ./
+COPY package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY . .
+RUN npm run build
+
 FROM docker.m.daocloud.io/library/nginx:1.27-alpine
 
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
-COPY index.html app.js styles.css config.js /usr/share/nginx/html/
-COPY logo-youai.png /usr/share/nginx/html/logo-youai.png
-COPY docker/frontend-config.js /usr/share/nginx/html/config.js
+COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80

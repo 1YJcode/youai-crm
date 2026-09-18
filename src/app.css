@@ -1,0 +1,81 @@
+#vue-root {
+  position: relative;
+  z-index: 1000;
+}
+
+.vue-boot-shell {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #f5f7fb;
+  color: #162033;
+}
+
+.vue-boot-card {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: min(440px, 100%);
+  padding: 24px;
+  border: 1px solid #e3e8f2;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 48px rgba(28, 45, 78, 0.12);
+}
+
+.vue-boot-logo {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+
+.vue-boot-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.vue-boot-eyebrow {
+  margin: 0 0 4px;
+  color: #65728a;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.vue-boot-copy h1 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+.vue-boot-copy p:last-of-type {
+  margin: 5px 0 0;
+  color: #65728a;
+  font-size: 13px;
+}
+
+.vue-boot-spinner {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  border: 2px solid #d9e2f3;
+  border-top-color: #2b6de0;
+  border-radius: 50%;
+  animation: vue-boot-spin 0.8s linear infinite;
+}
+
+.vue-boot-retry {
+  margin-top: 12px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 4px;
+  background: #2b6de0;
+  color: #fff;
+  cursor: pointer;
+}
+
+@keyframes vue-boot-spin {
+  to { transform: rotate(360deg); }
+}

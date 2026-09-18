@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="优爱客户管理系统">
   <title>优爱 YOUAI</title>
-  <link rel="stylesheet" href="styles.css?v=20260915-followup-single-reminder-v2">
 </head>
 <body class="app-booting">
+  <div id="vue-root" aria-live="polite"></div>
   <svg class="icon-sprite" aria-hidden="true">
     <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></symbol>
     <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
@@ -194,8 +194,7 @@
   </div>
   <div class="toast-region" id="toastRegion" aria-live="polite"></div>
   <div id="followupAlertRegion" class="followup-alert-region" aria-live="polite" hidden></div>
-  <script src="config.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260915-followup-five-minute-alert-v3"></script>
+  <script type="module" src="/src/main.js"></script>
 </body>
 </html>
