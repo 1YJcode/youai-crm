@@ -1,6 +1,9 @@
 .git
 .gitignore
 .tools
+.npm-cache
+node_modules
+dist
 backend/target
 *.log
 app界面UI

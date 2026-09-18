@@ -21,7 +21,7 @@
 
 数据权限按角色隔离：管理员可以查看和维护全部业务数据，销售账号只能查看和维护负责人为本人的客户、任务、订单及工作台统计；销售提交其他负责人时，后端会自动归属到当前账号。
 
-默认开发数据库为 `youke_crm`，连接 `127.0.0.1:3306`。数据库账号可通过环境变量 `DB_USERNAME` 和 `DB_PASSWORD` 覆盖。
+默认开发数据库为 `youai_crm`，连接 `127.0.0.1:3306`。数据库账号可通过环境变量 `DB_USERNAME` 和 `DB_PASSWORD` 覆盖。
 
 后端默认运行在 `http://127.0.0.1:8080`。首次启动会自动执行 Flyway 数据库迁移并写入少量演示数据；生产环境请通过环境变量覆盖默认数据库密码。
 
@@ -89,7 +89,7 @@ docker compose -f docker-compose.yml -f docker-compose.host-mysql.yml up -d back
 
 ```powershell
 $env:SPRING_PROFILES_ACTIVE = 'prod'
-$env:DB_URL = 'jdbc:mysql://db-host:3306/youke_crm?useSSL=true'
+$env:DB_URL = 'jdbc:mysql://db-host:3306/youai_crm?useSSL=true'
 $env:DB_USERNAME = 'youke_app'
 $env:DB_PASSWORD = '<strong-database-password>'
 $env:JWT_SECRET = '<at-least-32-random-characters>'

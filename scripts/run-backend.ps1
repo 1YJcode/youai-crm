@@ -18,7 +18,7 @@ $maven = Join-Path $mavenHome 'bin\mvn.cmd'
 $localRepository = Join-Path $projectRoot '.m2'
 
 if (-not $env:DB_URL) {
-    $env:DB_URL = "jdbc:mysql://${DbHost}:${DbPort}/youke_crm?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
+    $env:DB_URL = "jdbc:mysql://${DbHost}:${DbPort}/youai_crm?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
 }
 if (-not $env:DB_USERNAME) { $env:DB_USERNAME = $DbUsername }
 if (-not $env:DB_PASSWORD) { $env:DB_PASSWORD = $DbPassword }

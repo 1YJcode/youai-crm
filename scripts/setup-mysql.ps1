@@ -1,5 +1,5 @@
 param(
-    [string]$Database = 'youke_crm',
+    [string]$Database = 'youai_crm',
     [string]$Username = 'root',
     [string]$Password = 'root',
     [string]$MySqlHome = 'D:\phpstudy_pro\Extensions\MySQL5.7.26'

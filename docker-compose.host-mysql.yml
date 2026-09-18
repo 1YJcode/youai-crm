@@ -8,6 +8,6 @@ services:
       - "host.docker.internal:host-gateway"
     depends_on: !reset []
     environment:
-      DB_URL: jdbc:mysql://host.docker.internal:3307/youke_crm?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      DB_URL: jdbc:mysql://host.docker.internal:3307/youai_crm?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}

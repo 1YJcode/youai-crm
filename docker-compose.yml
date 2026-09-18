@@ -1,15 +1,20 @@
 services:
   mysql:
-    image: mysql:5.7
+    image: mysql:8.4
     restart: unless-stopped
+    cpus: ${MYSQL_CPUS:-1.0}
+    mem_limit: ${MYSQL_MEMORY_LIMIT:-1536m}
+    memswap_limit: ${MYSQL_MEMORY_SWAP_LIMIT:-1536m}
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-youke_crm}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-youai_crm}
       TZ: Asia/Shanghai
     ports:
       - "${MYSQL_HOST_PORT:-3308}:3306"
     volumes:
-      - youke_mysql_data:/var/lib/mysql
+      # MySQL 8.4 无法读取 5.7 的数据目录，因此使用独立数据卷。
+      # 旧卷 youke_mysql_data（5.7 数据）保持不动，作为回滚路径保留。
+      - youai_mysql84_data:/var/lib/mysql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
@@ -22,8 +27,11 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     restart: unless-stopped
+    cpus: ${BACKEND_CPUS:-1.0}
+    mem_limit: ${BACKEND_MEMORY_LIMIT:-1024m}
+    memswap_limit: ${BACKEND_MEMORY_SWAP_LIMIT:-1024m}
     environment:
-      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-youke_crm}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-youai_crm}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
       JWT_SECRET: ${JWT_SECRET:-youke-crm-docker-secret-change-this-before-production}
@@ -42,10 +50,17 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    cpus: ${FRONTEND_CPUS:-0.25}
+    mem_limit: ${FRONTEND_MEMORY_LIMIT:-256m}
+    memswap_limit: ${FRONTEND_MEMORY_SWAP_LIMIT:-256m}
     depends_on:
       - backend
     ports:
       - "${FRONTEND_HOST_PORT:-4173}:80"
 
 volumes:
-  youke_mysql_data:
+  # 由外部管理：该卷承载 MySQL 8.4 数据，不随 compose 生命周期创建/删除。
+  # external 可确保 `docker compose down -v` 也不会误删数据卷。
+  youai_mysql84_data:
+    external: true
+    name: youai_mysql84_data
