@@ -42,4 +42,5 @@ security:
     account-lock-seconds: ${LOGIN_ACCOUNT_LOCK_SECONDS:900}
   jwt:
     secret: ${JWT_SECRET:youke-crm-dev-secret-change-this-before-production-2026}
-    ttl-hours: ${JWT_TTL_HOURS:8}
+    access-ttl-hours: ${JWT_ACCESS_TTL_HOURS:2}
+    refresh-ttl-days: ${JWT_REFRESH_TTL_DAYS:7}

@@ -36,6 +36,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String token = header.substring(7);
             try {
                 var claims = jwtService.parse(token);
+                String tokenType = jwtService.tokenType(claims);
+                // Tokens issued before token typing are treated as access tokens
+                // during the migration, but a refresh token can never authorize APIs.
+                if (JwtService.REFRESH_TOKEN_TYPE.equals(tokenType)) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
                 String username = claims.getSubject();
                 Object versionClaim = claims.get("credentialVersion");
                 var userDetails = userDetailsService.loadUserByUsername(username);

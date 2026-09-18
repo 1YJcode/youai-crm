@@ -38,6 +38,11 @@ public class AuthController {
         return service.loginByPhone(request, httpRequest.getRemoteAddr());
     }
 
+    @PostMapping("/refresh")
+    public AuthResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return service.refresh(request);
+    }
+
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
     public AuthResponse register(@Valid @RequestBody RegisterRequest request) {

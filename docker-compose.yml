@@ -27,7 +27,8 @@ services:
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
       JWT_SECRET: ${JWT_SECRET:-youke-crm-docker-secret-change-this-before-production}
-      JWT_TTL_HOURS: ${JWT_TTL_HOURS:-8}
+      JWT_ACCESS_TTL_HOURS: ${JWT_ACCESS_TTL_HOURS:-2}
+      JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-7}
       SERVER_PORT: 8080
       TZ: Asia/Shanghai
     depends_on:

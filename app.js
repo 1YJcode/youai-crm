@@ -324,6 +324,7 @@ const state = {
   workspaceTabsLoaded: false,
   auth: {
     token: localStorage.getItem("youai.crm.accessToken") || "",
+    refreshToken: localStorage.getItem("youai.crm.refreshToken") || "",
     user: null
   }
 };
@@ -333,6 +334,7 @@ let followupAlertTimer = null;
 let followupAlertRefreshPromise = null;
 let customerSyncTimer = null;
 let customerSyncPromise = null;
+let authRefreshPromise = null;
 
 const customerStatusOptions = [
   "未注册",
@@ -640,7 +642,7 @@ function customerCollaboratorHierarchyMatches(customer, selection = {}) {
 
 const API_BASE = window.YOUAI_API_BASE || "http://127.0.0.1:8080/api";
 
-async function apiRequest(path, options = {}) {
+async function apiRequest(path, options = {}, allowRefresh = true) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   try {
@@ -651,7 +653,15 @@ async function apiRequest(path, options = {}) {
       signal: controller.signal,
       headers
     });
-    if (response.status === 401 && path !== "/auth/login" && path !== "/auth/login/phone") {
+    if (response.status === 401 && allowRefresh && path !== "/auth/login" && path !== "/auth/login/phone" && path !== "/auth/refresh" && state.auth.refreshToken) {
+      try {
+        await refreshAuth();
+        return await apiRequest(path, options, false);
+      } catch (_) {
+        // Continue to the normal expired-session handling below.
+      }
+    }
+    if (response.status === 401 && path !== "/auth/login" && path !== "/auth/login/phone" && path !== "/auth/refresh") {
       clearAuth();
       showLogin("登录已过期，请重新登录");
       throw new Error("登录已过期，请重新登录");
@@ -676,16 +686,36 @@ async function apiRequest(path, options = {}) {
 
 function clearAuth() {
   state.auth.token = "";
+  state.auth.refreshToken = "";
   state.auth.user = null;
   loadCustomerTableColumns();
   localStorage.removeItem("youai.crm.accessToken");
+  localStorage.removeItem("youai.crm.refreshToken");
 }
 
 function saveAuth(auth) {
   state.auth.token = auth.accessToken;
+  state.auth.refreshToken = auth.refreshToken || state.auth.refreshToken || "";
   state.auth.user = auth.user;
   loadCustomerTableColumns();
   localStorage.setItem("youai.crm.accessToken", auth.accessToken);
+  if (state.auth.refreshToken) localStorage.setItem("youai.crm.refreshToken", state.auth.refreshToken);
+}
+
+function refreshAuth() {
+  if (!state.auth.refreshToken) return Promise.reject(new Error("missing refresh token"));
+  if (!authRefreshPromise) {
+    authRefreshPromise = apiRequest("/auth/refresh", {
+      method: "POST",
+      body: JSON.stringify({ refreshToken: state.auth.refreshToken })
+    }, false).then(auth => {
+      saveAuth(auth);
+      return auth;
+    }).finally(() => {
+      authRefreshPromise = null;
+    });
+  }
+  return authRefreshPromise;
 }
 
 function isAdmin() {
@@ -6753,11 +6783,12 @@ window.addEventListener("hashchange", () => {
 window.addEventListener("resize", positionCustomerFollowUpDatePopover);
 
 async function initialize() {
-  if (!state.auth.token) {
+  if (!state.auth.token && !state.auth.refreshToken) {
     showLogin();
     return;
   }
   try {
+    if (!state.auth.token) await refreshAuth();
     state.auth.user = await apiRequest("/auth/me");
     loadCustomerTableColumns();
     await hydrateFromApi();

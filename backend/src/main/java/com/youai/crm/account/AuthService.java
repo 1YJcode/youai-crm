@@ -10,6 +10,7 @@ import com.youai.crm.common.NotFoundException;
 import com.youai.crm.customer.CustomerRepository;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.AuthenticationException;
 import org.slf4j.Logger;
@@ -67,6 +68,39 @@ public class AuthService {
             throw new AccountUnavailableException();
         }
         return authenticate(account.getUsername(), request.password(), clientIp, false);
+    }
+
+    @Transactional(readOnly = true)
+    public AuthResponse refresh(RefreshTokenRequest request) {
+        final var claims = parseRefreshToken(request.refreshToken());
+        String username = claims.getSubject();
+        Object versionClaim = claims.get("credentialVersion");
+        if (!(versionClaim instanceof Number)) {
+            throw invalidRefreshToken();
+        }
+        CrmUser account = userRepository.findByUsernameIgnoreCase(username)
+                .filter(CrmUser::isEnabled)
+                .orElseThrow(this::invalidRefreshToken);
+        if (account.getCredentialVersion() != ((Number) versionClaim).longValue()) {
+            throw invalidRefreshToken();
+        }
+        return tokenResponse(new CrmPrincipal(account));
+    }
+
+    private io.jsonwebtoken.Claims parseRefreshToken(String token) {
+        try {
+            var claims = jwtService.parse(token);
+            if (!JwtService.REFRESH_TOKEN_TYPE.equals(jwtService.tokenType(claims))) {
+                throw invalidRefreshToken();
+            }
+            return claims;
+        } catch (io.jsonwebtoken.JwtException | IllegalArgumentException exception) {
+            throw invalidRefreshToken();
+        }
+    }
+
+    private BadCredentialsException invalidRefreshToken() {
+        return new BadCredentialsException("refresh token 无效或已过期");
     }
 
     private AuthResponse authenticate(String username, String password, String clientIp) {
@@ -308,8 +342,15 @@ public class AuthService {
     }
 
     private AuthResponse tokenResponse(CrmPrincipal principal) {
-        String token = jwtService.issue(principal.getUser());
-        return new AuthResponse(token, "Bearer", jwtService.expiresAt(token), principal.response());
+        String accessToken = jwtService.issueAccess(principal.getUser());
+        String refreshToken = jwtService.issueRefresh(principal.getUser());
+        return new AuthResponse(
+                accessToken,
+                refreshToken,
+                "Bearer",
+                jwtService.expiresAt(accessToken),
+                jwtService.expiresAt(refreshToken),
+                principal.response());
     }
 
     private CrmPrincipal principal(Authentication authentication) {

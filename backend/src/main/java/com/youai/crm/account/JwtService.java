@@ -16,21 +16,42 @@ import org.springframework.stereotype.Component;
 @Component
 public class JwtService {
 
+    public static final String TOKEN_TYPE_CLAIM = "tokenType";
+    public static final String ACCESS_TOKEN_TYPE = "access";
+    public static final String REFRESH_TOKEN_TYPE = "refresh";
+
     private final SecretKey key;
-    private final Duration ttl;
+    private final Duration accessTtl;
+    private final Duration refreshTtl;
 
     public JwtService(
             @Value("${security.jwt.secret}") String secret,
-            @Value("${security.jwt.ttl-hours:8}") long ttlHours) {
+            @Value("${security.jwt.access-ttl-hours:2}") long accessTtlHours,
+            @Value("${security.jwt.refresh-ttl-days:7}") long refreshTtlDays) {
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-        this.ttl = Duration.ofHours(ttlHours);
+        this.accessTtl = Duration.ofHours(accessTtlHours);
+        this.refreshTtl = Duration.ofDays(refreshTtlDays);
     }
 
+    /** Issues the short-lived bearer token used for API requests. */
     public String issue(CrmUser user) {
+        return issueAccess(user);
+    }
+
+    public String issueAccess(CrmUser user) {
+        return issue(user, ACCESS_TOKEN_TYPE, accessTtl);
+    }
+
+    public String issueRefresh(CrmUser user) {
+        return issue(user, REFRESH_TOKEN_TYPE, refreshTtl);
+    }
+
+    private String issue(CrmUser user, String tokenType, Duration ttl) {
         Instant now = Instant.now();
         Instant expiresAt = now.plus(ttl);
         return Jwts.builder()
                 .subject(user.getUsername())
+                .claim(TOKEN_TYPE_CLAIM, tokenType)
                 .claim("displayName", user.getDisplayName())
                 .claim("roles", user.getRoles().stream().map(Role::getCode).toList())
                 .claim("credentialVersion", user.getCredentialVersion())
@@ -46,6 +67,11 @@ public class JwtService {
 
     public Instant expiresAt(String token) {
         return parse(token).getExpiration().toInstant();
+    }
+
+    public String tokenType(Claims claims) {
+        Object value = claims.get(TOKEN_TYPE_CLAIM);
+        return value == null ? null : value.toString();
     }
 }
 

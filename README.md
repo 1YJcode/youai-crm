@@ -100,11 +100,12 @@ $env:JWT_SECRET = '<at-least-32-random-characters>'
 ## 后端接口
 
 - `GET /api/health`：服务与数据库健康检查
-- `POST /api/auth/login`：账号登录并返回 JWT
+- `POST /api/auth/login`：账号登录并返回 2 小时有效的 Access Token 和 7 天有效的 Refresh Token
+- `POST /api/auth/refresh`：提交 Refresh Token，换取新的 Access Token 和 Refresh Token
 - 登录保护默认按 IP 限制为每分钟 30 次尝试；同一账号连续失败 5 次后锁定 15 分钟。可通过 `LOGIN_IP_MAX_ATTEMPTS`、`LOGIN_IP_WINDOW_SECONDS`、`LOGIN_ACCOUNT_MAX_FAILURES`、`LOGIN_ACCOUNT_LOCK_SECONDS` 调整。
 - `GET /api/auth/me`：读取当前登录用户
 - `GET /api/auth/users`：管理员读取启用账号列表
-- `POST /api/auth/switch?username=linxi`：管理员切换账号并返回新 JWT
+- `POST /api/auth/switch?username=linxi`：管理员切换账号并返回新的 Access/Refresh Token
 - `POST /api/auth/logout`：服务端注销当前账号的既有 JWT，客户端同时清除 Token
 - `GET/POST /api/customers`：客户查询和新增
 - `GET/PUT /api/customers/{customerNo}`：客户详情和编辑

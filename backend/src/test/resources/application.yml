@@ -14,4 +14,5 @@ spring:
 security:
   jwt:
     secret: test-secret-at-least-32-bytes-long-for-jwt
-    ttl-hours: 8
+    access-ttl-hours: 2
+    refresh-ttl-days: 7

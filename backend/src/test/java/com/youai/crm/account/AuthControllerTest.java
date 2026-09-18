@@ -28,6 +28,7 @@ class AuthControllerTest {
                         .content("{\"username\":\"admin\",\"password\":\"Admin@123\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
                 .andExpect(jsonPath("$.user.username").value("admin"))
                 .andExpect(jsonPath("$.user.roles[0]").value("ADMIN"));
     }
@@ -39,6 +40,7 @@ class AuthControllerTest {
                         .content("{\"username\":\"registertest\",\"password\":\"Password123\",\"displayName\":\"注册测试\",\"phone\":\"13800138000\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
                 .andExpect(jsonPath("$.user.username").value("registertest"))
                 .andExpect(jsonPath("$.user.departmentCode").value("SALES"))
                 .andExpect(jsonPath("$.user.roles[0]").value("SALES"));
@@ -56,7 +58,30 @@ class AuthControllerTest {
                         .content("{\"phone\":\"13800138009\",\"password\":\"Password123\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
                 .andExpect(jsonPath("$.user.username").value("phonelogintest"));
+    }
+
+    @Test
+    void refreshesAccessTokenAndRejectsRefreshTokenAsApiCredential() throws Exception {
+        String registration = mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"refreshtest\",\"password\":\"Password123\",\"displayName\":\"刷新测试\",\"phone\":\"13800138010\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String refreshToken = JsonPath.read(registration, "$.refreshToken");
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + refreshToken + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andExpect(jsonPath("$.user.username").value("refreshtest"));
+
+        mockMvc.perform(get("/api/auth/me")
+                        .header("Authorization", "Bearer " + refreshToken))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -73,6 +98,7 @@ class AuthControllerTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         String token = JsonPath.read(registration, "$.accessToken");
+        String refreshToken = JsonPath.read(registration, "$.refreshToken");
 
         mockMvc.perform(post("/api/auth/logout")
                         .header("Authorization", "Bearer " + token))
@@ -80,6 +106,11 @@ class AuthControllerTest {
 
         mockMvc.perform(get("/api/auth/me")
                         .header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + refreshToken + "\"}"))
                 .andExpect(status().isUnauthorized());
     }
 
