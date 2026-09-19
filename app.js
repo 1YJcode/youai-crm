@@ -6680,25 +6680,49 @@ function globalSearchCustomer(query) {
   const digits = value.replace(/\D/g, "");
   if (!value) return null;
   const pool = [...customers, ...state.poolCustomers];
-  return pool.find(item => {
+  const matches = pool.filter(item => {
     const id = String(item.id || item.customerNo || "").trim().toLowerCase();
-    const name = String(item.name || item.displayName || item.username || item.account || "").trim().toLowerCase();
     const phone = String(item.phone || "").replace(/\D/g, "");
-    const company = String(item.company || "").trim().toLowerCase();
-    return id === value || name === value || company === value || (digits && phone === digits);
-  }) || null;
+    return id === value || (digits && phone === digits);
+  });
+  return matches.length === 1 ? matches[0] : null;
 }
 
-document.querySelector("#globalSearch").addEventListener("keydown", event => {
-  if (event.key !== "Enter") return;
-  const query = event.target.value.trim();
-  if (!query) return;
-  const customer = globalSearchCustomer(query);
-  if (customer) {
-    event.target.value = "";
-    openCustomer(customer.id);
-  } else {
-    toast("该用户不存在或您无权限查看", "error");
+document.querySelector("#globalSearchForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const input = document.querySelector("#globalSearch");
+  const button = event.currentTarget.querySelector("button[type=submit]");
+  const query = input.value.trim();
+  if (!query) { input.focus(); return; }
+  const keyword = /^[\d\s()+-]+$/.test(query) ? query.replace(/\D/g, "") : query;
+  button.disabled = true;
+  try {
+    const customer = globalSearchCustomer(query);
+    if (customer) {
+      input.value = "";
+      await openCustomer(customer.id);
+      return;
+    }
+    const result = pageContent(await apiRequest(`/customers?keyword=${encodeURIComponent(keyword)}&page=0&size=20`));
+    const matches = result.content.map(normalizeCustomer);
+    if (!matches.length) { toast("该用户不存在或您无权限查看", "error"); return; }
+    input.value = "";
+    if (result.totalElements === 1) {
+      customers = [...customers.filter(item => String(item.id) !== String(matches[0].id)), matches[0]];
+      await openCustomer(matches[0].id);
+      return;
+    }
+    state.customerSearch = keyword;
+    state.customerNameSearch = "";
+    state.customerSection = "客户列表";
+    state.customerPage = 1;
+    state.customerPageMeta = result;
+    customers = matches;
+    navigate("customers");
+  } catch (error) {
+    toast(`搜索失败：${error.message}`, "error");
+  } finally {
+    button.disabled = false;
   }
 });
 document.addEventListener("keydown", event => {

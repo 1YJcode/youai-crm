@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="优爱客户管理系统">
   <title>优爱 YOUAI</title>
+  <link rel="stylesheet" href="styles.css?v=20260915-followup-single-reminder-v2">
 </head>
 <body class="app-booting">
-  <div id="vue-root" aria-live="polite"></div>
   <svg class="icon-sprite" aria-hidden="true">
     <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></symbol>
     <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
@@ -68,11 +68,11 @@
       </nav>
       <div class="top-actions">
         <span class="connection-status" id="connectionStatus" title="正在连接数据服务"><i></i><span>连接中</span></span>
-        <label class="global-search" aria-label="全局搜索">
+        <form class="global-search" id="globalSearchForm" role="search" aria-label="全局搜索客户">
           <svg><use href="#i-search"></use></svg>
-          <input id="globalSearch" type="search" placeholder="ID/手机号" autocomplete="off">
-          <kbd>⌘ K</kbd>
-        </label>
+          <input id="globalSearch" type="search" placeholder="ID/号码/姓名" aria-label="搜索客户ID、号码或姓名" autocomplete="off">
+          <button class="global-search-submit" type="submit" aria-label="搜索客户" title="搜索客户"><svg aria-hidden="true"><use href="#i-search"></use></svg></button>
+        </form>
         <button class="header-call" id="headerCallButton" type="button" aria-label="打开呼叫中心"><svg><use href="#i-phone"></use></svg><span>呼叫</span><svg class="header-call-chevron"><use href="#i-down"></use></svg></button>
         <button class="icon-button notification-button" id="notificationButton" type="button" aria-label="通知"><svg><use href="#i-bell"></use></svg><span></span></button>
         <button class="user-menu" id="userMenu" type="button"><span class="avatar">林</span><span class="user-name">林夕</span><svg><use href="#i-down"></use></svg></button>
@@ -194,7 +194,8 @@
   </div>
   <div class="toast-region" id="toastRegion" aria-live="polite"></div>
   <div id="followupAlertRegion" class="followup-alert-region" aria-live="polite" hidden></div>
+  <script src="config.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <script type="module" src="/src/main.js"></script>
+  <script src="app.js?v=20260915-followup-five-minute-alert-v3"></script>
 </body>
 </html>
