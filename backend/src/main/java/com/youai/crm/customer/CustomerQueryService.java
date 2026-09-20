@@ -44,6 +44,7 @@ public class CustomerQueryService {
             Boolean inPool, Map<String, String> advanced, Pageable pageable, Authentication authentication) {
         accessPolicy.scopedOwner(authentication);
         boolean admin = accessPolicy.isAdmin(authentication);
+        Map<String, String> queryValues = advanced == null ? Map.of() : advanced;
         Pageable safePageable = safePageable(pageable, Sort.by(Sort.Direction.DESC, "id"));
         org.springframework.data.jpa.domain.Specification<Customer> specification = (root, query, builder) -> {
             List<Predicate> predicates = new java.util.ArrayList<>();
@@ -53,18 +54,25 @@ public class CustomerQueryService {
                         builder.like(root.get("phone"), like), builder.like(root.get("company"), like),
                         builder.like(root.get("customerNo"), like)));
             }
-            if (StringUtils.hasText(stage)) predicates.add(builder.equal(root.get("stage"), stage));
-            if (StringUtils.hasText(level)) predicates.add(builder.equal(root.get("level"), level));
-            if (!admin && !Boolean.TRUE.equals(inPool)) {
+            if (StringUtils.hasText(queryValues.get("nameKeyword"))) {
+                String like = "%" + queryValues.get("nameKeyword").trim().toLowerCase() + "%";
+                predicates.add(builder.or(builder.like(builder.lower(root.get("name")), like),
+                        builder.like(builder.lower(root.get("note")), like),
+                        builder.like(builder.lower(root.get("remark")), like)));
+            }
+            addAnyEquals(builder, root, predicates, stage, "stage");
+            addAnyEquals(builder, root, predicates, level, "level");
+            boolean collaborationScope = "collab".equalsIgnoreCase(queryValues.get("scope"));
+            if (!admin && !Boolean.TRUE.equals(inPool) && !collaborationScope) {
                 predicates.add(builder.equal(root.get("owner"), accessPolicy.currentOwner(authentication)));
             } else if (StringUtils.hasText(owner)) {
-                predicates.add(builder.equal(root.get("owner"), owner.trim()));
+                addAnyEquals(builder, root, predicates, owner, "owner");
             }
             if (inPool != null) {
                 predicates.add(inPool ? builder.equal(root.get("owner"), PUBLIC_POOL)
                         : builder.notEqual(root.get("owner"), PUBLIC_POOL));
             }
-            addAdvancedPredicates(root, query, builder, predicates, advanced, tag);
+            addAdvancedPredicates(root, query, builder, predicates, queryValues, tag, authentication);
             return builder.and(predicates.toArray(Predicate[]::new));
         };
         if (hasNumericRange(advanced)) {
@@ -83,11 +91,13 @@ public class CustomerQueryService {
     private void addAdvancedPredicates(jakarta.persistence.criteria.From<?, Customer> root,
             jakarta.persistence.criteria.CriteriaQuery<?> query,
             jakarta.persistence.criteria.CriteriaBuilder builder, List<Predicate> predicates,
-            Map<String, String> advanced, String tag) {
+            Map<String, String> advanced, String tag, Authentication authentication) {
         Map<String, String> values = advanced == null ? Map.of() : advanced;
         addEquals(builder, root, predicates, values, "gender", "gender");
         addEquals(builder, root, predicates, values, "maritalStatus", "maritalStatus");
         addEquals(builder, root, predicates, values, "customerStatus", "stage");
+        addAnyEquals(builder, root, predicates, values.get("levels"), "level");
+        addLike(builder, root, predicates, values, "source", "source");
         addLike(builder, root, predicates, values, "occupation", "occupation");
         addLike(builder, root, predicates, values, "housing", "housing");
         addLike(builder, root, predicates, values, "car", "car");
@@ -96,7 +106,7 @@ public class CustomerQueryService {
         addLike(builder, root, predicates, values, "personality", "matchPersonality");
         addLike(builder, root, predicates, values, "interest", "matchMostImportant");
         addLike(builder, root, predicates, values, "owner", "owner");
-        addLike(builder, root, predicates, values, "collaborator", "collaborator");
+        addAnyLike(builder, root, predicates, values.get("collaborator"), "collaborator", "、,，");
         if (has(values, "note")) {
             String like = "%" + values.get("note").trim().toLowerCase() + "%";
             predicates.add(builder.or(builder.like(builder.lower(root.get("note")), like),
@@ -109,16 +119,25 @@ public class CustomerQueryService {
                     .toList();
             if (!education.isEmpty()) predicates.add(builder.or(education.toArray(Predicate[]::new)));
         }
-        if (has(values, "customerType")) {
-            String type = values.get("customerType").trim();
-            boolean member = "member".equalsIgnoreCase(type) || "\u4f1a\u5458".equals(type);
-            predicates.add(member ? builder.like(root.get("level"), "%\u4f1a\u5458%")
-                    : builder.notLike(root.get("level"), "%\u4f1a\u5458%"));
-        }
+        // Customer has no independent member/non-member field. Keep the
+        // request key for forwards compatibility, but do not infer a type
+        // from the unrelated level text.
         addDateRange(builder, root, predicates, values, "registrationStart", "registrationEnd", "createdAt");
         addDateRange(builder, root, predicates, values, "firstAllocationStart", "firstAllocationEnd", "firstAllocationAt");
         addDateRange(builder, root, predicates, values, "lastFollowUpStart", "lastFollowUpEnd", "lastContactAt");
         addDateRange(builder, root, predicates, values, "nextFollowStart", "nextFollowEnd", "nextFollowAt");
+        addAllocationDateRange(builder, root, predicates, values);
+        addQuickFilter(builder, root, predicates, values);
+        addSceneFilter(builder, root, predicates, values);
+        if (has(values, "scope")) {
+            String scope = values.get("scope").trim();
+            String currentDisplayName = accessPolicy.currentDisplayName(authentication);
+            if ("mine".equalsIgnoreCase(scope)) {
+                predicates.add(builder.equal(root.get("owner"), currentDisplayName));
+            } else if ("collab".equalsIgnoreCase(scope)) {
+                addAnyLike(builder, root, predicates, currentDisplayName, "collaborator", "、,，");
+            }
+        }
         if (has(values, "uncontactedDays")) {
             try {
                 long days = Long.parseLong(values.get("uncontactedDays").trim());
@@ -132,6 +151,9 @@ public class CustomerQueryService {
             query.distinct(true);
             predicates.add(builder.equal(root.join("tags"), tag.trim()));
         }
+        if ("true".equalsIgnoreCase(values.get("noTag"))) {
+            predicates.add(builder.isEmpty(root.get("tags")));
+        }
     }
 
     private void addEquals(jakarta.persistence.criteria.CriteriaBuilder builder,
@@ -140,11 +162,98 @@ public class CustomerQueryService {
         if (has(values, key)) predicates.add(builder.equal(root.get(field), values.get(key).trim()));
     }
 
+    private void addAnyEquals(jakarta.persistence.criteria.CriteriaBuilder builder,
+            jakarta.persistence.criteria.From<?, Customer> root, List<Predicate> predicates,
+            String rawValues, String field) {
+        List<String> options = splitValues(rawValues);
+        if (options.isEmpty()) return;
+        jakarta.persistence.criteria.CriteriaBuilder.In<String> in = builder.in(root.get(field));
+        options.forEach(in::value);
+        predicates.add(in);
+    }
+
     private void addLike(jakarta.persistence.criteria.CriteriaBuilder builder,
             jakarta.persistence.criteria.From<?, Customer> root, List<Predicate> predicates,
             Map<String, String> values, String key, String field) {
         if (has(values, key)) predicates.add(builder.like(builder.lower(root.get(field)),
                 "%" + values.get(key).trim().toLowerCase() + "%"));
+    }
+
+    private void addAnyLike(jakarta.persistence.criteria.CriteriaBuilder builder,
+            jakarta.persistence.criteria.From<?, Customer> root, List<Predicate> predicates,
+            String rawValues, String field, String delimiters) {
+        List<String> options = splitValues(rawValues, delimiters);
+        if (options.isEmpty()) return;
+        predicates.add(builder.or(options.stream()
+                .map(value -> builder.like(builder.lower(root.get(field)), "%" + value.toLowerCase() + "%"))
+                .toArray(Predicate[]::new)));
+    }
+
+    private List<String> splitValues(String rawValues) {
+        return splitValues(rawValues, ",，、");
+    }
+
+    private List<String> splitValues(String rawValues, String delimiters) {
+        if (!StringUtils.hasText(rawValues)) return List.of();
+        return java.util.Arrays.stream(rawValues.split("[" + delimiters + "]"))
+                .map(String::trim).filter(StringUtils::hasText).distinct().toList();
+    }
+
+    private void addAllocationDateRange(jakarta.persistence.criteria.CriteriaBuilder builder,
+            jakarta.persistence.criteria.From<?, Customer> root, List<Predicate> predicates,
+            Map<String, String> values) {
+        if (!has(values, "allocationStart") && !has(values, "allocationEnd")) return;
+        try {
+            LocalDateTime start = has(values, "allocationStart")
+                    ? LocalDateTime.parse(values.get("allocationStart").trim() + "T00:00:00") : null;
+            LocalDateTime end = has(values, "allocationEnd")
+                    ? LocalDateTime.parse(values.get("allocationEnd").trim() + "T00:00:00").plusDays(1) : null;
+            List<Predicate> fields = new java.util.ArrayList<>();
+            for (String field : List.of("lastAllocationAt", "firstAllocationAt", "createdAt")) {
+                jakarta.persistence.criteria.Path<LocalDateTime> path = root.get(field);
+                if (start != null && end != null) fields.add(builder.and(builder.greaterThanOrEqualTo(path, start), builder.lessThan(path, end)));
+                else if (start != null) fields.add(builder.greaterThanOrEqualTo(path, start));
+                else fields.add(builder.lessThan(path, end));
+            }
+            predicates.add(builder.or(fields.toArray(Predicate[]::new)));
+        } catch (RuntimeException ignored) { }
+    }
+
+    private void addQuickFilter(jakarta.persistence.criteria.CriteriaBuilder builder,
+            jakarta.persistence.criteria.From<?, Customer> root, List<Predicate> predicates,
+            Map<String, String> values) {
+        if (!has(values, "quickFilter")) return;
+        String quickFilter = values.get("quickFilter").trim();
+        if ("重点客户".equals(quickFilter)) predicates.add(builder.equal(root.get("level"), "重点客户"));
+        else if ("即将成交".equals(quickFilter)) predicates.add(root.get("stage").in("方案报价", "商务谈判"));
+        else if ("今日待跟进".equals(quickFilter)) addTodayRange(builder, root, predicates, "nextFollowAt");
+    }
+
+    private void addSceneFilter(jakarta.persistence.criteria.CriteriaBuilder builder,
+            jakarta.persistence.criteria.From<?, Customer> root, List<Predicate> predicates,
+            Map<String, String> values) {
+        if (!has(values, "scene")) return;
+        String scene = values.get("scene").trim();
+        if ("today-new".equals(scene)) addTodayRange(builder, root, predicates, "createdAt");
+        else if ("today-follow".equals(scene)) addTodayRange(builder, root, predicates, "nextFollowAt");
+        else if ("protected".equals(scene)) predicates.add(builder.equal(root.get("level"), "重点客户"));
+        else if ("duplicate-unfollowed".equals(scene)) predicates.add(builder.and(
+                builder.greaterThan(root.get("registrationCount"), 1), builder.isNull(root.get("lastContactAt"))));
+        else if ("pool-claimed".equals(scene)) predicates.add(builder.and(
+                builder.notEqual(root.get("owner"), PUBLIC_POOL), builder.isNotNull(root.get("previousOwner"))));
+        else if ("new-unfollowed".equals(scene)) predicates.add(builder.isNull(root.get("lastContactAt")));
+        else if ("two-days-unfollowed".equals(scene)) {
+            LocalDateTime cutoff = LocalDateTime.now().minusDays(2);
+            predicates.add(builder.or(builder.lessThanOrEqualTo(root.get("lastContactAt"), cutoff),
+                    builder.and(builder.isNull(root.get("lastContactAt")), builder.lessThanOrEqualTo(root.get("createdAt"), cutoff))));
+        }
+    }
+
+    private void addTodayRange(jakarta.persistence.criteria.CriteriaBuilder builder,
+            jakarta.persistence.criteria.From<?, Customer> root, List<Predicate> predicates, String field) {
+        LocalDateTime start = LocalDateTime.now().toLocalDate().atStartOfDay();
+        predicates.add(builder.and(builder.greaterThanOrEqualTo(root.get(field), start),
+                builder.lessThan(root.get(field), start.plusDays(1))));
     }
 
     private void addDateRange(jakarta.persistence.criteria.CriteriaBuilder builder,
@@ -182,9 +291,15 @@ public class CustomerQueryService {
         if (!hasMin && !hasMax) return true;
         if (!StringUtils.hasText(value)) return false;
         try {
-            double number = Double.parseDouble(value.replaceAll("[^0-9.\\-]", ""));
-            if (hasMin && number < Double.parseDouble(min.trim())) return false;
-            if (hasMax && number > Double.parseDouble(max.trim())) return false;
+            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\d+(?:\\.\\d+)?").matcher(value);
+            List<Double> numbers = new java.util.ArrayList<>();
+            while (matcher.find()) numbers.add(Double.parseDouble(matcher.group()));
+            if (numbers.isEmpty()) return true;
+            double multiplier = value.contains("万") ? 10000d : 1d;
+            double lower = numbers.getFirst() * multiplier;
+            double upper = numbers.getLast() * multiplier;
+            if (hasMin && upper < Double.parseDouble(min.trim())) return false;
+            if (hasMax && lower > Double.parseDouble(max.trim())) return false;
             return true;
         } catch (RuntimeException ignored) {
             return true;

@@ -150,8 +150,9 @@ public class CustomerFollowUpService {
 
     private FollowUpRecordResponse taskRecord(FollowUpTask task, CustomerResponse customer) {
         LocalDateTime occurredAt = task.getFollowedAt() != null ? task.getFollowedAt() : task.getCreatedAt();
+        String taskType = StringUtils.hasText(task.getTaskType()) ? task.getTaskType() : "跟进";
         return new FollowUpRecordResponse("task:" + task.getId(), customer.id(), customer.name(), "task",
-                StringUtils.hasText(task.getTaskType()) ? task.getTaskType() : "跟进", task.getTitle(), task.getTitle(),
+                taskType, taskType, task.getTitle(),
                 task.getCustomerStatus(), task.getOwner(), occurredAt, task.isCompleted(), "operation");
     }
 

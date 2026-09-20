@@ -75,6 +75,7 @@ public class CustomerController {
     @PostMapping("/import")
     @ResponseStatus(HttpStatus.CREATED)
     public CustomerResponse importCustomer(@Valid @RequestBody CustomerRequest request, Authentication authentication) {
+        CustomerImportValidator.validate(request);
         return service.create(request, authentication, "批量导入");
     }
 

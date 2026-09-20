@@ -151,6 +151,7 @@ const state = {
   customerScene: "all",
   customerOwner: "全部负责人",
   customerOwnerSelection: { nodes: [] },
+  customerTagFilter: "",
   customerOwnerCascadeOpen: false,
   customerOwnerSearch: "",
   customerOwnerExpandedNodes: ["store:youai-tianjin", "group:sales"],
@@ -165,13 +166,15 @@ const state = {
     registration: { start: "", end: "" },
     lastLogin: { start: "", end: "" },
     firstAllocation: { start: "", end: "" },
-    lastFollowUp: { start: "", end: "" }
+    lastFollowUp: { start: "", end: "" },
+    nextFollow: { start: "", end: "" }
   },
   customerAdvancedDraftDateRanges: {
     registration: { start: "", end: "" },
     lastLogin: { start: "", end: "" },
     firstAllocation: { start: "", end: "" },
-    lastFollowUp: { start: "", end: "" }
+    lastFollowUp: { start: "", end: "" },
+    nextFollow: { start: "", end: "" }
   },
   customerAdvancedDatePickerOpen: false,
   customerAdvancedDatePickerField: "",
@@ -195,6 +198,7 @@ const state = {
   customerAdvancedDraftHeightMin: "",
   customerAdvancedDraftHeightMax: "",
   customerAdvancedDraftEducation: [],
+  customerAdvancedDraftLevels: [],
   customerAdvancedDraftMaritalStatus: "all",
   customerAdvancedOwnerSelection: { nodes: [] },
   customerAdvancedDraftOwnerSelection: { nodes: [] },
@@ -208,6 +212,18 @@ const state = {
   customerAdvancedCollaboratorExpandedNodes: ["store:youai-tianjin", "group:sales"],
   customerAdvancedDraftUncontactedDays: "all",
   customerAdvancedDraftUncontactedDaysCustom: "",
+  customerAdvancedDraftNextFollowPreset: "",
+  customerAdvancedDraftSource: "",
+  customerAdvancedDraftNativePlace: "",
+  customerAdvancedDraftWorkLocation: "",
+  customerAdvancedDraftOccupation: "",
+  customerAdvancedDraftHousing: "",
+  customerAdvancedDraftCar: "",
+  customerAdvancedDraftPersonality: "",
+  customerAdvancedDraftInterest: "",
+  customerAdvancedDraftNote: "",
+  customerAdvancedDraftIncomeMin: "",
+  customerAdvancedDraftIncomeMax: "",
   customerAdvancedDialStatus: "all",
   customerAdvancedDraftDialStatus: "all",
   customerAvatarFilter: "all",
@@ -235,6 +251,17 @@ const state = {
   customerAdvancedOpen: false,
   customerAdvancedDraftCustomerType: "",
   customerAdvancedDraftStatus: "",
+  customerAdvancedLevels: [],
+  customerAdvancedNextFollowPreset: "",
+  customerAdvancedSource: "",
+  customerAdvancedNativePlace: "",
+  customerAdvancedWorkLocation: "",
+  customerAdvancedOccupation: "",
+  customerAdvancedHousing: "",
+  customerAdvancedCar: "",
+  customerAdvancedPersonality: "",
+  customerAdvancedInterest: "",
+  customerAdvancedNote: "",
   customerIncomeMin: "",
   customerIncomeMax: "",
   customerSection: "客户列表",
@@ -356,6 +383,17 @@ const customerStatusOptions = [
   "确认恋爱，转介绍",
   "结婚",
   "暂停"
+];
+
+const customerStageOptions = [
+  "全部阶段",
+  "初步沟通",
+  "需求确认",
+  "方案报价",
+  "商务谈判",
+  "已成交",
+  "暂缓跟进",
+  "已流失"
 ];
 
 const customerFollowUpTypes = ["到访", "电话", "微信", "短信", "外出", "其他"];
@@ -691,6 +729,19 @@ function clearAuth() {
   loadCustomerTableColumns();
   localStorage.removeItem("youai.crm.accessToken");
   localStorage.removeItem("youai.crm.refreshToken");
+}
+
+function customerOwnerSelectionNames(selection = {}) {
+  const tree = customerOwnerTree();
+  const names = new Set();
+  customerOwnerSelectionNodes(selection).forEach(id => {
+    const node = customerOwnerTreeFindNode(tree, id);
+    customerOwnerTreeDescendantIds(node || { id, children: [] }).forEach(descendantId => {
+      const descendant = customerOwnerTreeFindNode(tree, descendantId);
+      if (descendant?.owner && descendantId.startsWith("user:")) names.add(descendant.owner);
+    });
+  });
+  return [...names];
 }
 
 function saveAuth(auth) {
@@ -1162,7 +1213,52 @@ async function refreshCustomerSearchFromApi() {
   params.set("page", String(Math.max(0, (state[pageKey] || 1) - 1)));
   params.set("size", String(Math.min(Math.max(state.customerPageSize || 20, 1), 100)));
   if (state.customerSearch.trim()) params.set("keyword", state.customerSearch.trim());
-  const advanced = { customerType: state.customerAdvancedDraftCustomerType, customerStatus: state.customerAdvancedDraftStatus || "", gender: state.customerGender !== "all" ? state.customerGender : "", maritalStatus: state.customerMaritalStatus !== "all" ? state.customerMaritalStatus : "", ageMin: state.customerAgeMin, ageMax: state.customerAgeMax, heightMin: state.customerHeightMin, heightMax: state.customerHeightMax, incomeMin: state.customerIncomeMin, incomeMax: state.customerIncomeMax, education: selectedCustomerEducations().join(","), uncontactedDays: selectedCustomerUncontactedDaysThreshold() ?? "", registrationStart: state.customerAdvancedDateRanges.registration?.start, registrationEnd: state.customerAdvancedDateRanges.registration?.end, firstAllocationStart: state.customerAdvancedDateRanges.firstAllocation?.start, firstAllocationEnd: state.customerAdvancedDateRanges.firstAllocation?.end, lastFollowUpStart: state.customerAdvancedDateRanges.lastFollowUp?.start, lastFollowUpEnd: state.customerAdvancedDateRanges.lastFollowUp?.end, nextFollowStart: state.customerAdvancedDateRanges.nextFollow?.start, nextFollowEnd: state.customerAdvancedDateRanges.nextFollow?.end };
+  if (state.customerNameSearch.trim()) params.set("nameKeyword", state.customerNameSearch.trim());
+  if (state.customerStage !== "全部阶段") params.set("stage", state.customerStage);
+  if (state.customerLevel !== "全部等级") params.set("level", state.customerLevel);
+  if (state.customerTagFilter === "__none__") params.set("noTag", "true");
+  else if (state.customerTagFilter) params.set("tag", state.customerTagFilter);
+  const ownerNames = customerOwnerSelectionNames(state.customerOwnerSelection);
+  if (ownerNames.length) params.set("owner", ownerNames.join(","));
+  const collaboratorNames = customerOwnerSelectionNames(state.customerAdvancedCollaboratorSelection);
+  const advanced = {
+    customerType: state.customerAdvancedDraftCustomerType,
+    customerStatus: state.customerStatus !== "全部状态" ? state.customerStatus : "",
+    levels: state.customerAdvancedLevels.join(","),
+    gender: state.customerGender !== "all" ? state.customerGender : "",
+    maritalStatus: state.customerMaritalStatus !== "all" ? state.customerMaritalStatus : "",
+    ageMin: state.customerAgeMin,
+    ageMax: state.customerAgeMax,
+    heightMin: state.customerHeightMin,
+    heightMax: state.customerHeightMax,
+    incomeMin: state.customerIncomeMin,
+    incomeMax: state.customerIncomeMax,
+    education: selectedCustomerEducations().join(","),
+    source: state.customerAdvancedSource,
+    nativePlace: state.customerAdvancedNativePlace,
+    workLocation: state.customerAdvancedWorkLocation,
+    occupation: state.customerAdvancedOccupation,
+    housing: state.customerAdvancedHousing,
+    car: state.customerAdvancedCar,
+    personality: state.customerAdvancedPersonality,
+    interest: state.customerAdvancedInterest,
+    note: state.customerAdvancedNote,
+    collaborator: collaboratorNames.join(","),
+    uncontactedDays: selectedCustomerUncontactedDaysThreshold() ?? "",
+    registrationStart: state.customerAdvancedDateRanges.registration?.start,
+    registrationEnd: state.customerAdvancedDateRanges.registration?.end,
+    allocationStart: state.customerStartDate,
+    allocationEnd: state.customerEndDate,
+    firstAllocationStart: state.customerAdvancedDateRanges.firstAllocation?.start,
+    firstAllocationEnd: state.customerAdvancedDateRanges.firstAllocation?.end,
+    lastFollowUpStart: state.customerAdvancedDateRanges.lastFollowUp?.start,
+    lastFollowUpEnd: state.customerAdvancedDateRanges.lastFollowUp?.end,
+    nextFollowStart: state.customerAdvancedDateRanges.nextFollow?.start,
+    nextFollowEnd: state.customerAdvancedDateRanges.nextFollow?.end,
+    quickFilter: state.quickFilter !== "全部客户" ? state.quickFilter : "",
+    scene: state.customerScene !== "all" ? state.customerScene : "",
+    scope: state.customerScope !== "all" ? state.customerScope : ""
+  };
   Object.entries(advanced).forEach(([key, value]) => { if (value != null && String(value).trim()) params.set(key, value); });
   try {
     const endpoint = isPoolPage ? "/customers/pool" : "/customers";
@@ -2080,7 +2176,7 @@ function customerMatchesScene(customer, scene) {
   if (scene === "two-days-unfollowed") return followUps === 0 && daysSince(customer.createdAt) >= 2;
   if (scene === "protected") return customer.level === "重点客户";
   if (scene === "duplicate-unfollowed") return Boolean(customer.duplicateRegistration) && followUps === 0;
-  if (scene === "pool-claimed") return Boolean(customer.claimedFromPool);
+  if (scene === "pool-claimed") return Boolean(customer.claimedFromPool || (customer.previousOwner && customer.owner && customer.owner !== "公海"));
   return true;
 }
 
@@ -2225,7 +2321,12 @@ function customerHeaderModalView() {
 
 function customerListView({ isPool = false } = {}) {
   const meta = (isPool ? state.poolCustomerPageMeta : state.customerPageMeta) || { page: 0, size: state.customerPageSize, totalElements: 0, totalPages: 1 };
-  const rows = sortedCustomerRows(isPool ? state.poolCustomers : customers);
+  const sourceRows = isPool ? state.poolCustomers : customers;
+  const rows = sortedCustomerRows(sourceRows.filter(customer => {
+    if (!state.customerTagFilter) return true;
+    const tags = Array.isArray(customer.tags) ? customer.tags : [];
+    return state.customerTagFilter === "__none__" ? tags.length === 0 : tags.includes(state.customerTagFilter);
+  }));
   const totalElements = Number(meta.totalElements || 0);
   const totalPages = Math.max(1, Number(meta.totalPages || 1));
   const currentPage = Math.min(Math.max(1, Number(meta.page || 0) + 1), totalPages);
@@ -2240,12 +2341,12 @@ function customerListView({ isPool = false } = {}) {
     ${subnav(["客户列表", "公海列表", "客户导入"], state.customerSection, ["客户列表", "公海列表", "客户导入"])}
     <div class="page-content">
       ${isPool ? "" : `<div class="customer-reference-tabs">${[["all","全部客户"],["mine","我的客户"],["subordinates","下属客户"],["collab","我的协作"],["subordinate-collab","下属协作"],["store","到店客户"]].map(([scope, label]) => `<button class="${state.customerScope === scope ? "active" : ""}" type="button" data-customer-scope="${scope}">${label}</button>`).join("")}</div>`}
-      <div class="customer-scene-bar"><span>场景：</span>${customerSceneItems().map(item => `<button class="scene-chip ${state.customerScene === item.key ? "active" : ""}" type="button" data-customer-scene="${item.key}">${item.label}${item.count > 0 ? `<b>${item.count}</b>` : ""}</button>`).join("")}<span class="pool-label">标注/标签：</span><button class="tag-filter" type="button"><span class="flag-icon no-tag-icon">⚑</span> 无标签</button><button class="tag-filter important-tag" type="button"><span class="flag-icon">⚑</span> 重点客户</button><button class="tag-filter" type="button">⚑ 普通客户</button><button class="text-button" type="button">更多</button></div>
+      <div class="customer-scene-bar"><span>场景：</span>${customerSceneItems().map(item => `<button class="scene-chip ${state.customerScene === item.key ? "active" : ""}" type="button" data-customer-scene="${item.key}">${item.label}${item.count > 0 ? `<b>${item.count}</b>` : ""}</button>`).join("")}<span class="pool-label">标注/标签：</span><button class="tag-filter ${state.customerTagFilter === "__none__" ? "active" : ""}" type="button" data-customer-tag="__none__"><span class="flag-icon no-tag-icon">⚑</span> 无标签</button><button class="tag-filter important-tag ${state.customerTagFilter === "重点客户" ? "active" : ""}" type="button" data-customer-tag="重点客户"><span class="flag-icon">⚑</span> 重点客户</button><button class="tag-filter ${state.customerTagFilter === "普通客户" ? "active" : ""}" type="button" data-customer-tag="普通客户">⚑ 普通客户</button><button class="text-button" type="button">更多</button></div>
       <section class="filter-panel">
         <div class="filter-row">
           <label class="field"><span>筛选条件</span><input id="customerSearch" type="search" value="${state.customerSearch}" placeholder="ID/手机号"></label>
           <label class="field"><span>&nbsp;</span><input id="customerNameSearch" type="search" value="${escapeHtml(state.customerNameSearch)}" placeholder="姓名/昵称/备注"></label>
-          <label class="field"><span>&nbsp;</span>${isPool ? `<select><option>深沟时长</option></select>` : `<button id="stageFilter" class="filter-trigger" type="button">全部</button>`}</label>
+          <label class="field"><span>&nbsp;</span>${isPool ? `<select><option>深沟时长</option></select>` : `<div class="status-filter stage-filter"><button id="stageFilter" class="filter-trigger" type="button">${escapeHtml(state.customerStage === "全部阶段" ? "全部" : state.customerStage)}</button><div class="status-filter-menu">${customerStageOptions.map(option => `<button type="button" data-customer-stage="${escapeHtml(option)}">${escapeHtml(option)}</button>`).join("")}</div></div>`}</label>
           ${isPool ? `<label class="field pool-follow-range"><span>&nbsp;</span><div><input type="search" placeholder="最小跟进次数"><input type="search" placeholder="最大跟进次数"></div></label>` : `<label class="field status-filter-field"><span>&nbsp;</span><div class="status-filter"><input id="levelFilter" type="search" value="${state.customerStatus === "全部状态" ? "" : state.customerStatus}" placeholder="请选择客户状态" autocomplete="off"><div class="status-filter-menu">${customerStatusOptions.map(option => `<button type="button" data-customer-status="${option}">${option}</button>`).join("")}</div></div></label><label class="field"><span>&nbsp;</span>${customerOwnerCascadeControl("main", state.customerOwnerSelection, state.customerOwnerCascadeOpen)}</label>`}<label class="field customer-date-range"><span>&nbsp;</span><div class="date-range-picker-wrap"><div class="date-range-display"><span>${isPool ? "入海开始时间" : state.customerStartDate || "分配开始时间"}</span><b>→</b><span>${isPool ? "入海结束时间" : state.customerEndDate || "分配结束时间"}</span><button class="date-range-picker" id="openDateRangePicker" type="button" aria-label="选择分配时间范围">${icon("calendar")}</button></div>${isPool ? "" : (state.customerDateRangePickerOpen ? customerDateRangePickerView() : "")}</div></label><div class="inline-actions customer-filter-actions"><button class="button primary" id="applyCustomerFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCustomerFilters" type="button">重置</button><button class="text-button" type="button">高级筛选</button></div>
         </div>
         <div class="filter-footer"><div class="filter-tags">${["全部客户","重点客户","今日待跟进","即将成交"].map(item => `<button class="quick-filter ${state.quickFilter === item ? "active" : ""}" type="button" data-quick-filter="${item}">${item}</button>`).join("")}</div></div>
@@ -2278,11 +2379,13 @@ const customerImportDetailColumns = [
   { key: "phone", label: "电话号码", required: true },
   { key: "gender", label: "性别" },
   { key: "birthday", label: "生日" },
+  { key: "birthYear", label: "出生年份" },
   { key: "age", label: "年龄" },
   { key: "height", label: "身高" },
   { key: "maritalStatus", label: "婚况" },
   { key: "education", label: "学历" },
   { key: "monthlyIncome", label: "月收入" },
+  { key: "annualIncome", label: "年收入" },
   { key: "occupation", label: "职业" },
   { key: "housing", label: "住房" },
   { key: "car", label: "购车" },
@@ -2318,7 +2421,47 @@ function importRowValidation(row, rows) {
     const duplicateInSystem = [...customers, ...(state.poolCustomers || [])].some(customer => normalizeImportPhone(customer.phone) === phone);
     if (duplicateInSystem) errors.push("客户已存在");
   }
+  errors.push(...importProfileConflicts(row));
   return { errors, phone, requiredInvalid: !name || !/^1[3-9]\d{9}$/.test(phone) };
+}
+
+function importIncomeRange(value) {
+  const raw = String(value || "").trim().replace(/[,，\s]/g, "");
+  const match = raw.match(/^(\d+(?:\.\d+)?)(万)?(?:[-~～至到](\d+(?:\.\d+)?)(万)?)?(?:元)?$/);
+  if (!match) return null;
+  const suffix = Boolean(match[2] || match[4]);
+  const first = Number(match[1]) * (suffix ? 10000 : 1);
+  const second = match[3] ? Number(match[3]) * (match[4] || match[2] ? 10000 : 1) : first;
+  return first >= 0 && second >= first ? { min: first, max: second } : null;
+}
+
+function importProfileConflicts(row) {
+  const errors = [];
+  const birthday = String(row.birthday || "").trim();
+  const birthYear = String(row.birthYear || "").trim();
+  const ageText = String(row.age || "").trim();
+  const today = new Date();
+  const full = birthday.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const year = full ? Number(full[1]) : Number(birthYear || (/^\d{4}$/.test(birthday) ? birthday : ""));
+  if (birthYear && !/^\d{4}$/.test(birthYear)) errors.push("出生年份格式错误");
+  if (birthday && !full && !/^\d{4}$/.test(birthday)) errors.push("生日格式错误");
+  if (full) {
+    const date = new Date(Number(full[1]), Number(full[2]) - 1, Number(full[3]));
+    if (date.getFullYear() !== Number(full[1]) || date.getMonth() !== Number(full[2]) - 1 || date.getDate() !== Number(full[3]) || date > today) errors.push("生日日期无效");
+  }
+  if (year && (year > today.getFullYear() || year < 1900)) errors.push("出生年份无效");
+  if (birthYear && birthday && Number(birthYear) !== year) errors.push("出生年份与生日不一致");
+  if (ageText && !/^\d{1,3}$/.test(ageText)) errors.push("年龄格式错误");
+  if (year && /^\d{1,3}$/.test(ageText)) {
+    const expected = today.getFullYear() - year;
+    const age = Number(ageText);
+    const birthdayPassed = full && (today.getMonth() + 1 > Number(full[2]) || (today.getMonth() + 1 === Number(full[2]) && today.getDate() >= Number(full[3])));
+    if (full ? age !== expected - (birthdayPassed ? 0 : 1) : age !== expected && age !== expected - 1) errors.push("年龄与出生日期或年份不一致");
+  }
+  const monthly = importIncomeRange(row.monthlyIncome);
+  const annual = importIncomeRange(row.annualIncome);
+  if (monthly && annual && (annual.max < monthly.min || annual.min > monthly.max * 24)) errors.push("年收入与月收入明显不符");
+  return errors;
 }
 
 function importRowDisplayValue(row, key) {
@@ -2351,14 +2494,14 @@ function customerImportDetailView(record) {
     ${subnav(["首页", "客户导入"], "客户导入", ["首页", "客户导入"])}
     <div class="page-content">
       <section class="customer-import-detail-header"><div><h1>导入详情</h1><p><span class="import-batch-dot"></span>${escapeHtml(recordName)} <span class="import-header-meta">上传于 ${escapeHtml(record?.uploadedAt || "—")} · 共 ${rows.length} 条</span></p></div><div class="import-detail-summary"><strong>${processed}</strong><span>/ ${rows.length} 已处理</span>${failed ? `<em>${failed} 条失败待修改</em>` : ""}</div></section>
-      <section class="customer-import-detail-toolbar"><div class="customer-import-detail-filter"><label><strong>导入状态：</strong><select id="importDetailStatusFilter">${["全部状态", "未导入", "已导入", "已跳过", "导入失败"].map(status => `<option ${state.importDetailStatusFilter === status ? "selected" : ""}>${status}</option>`).join("")}</select></label><button class="button primary" id="applyImportDetailFilters" type="button">查询</button><button class="button secondary" id="resetImportDetailFilters" type="button">重置</button></div><div class="customer-import-detail-actions"><button class="button secondary" type="button" data-import-selected ${selectedRows.length && canImport ? "" : "disabled"}>导入选中${selectedRows.length ? ` (${selectedRows.length})` : ""}</button><button class="button primary" type="button" data-import-all ${canImport ? "" : "disabled"}>${icon("download")}全部导入</button><label class="import-skip-toggle"><input id="importSkipInvalid" type="checkbox" ${state.importSkipInvalid ? "checked" : ""}><i></i><span>跳过电话号码异常及重复记录</span></label></div></section>
+<section class="customer-import-detail-toolbar"><div class="customer-import-detail-filter"><label><strong>导入状态：</strong><select id="importDetailStatusFilter">${["全部状态", "未导入", "已导入", "已跳过", "导入失败"].map(status => `<option ${state.importDetailStatusFilter === status ? "selected" : ""}>${status}</option>`).join("")}</select></label><button class="button primary" id="applyImportDetailFilters" type="button">查询</button><button class="button secondary" id="resetImportDetailFilters" type="button">重置</button></div><div class="customer-import-detail-actions"><button class="button secondary" type="button" data-import-selected ${selectedRows.length && canImport ? "" : "disabled"}>导入选中${selectedRows.length ? ` (${selectedRows.length})` : ""}</button><button class="button primary" type="button" data-import-all ${canImport ? "" : "disabled"}>${icon("download")}全部导入</button><label class="import-skip-toggle"><input id="importSkipInvalid" type="checkbox" ${state.importSkipInvalid ? "checked" : ""}><i></i><span>跳过异常、重复及资料冲突记录</span></label></div></section>
       <section class="customer-import-detail-table-panel"><div class="customer-import-detail-table-wrap"><table class="data-table customer-import-detail-table"><thead><tr><th class="import-select-column"><input id="selectImportRows" type="checkbox" aria-label="选择待导入客户" ${allPendingSelected ? "checked" : ""}></th><th class="import-status-column">导入状态</th>${customerImportDetailColumns.map(column => `<th class="${column.required ? "required-column" : ""}">${escapeHtml(column.label)}${column.required ? "*" : ""}</th>`).join("")}<th class="import-operation-column">操作</th></tr></thead><tbody>${filteredRows.length ? filteredRows.map(({ row, index }) => {
     const validation = importRowValidation(row, rows);
     const status = importRowStatus(row, validation);
     const editing = state.importEditingRow === index;
     const editable = !["已导入", "已跳过"].includes(row._importStatus);
     const rowClass = validation.errors.length ? "has-import-warning" : "";
-    return `<tr class="${rowClass}" data-import-row-index="${index}"><td class="import-select-column"><input type="checkbox" data-import-select="${index}" aria-label="选择${escapeHtml(row.name || `第${index + 1}条`)}" ${selectedRows.includes(index) ? "checked" : ""} ${editable ? "" : "disabled"}></td><td class="import-status-column"><span class="import-row-status ${status.className}">${status.label}</span>${validation.errors.length ? `<small title="${escapeHtml(validation.errors.join("、"))}">${escapeHtml(validation.errors.join("、"))}</small>` : row._importMessage ? `<small>${escapeHtml(row._importMessage)}</small>` : ""}</td>${customerImportDetailColumns.map(column => `<td class="import-field-${column.key}">${editing ? `<input type="${column.key === "birthday" ? "date" : "text"}" data-import-field="${column.key}" value="${escapeHtml(String(row[column.key] ?? ""))}" ${column.required ? "required" : ""}>` : `<span>${escapeHtml(importRowDisplayValue(row, column.key))}</span>`}</td>`).join("")}<td class="import-operation-column"><div class="import-row-actions">${editing ? `<button class="table-link" type="button" data-import-save="${index}">确定</button><button class="table-link muted-link" type="button" data-import-cancel="${index}">取消</button>` : editable ? `<button class="table-link" type="button" data-import-edit="${index}">修改</button><button class="table-link" type="button" data-import-row="${index}">导入</button><button class="table-link danger-link" type="button" data-import-delete="${index}">删除</button>` : `<span class="import-complete-mark">${status.label}</span>`}</div></td></tr>`;
+return `<tr class="${rowClass}" data-import-row-index="${index}"><td class="import-select-column"><input type="checkbox" data-import-select="${index}" aria-label="选择${escapeHtml(row.name || `第${index + 1}条`)}" ${selectedRows.includes(index) ? "checked" : ""} ${editable ? "" : "disabled"}></td><td class="import-status-column"><span class="import-row-status ${status.className}">${status.label}</span>${validation.errors.length ? `<small title="${escapeHtml(validation.errors.join("、"))}">${escapeHtml(validation.errors.join("、"))}</small>` : row._importMessage ? `<small>${escapeHtml(row._importMessage)}</small>` : ""}</td>${customerImportDetailColumns.map(column => `<td class="import-field-${column.key}">${editing ? `<input type="${column.key === "birthday" && !/^\d{4}$/.test(String(row.birthday || "")) ? "date" : "text"}" data-import-field="${column.key}" value="${escapeHtml(String(row[column.key] ?? ""))}" ${column.required ? "required" : ""}>` : `<span>${escapeHtml(importRowDisplayValue(row, column.key))}</span>`}</td>`).join("")}<td class="import-operation-column"><div class="import-row-actions">${editing ? `<button class="table-link" type="button" data-import-save="${index}">确定</button><button class="table-link muted-link" type="button" data-import-cancel="${index}">取消</button>` : editable ? `<button class="table-link" type="button" data-import-edit="${index}">修改</button><button class="table-link" type="button" data-import-row="${index}">导入</button><button class="table-link danger-link" type="button" data-import-delete="${index}">删除</button>` : `<span class="import-complete-mark">${status.label}</span>`}</div></td></tr>`;
   }).join("") : `<tr><td colspan="${customerImportDetailColumns.length + 3}"><div class="customer-import-empty"><span class="empty-icon">${icon("users")}</span><strong>${rows.length ? "没有符合当前状态的记录" : "暂无客户明细"}</strong>${rows.length ? `<p>点击“重置”查看全部导入明细。</p>` : ""}</div></td></tr>`}</tbody></table></div><footer class="pagination customer-import-detail-pagination"><span>${filteredRows.length ? `显示 ${filteredRows.length} 条` : "0 条"}，共 ${rows.length} 条</span><span>已处理 ${processed} 条${failed ? `，失败 ${failed} 条` : ""}</span></footer></section>
     </div>
   </section>`;
@@ -2493,7 +2636,7 @@ function whiteboardTagModalView() {
 
 function whiteboardAdvancedFilterView() {
   const select = placeholder => `<select><option>${placeholder}</option></select>`;
-  const range = (unit = "") => `<div class="advanced-range"><input placeholder="${unit}"><b>–</b><input placeholder="${unit}"></div>`;
+  const range = (unit = "", minId = "", maxId = "", minValue = "", maxValue = "") => `<div class="advanced-range"><input ${minId ? `id="${minId}"` : ""} value="${escapeHtml(minValue)}" placeholder="${unit}"><b>–</b><input ${maxId ? `id="${maxId}"` : ""} value="${escapeHtml(maxValue)}" placeholder="${unit}"></div>`;
   const dates = field => {
     const selectedRange = state.customerAdvancedDraftDateRanges[field] || { start: "", end: "" };
     const pickerOpen = state.customerAdvancedDatePickerOpen && state.customerAdvancedDatePickerField === field;
@@ -2503,6 +2646,8 @@ function whiteboardAdvancedFilterView() {
   const genderSelect = `<select id="customerGenderFilter" aria-label="性别">${customerGenderOptions.map(([value, label]) => `<option value="${value}" ${selectedGender === value ? "selected" : ""}>${label}</option>`).join("")}</select>`;
   const selectedMaritalStatus = state.customerAdvancedDraftMaritalStatus;
   const maritalStatusSelect = `<select id="customerMaritalStatusFilter" aria-label="婚况">${customerMaritalStatusOptions.map(([value, label]) => `<option value="${value}" ${selectedMaritalStatus === value ? "selected" : ""}>${label}</option>`).join("")}</select>`;
+  const selectedLevels = new Set(state.customerAdvancedDraftLevels || []);
+  const levelChecks = ["5心", "4心", "3心", "2心"].map(item => `<label><input type="checkbox" data-customer-level="${escapeHtml(item)}" ${selectedLevels.has(item) ? "checked" : ""}>${item}</label>`).join("");
   const ageRange = `<div class="advanced-range age-range"><input id="customerAgeMin" type="number" min="0" max="150" step="1" inputmode="numeric" value="${escapeHtml(state.customerAdvancedDraftAgeMin)}" placeholder="岁" aria-label="最小年龄"><b>–</b><input id="customerAgeMax" type="number" min="0" max="150" step="1" inputmode="numeric" value="${escapeHtml(state.customerAdvancedDraftAgeMax)}" placeholder="岁" aria-label="最大年龄"></div>`;
   const heightRange = `<div class="advanced-range height-range"><input id="customerHeightMin" type="number" min="0" max="300" step="1" inputmode="numeric" value="${escapeHtml(state.customerAdvancedDraftHeightMin)}" placeholder="cm" aria-label="最小身高"><b>–</b><input id="customerHeightMax" type="number" min="0" max="300" step="1" inputmode="numeric" value="${escapeHtml(state.customerAdvancedDraftHeightMax)}" placeholder="cm" aria-label="最大身高"></div>`;
   const selectedEducations = selectedCustomerEducations(state.customerAdvancedDraftEducation);
@@ -2521,25 +2666,25 @@ function whiteboardAdvancedFilterView() {
   const customUncontactedDays = selectedUncontactedDays === "custom"
     ? `<div class="advanced-custom-number"><input id="customerUncontactedDaysCustom" type="number" min="0" step="1" inputmode="numeric" value="${escapeHtml(state.customerAdvancedDraftUncontactedDaysCustom)}" placeholder="请输入天数" aria-label="自定义未联系天数"><span>天</span></div>`
     : "";
-  const dialStatusSelect = `<select id="customerDialStatusFilter" aria-label="拨打状态">${customerDialStatusOptions.map(([value, label]) => `<option value="${value}" ${state.customerAdvancedDraftDialStatus === value ? "selected" : ""}>${label}</option>`).join("")}</select>`;
+  const dialStatusSelect = `<span class="advanced-unavailable">暂无拨打记录字段</span>`;
   const avatarSelect = `<select id="customerAvatarFilter" aria-label="有无头像">${customerAvatarOptions.map(([value, label]) => `<option value="${value}" ${state.customerAdvancedDraftAvatar === value ? "selected" : ""}>${label}</option>`).join("")}</select>`;
   const ownerCascade = customerOwnerCascadeControl("advanced", state.customerAdvancedDraftOwnerSelection, state.customerAdvancedOwnerCascadeOpen);
   const collaboratorCascade = customerOwnerCascadeControl("advanced-collaborator", state.customerAdvancedDraftCollaboratorSelection, state.customerAdvancedCollaboratorCascadeOpen);
   return `<div class="modal-backdrop whiteboard-advanced-backdrop" role="presentation"><section class="whiteboard-advanced-modal" role="dialog" aria-modal="true" aria-label="高级筛选">
     <header><h2>高级筛选</h2><button type="button" id="closeWhiteboardAdvanced" aria-label="关闭">×</button></header>
     <div class="whiteboard-advanced-body">
-      <div class="advanced-wide-row"><strong>客户等级：</strong><div class="advanced-checks">${["5心", "4心", "3心", "2心"].map(item => `<label><input type="checkbox">${item}</label>`).join("")}</div></div>
-      <label class="advanced-full"><strong>客户类型：</strong><select id="customerTypeFilter"><option value="">请选择</option><option value="member">会员</option><option value="nonMember">非会员</option></select></label>
-      <label class="advanced-full"><strong>客户状态：</strong><select id="customerAdvancedStatusFilter"><option value="">全部</option>${customerStatusOptions.map(option => `<option value="${escapeHtml(option)}">${option}</option>`).join("")}</select></label>
-      <div class="advanced-wide-row"><strong>下次跟进时间：</strong><div class="advanced-checks">${["今天", "明天", "本周", "下周", "本月", "下月"].map(item => `<label><input type="checkbox">${item}</label>`).join("")}</div><div class="advanced-custom-date"><span>自定义开始时间</span><b>→</b><span>自定义结束时间</span>${icon("calendar")}</div></div>
-      <div class="advanced-two-column"><label><strong>未联系天数：</strong><div class="uncontacted-days-control">${uncontactedDaysSelect}${customUncontactedDays}</div></label><label><strong>会员来源：</strong><input placeholder="请选择会员来源"></label></div>
+      <div class="advanced-wide-row"><strong>客户等级：</strong><div class="advanced-checks">${levelChecks}</div></div>
+      <label class="advanced-full"><strong>客户类型：</strong><span class="advanced-unavailable">暂无独立客户类型字段</span></label>
+      <label class="advanced-full"><strong>客户状态：</strong><select id="customerAdvancedStatusFilter"><option value="" ${!state.customerAdvancedDraftStatus ? "selected" : ""}>全部</option>${customerStatusOptions.map(option => `<option value="${escapeHtml(option)}" ${state.customerAdvancedDraftStatus === option ? "selected" : ""}>${option}</option>`).join("")}</select></label>
+      <div class="advanced-wide-row"><strong>下次跟进时间：</strong><div class="advanced-checks">${["今天", "明天", "本周", "下周", "本月", "下月"].map(item => `<label><input type="checkbox" data-customer-next-follow-preset="${escapeHtml(item)}" ${state.customerAdvancedDraftNextFollowPreset === item ? "checked" : ""}>${item}</label>`).join("")}</div>${dates("nextFollow")}</div>
+      <div class="advanced-two-column"><label><strong>未联系天数：</strong><div class="uncontacted-days-control">${uncontactedDaysSelect}${customUncontactedDays}</div></label><label><strong>会员来源：</strong><input id="customerSourceFilter" value="${escapeHtml(state.customerAdvancedDraftSource)}" placeholder="请输入会员来源"></label></div>
       <section class="advanced-profile"><h3>客户资料详情：</h3><div class="advanced-profile-grid">
         <label><span>性别：</span>${genderSelect}</label><label><span>年龄：</span>${ageRange}</label><label><span>身高：</span>${heightRange}</label><label><span>学历：</span>${educationMultiSelect}</label>
-        <label><span>收入：</span>${range("元")}</label><label><span>婚况：</span>${maritalStatusSelect}</label><label><span>籍贯：</span>${select("请选择")}</label><label><span>工作地：</span>${select("请选择")}</label>
-        <label><span>职业：</span><input placeholder="请选择"></label><label><span>购车：</span>${select("请选择")}</label><label><span>购房：</span>${select("请选择")}</label><label><span>性格：</span><input placeholder="请选择"></label>
-        <label><span>兴趣爱好：</span><input placeholder="请选择"></label>
+        <label><span>收入：</span>${range("元", "customerIncomeMin", "customerIncomeMax", state.customerAdvancedDraftIncomeMin, state.customerAdvancedDraftIncomeMax)}</label><label><span>婚况：</span>${maritalStatusSelect}</label><label><span>籍贯：</span><input id="customerNativePlaceFilter" value="${escapeHtml(state.customerAdvancedDraftNativePlace)}" placeholder="请输入"></label><label><span>工作地：</span><input id="customerWorkLocationFilter" value="${escapeHtml(state.customerAdvancedDraftWorkLocation)}" placeholder="请输入"></label>
+        <label><span>职业：</span><input id="customerOccupationFilter" value="${escapeHtml(state.customerAdvancedDraftOccupation)}" placeholder="请输入"></label><label><span>购车：</span><input id="customerCarFilter" value="${escapeHtml(state.customerAdvancedDraftCar)}" placeholder="请输入"></label><label><span>购房：</span><input id="customerHousingFilter" value="${escapeHtml(state.customerAdvancedDraftHousing)}" placeholder="请输入"></label><label><span>性格：</span><input id="customerPersonalityFilter" value="${escapeHtml(state.customerAdvancedDraftPersonality)}" placeholder="请输入"></label>
+        <label><span>兴趣爱好：</span><input id="customerInterestFilter" value="${escapeHtml(state.customerAdvancedDraftInterest)}" placeholder="请输入"></label>
       </div></section>
-      <div class="advanced-time-grid"><label><strong>客户注册时间：</strong>${dates("registration")}</label><label><strong>最近登录时间：</strong>${dates("lastLogin")}</label><label><strong>首次分配时间：</strong>${dates("firstAllocation")}</label><label><strong>所属人：</strong>${ownerCascade}</label><label><strong>协作人：</strong>${collaboratorCascade}</label><label><strong>最后跟进时间：</strong>${dates("lastFollowUp")}</label><label class="advanced-note"><strong>备注信息：</strong><input placeholder="请输入"></label><label><strong>拨打状态：</strong>${dialStatusSelect}</label><label><strong>有无头像：</strong>${avatarSelect}</label></div>
+      <div class="advanced-time-grid"><label><strong>客户注册时间：</strong>${dates("registration")}</label><label><strong>最近登录时间：</strong><span class="advanced-unavailable">暂无登录时间字段</span></label><label><strong>首次分配时间：</strong>${dates("firstAllocation")}</label><label><strong>所属人：</strong>${ownerCascade}</label><label><strong>协作人：</strong>${collaboratorCascade}</label><label><strong>最后跟进时间：</strong>${dates("lastFollowUp")}</label><label class="advanced-note"><strong>备注信息：</strong><input id="customerNoteFilter" value="${escapeHtml(state.customerAdvancedDraftNote)}" placeholder="请输入"></label><label><strong>拨打状态：</strong>${dialStatusSelect}</label><label><strong>有无头像：</strong><span class="advanced-unavailable">暂无头像/拨打状态字段</span></label></div>
     </div>
     <footer><button class="button secondary" id="cancelWhiteboardAdvanced" type="button">取消</button><button class="button primary" id="queryWhiteboardAdvanced" type="button">查询</button></footer>
   </section></div>`;
@@ -2727,15 +2872,21 @@ function customerDetailView(id) {
   const fallbackRecords = [...customerActivityRows().filter(row => String(row.customerId) === String(customer.id) || (!row.customerId && row.type === "跟进任务" && row.customer === customer.name)), ...registrationRecords, ...assignmentRecords]
     .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
   const records = state.customerFollowUpLoaded[customer.id]
-    ? (state.customerFollowUpRecords[customer.id] || []).map(row => ({ ...row, at: row.occurredAt, detail: row.content, owner: row.owner, type: row.title || row.channel || row.type }))
+    ? (state.customerFollowUpRecords[customer.id] || []).map(row => {
+      const title = String(row.title || "").trim();
+      const content = row.content ?? "";
+      const duplicatedTaskText = title && String(content).trim() === title;
+      return { ...row, at: row.occurredAt, detail: content || title, owner: row.owner, type: duplicatedTaskText ? (row.channel || row.type) : (title || row.channel || row.type) };
+    })
     : fallbackRecords;  const portrait = `<div class="profile-reference-portrait"><div class="profile-reference-placeholder" role="img" aria-label="客户默认头像">${icon("users")}</div><span class="profile-reference-caption">${value(customer.name)}</span></div>`;
   const noteText = [customer.note, customer.remark].filter(Boolean).join("\n");
   const noteTime = customer.updatedAt || customer.createdAt;
-  const profile = `<div class="profile-reference-overview">${portrait}<section class="profile-reference-basic"><h3>基本信息</h3><dl class="profile-reference-basic-grid">${basicRows.flat().join("")}</dl></section><section class="profile-reference-mating"><h3>择偶信息</h3><dl>${matingInfo.map(([label, item]) => cell(label, item)).join("")}</dl></section></div><section class="profile-reference-notes"><h3>备注</h3><dl><div><dt>备注信息</dt><dd><span>${value(noteText)}</span>${noteTime ? `<time>${value(formatDateTime(noteTime))}</time>` : ""}</dd></div></dl></section><section class="profile-reference-photos"><h3>图片</h3><p>暂无照片</p></section><div class="customer-detail-tools"><button type="button" data-customer-opening>开场白</button><button type="button" data-customer-followup>写跟进</button></div>`;
+  const profile = `<div class="profile-reference-overview">${portrait}<section class="profile-reference-basic"><h3>基本信息</h3><dl class="profile-reference-basic-grid">${basicRows.flat().join("")}</dl></section><section class="profile-reference-mating"><h3>择偶信息</h3><dl>${matingInfo.map(([label, item]) => cell(label, item)).join("")}</dl></section></div><section class="profile-reference-notes"><h3>备注</h3><dl><div><dt>备注信息</dt><dd><span>${value(noteText)}</span>${noteTime ? `<time>${value(formatDateTime(noteTime))}</time>` : ""}</dd></div></dl></section><section class="profile-reference-photos"><h3>图片</h3><p>暂无照片</p></section>`;
+  const customerTools = `<div class="customer-detail-tools"><button type="button" data-customer-opening>开场白</button><button type="button" data-customer-followup>写跟进</button></div>`;
   const moreActions = ["增加协作", "转为库存", "移入公海", "发邀请券", "添加至重点客户", "注销用户"];
   const moreMenu = `<div class="customer-more-actions"><button class="button secondary customer-more-trigger" type="button" data-customer-more-toggle="${value(customer.id)}" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">${icon("more")}</button><div class="customer-more-menu" data-customer-more-menu="${value(customer.id)}" role="menu">${moreActions.map((label, index) => `<button type="button" role="menuitem" data-customer-more-action="${value(index)}" data-customer-id="${value(customer.id)}">${value(label)}</button>`).join("")}</div></div>`;
   const followFilter = `<div class="customer-followup-filter"><select id="customerFollowUpTypeFilter" aria-label="类型"><option value="" ${!state.customerFollowUpFilterType ? "selected" : ""} disabled hidden>类型</option><option value="all" ${state.customerFollowUpFilterType === "all" ? "selected" : ""}>全部</option><option value="sales" ${state.customerFollowUpFilterType === "sales" ? "selected" : ""}>销售</option><option value="invitation" ${state.customerFollowUpFilterType === "invitation" ? "selected" : ""}>邀约</option><option value="service" ${state.customerFollowUpFilterType === "service" ? "selected" : ""}>服务</option><option value="system" ${state.customerFollowUpFilterType === "system" ? "selected" : ""}>系统</option><option value="custom" ${state.customerFollowUpFilterType === "custom" ? "selected" : ""}>自定义</option><optgroup label="企微宝"><option value="wechat_customer_lost" ${state.customerFollowUpFilterType === "wechat_customer_lost" ? "selected" : ""}>客户流失</option><option value="wechat_add_friend" ${state.customerFollowUpFilterType === "wechat_add_friend" ? "selected" : ""}>添加客户好友</option></optgroup></select><div class="customer-followup-date-range"><div class="date-range-picker-wrap"><button class="date-range-display" id="openCustomerFollowUpDateRange" type="button" aria-label="选择跟进记录时间范围"><span>${escapeHtml(state.customerFollowUpFrom || "开始日期")}</span><b>→</b><span>${escapeHtml(state.customerFollowUpTo || "结束日期")}</span><span class="date-range-picker">${icon("calendar")}</span></button>${state.customerFollowUpDatePickerOpen ? customerFollowUpDateRangePickerView() : ""}</div></div><div class="customer-followup-keyword"><input id="customerFollowUpKeyword" value="${escapeHtml(state.customerFollowUpKeyword)}" placeholder="输入关键词" aria-label="跟进关键词"></div><button class="customer-followup-search" id="applyCustomerFollowUpFilter" type="button" aria-label="搜索关键字" title="搜索">${icon("search")}</button></div>`;
-  const follow = `<section class="customer-profile-section"><h3>跟进记录</h3><div class="customer-profile-timeline">${records.map(row => `<div><time>${value(formatDateTime(row.at))}</time><p><strong>${value(row.type)}</strong>　${value(row.detail)}<br><small>操作人：${value(row.owner)}</small></p></div>`).join("") || '<p class="customer-profile-empty">暂无客户操作记录</p>'}</div></section>`;  const profileGender = customer.gender || "—";
+  const follow = `<section class="customer-profile-section"><h3>跟进记录</h3><div class="customer-profile-timeline">${records.map(row => `<div><time>${value(formatDateTime(row.at))}</time><p><strong>${value(row.type)}</strong>　<span class="customer-followup-content">${value(row.detail)}</span><br><small>操作人：${value(row.owner)}</small></p></div>`).join("") || '<p class="customer-profile-empty">暂无客户操作记录</p>'}</div></section>`;  const profileGender = customer.gender || "—";
   const profileAge = customer.age ? `${customer.age}岁` : "—岁";
   const profileEducation = customer.education || "—";
   const isAssignedToEmployee = !["", "白板", "公海"].includes(String(customer.owner || "").trim());
@@ -2750,7 +2901,7 @@ function customerDetailView(id) {
     ? `<button class="customer-profile-tab-edit" type="button" data-edit-profile-customer="${value(customer.id)}">编辑</button>`
     : "";
   const activeTabTools = state.customerDetailTab === "follow" ? followFilter : profileTabEdit;
-  return `<section class="page customer-profile-page profile-reference-page ${state.customerDetailTab === "follow" ? "followup-active" : ""}">${profileHeader}<div class="customer-profile-tabs"><button class="${state.customerDetailTab === "profile" ? "active" : ""}" type="button" data-customer-detail-tab="profile">资料详情</button><button class="${state.customerDetailTab === "follow" ? "active" : ""}" type="button" data-customer-detail-tab="follow">跟进记录 (${records.length})</button><button type="button" disabled>约会安排</button><button type="button" disabled>推荐记录</button>${activeTabTools}</div><div class="profile-reference-content">${state.customerDetailTab === "follow" ? follow : profile}</div></section>`;
+  return `<section class="page customer-profile-page profile-reference-page ${state.customerDetailTab === "follow" ? "followup-active" : ""}">${profileHeader}<div class="customer-profile-tabs"><button class="${state.customerDetailTab === "profile" ? "active" : ""}" type="button" data-customer-detail-tab="profile">资料详情</button><button class="${state.customerDetailTab === "follow" ? "active" : ""}" type="button" data-customer-detail-tab="follow">跟进记录 (${records.length})</button><button type="button" disabled>约会安排</button><button type="button" disabled>推荐记录</button>${activeTabTools}</div><div class="profile-reference-content">${state.customerDetailTab === "follow" ? follow : profile}</div>${customerTools}</section>`;
 }
 
 function tasksView() {
@@ -3762,6 +3913,7 @@ function openModal(customer = null) {
   const form = document.querySelector("#customerForm");
   const field = name => form.querySelector(`[name="${name}"]`);
   form.reset();
+  field("birthday").type = /^\d{4}$/.test(String(customer?.birthday || "")) ? "text" : "date";
   field("customerId").value = customer?.id || "";
   document.querySelector("#modalTitle").textContent = customer ? "编辑客户" : "创建客户";
   if (customer) {
@@ -4732,7 +4884,7 @@ function parseCustomerCsv(text) {
   const aliases = {
     name: ["客户姓名", "姓名", "name"], phone: ["手机号", "手机号码", "电话号码", "phone"], company: ["公司", "所属公司", "company"],
     source: ["客户来源", "来源", "source"], owner: ["负责人", "销售负责人", "归属员工", "owner"], stage: ["跟进阶段", "阶段", "stage"],
-    gender: ["性别", "gender"], birthday: ["生日", "出生日期", "birthday"], age: ["年龄", "age"], height: ["身高", "height"], maritalStatus: ["婚况", "婚姻状况", "maritalStatus"], education: ["学历", "education"], monthlyIncome: ["月收入", "monthlyIncome"], annualIncome: ["年收入", "annualIncome"], occupation: ["职业", "occupation"], housing: ["住房", "住房情况", "housing"], car: ["购车", "购车情况", "car"], nativePlace: ["籍贯", "nativePlace"], workLocation: ["工作地", "工作地点", "workLocation"], wechat: ["微信号", "wechat"], idCard: ["身份证号", "身份证号码", "idCard"], remark: ["备注说明", "remark"], certificationStatus: ["认证情况", "认证状态", "certificationStatus"], familyStatus: ["家庭情况", "familyStatus"], childrenStatus: ["子女情况", "childrenStatus"], vehicleHousing: ["房车情况", "vehicleHousing"],
+    gender: ["性别", "gender"], birthday: ["生日", "出生日期", "birthday"], birthYear: ["出生年份", "出生年", "birthYear"], age: ["年龄", "age"], height: ["身高", "height"], maritalStatus: ["婚况", "婚姻状况", "maritalStatus"], education: ["学历", "education"], monthlyIncome: ["月收入", "monthlyIncome"], annualIncome: ["年收入", "annualIncome"], occupation: ["职业", "occupation"], housing: ["住房", "住房情况", "housing"], car: ["购车", "购车情况", "car"], nativePlace: ["籍贯", "nativePlace"], workLocation: ["工作地", "工作地点", "workLocation"], wechat: ["微信号", "wechat"], idCard: ["身份证号", "身份证号码", "idCard"], remark: ["备注说明", "remark"], certificationStatus: ["认证情况", "认证状态", "certificationStatus"], familyStatus: ["家庭情况", "familyStatus"], childrenStatus: ["子女情况", "childrenStatus"], vehicleHousing: ["房车情况", "vehicleHousing"],
     level: ["客户等级", "等级", "level"], amount: ["预计金额", "金额", "amount"], city: ["所在城市", "城市", "city"],
     note: ["备注", "客户备注", "note"], tags: ["标签", "客户标签", "tags"], nextFollowAt: ["下次跟进", "下次跟进时间", "nextFollowAt"], collaborator: ["协作人", "collaborator"]
   };
@@ -4810,7 +4962,7 @@ function importPayloadFromRow(row, toPool = false) {
     note: row.note || "暂无备注",
     nextFollowAt: row.nextFollowAt || null,
     gender: row.gender || "",
-    birthday: row.birthday || "",
+    birthday: row.birthday || row.birthYear || "",
     age: row.age || "",
     height: row.height || "",
     maritalStatus: row.maritalStatus || "",
@@ -4872,9 +5024,9 @@ async function importCustomersFromRows(rowIndexes = null) {
         skipped += 1;
         continue;
       }
-      if (validation.requiredInvalid) {
+      if (validation.requiredInvalid || validation.errors.some(error => /出生|生日|年龄|收入/.test(error))) {
         row._importStatus = "导入失败";
-        row._importMessage = validation.errors.join("、") || "客户姓名或手机号不符合要求";
+        row._importMessage = validation.errors.join("、") || "客户资料不符合导入要求";
         failures.push(`${row.name || `第${index + 1}条`}：${row._importMessage}`);
         continue;
       }
@@ -4919,7 +5071,7 @@ async function importCustomersFromRows(rowIndexes = null) {
 }
 
 function downloadCustomerTemplate() {
-  const csv = "客户姓名,手机号,公司,客户来源,负责人,跟进阶段,客户等级,预计金额,所在城市,备注,标签,性别,生日,年龄,身高,婚况,学历,月收入,年收入,职业,住房,购车,籍贯,工作地,微信号,身份证号,备注说明\n张三,13800138000,示例公司,线上咨询,白板,初步沟通,普通客户,0,天津,首次导入示例,新客户,男,1995-01-01,31,177cm,未婚,本科,8001-12000元,150000,工程师,已购房,已购车,天津,天津,zhangsan,120000199501010000,补充说明";
+  const csv = "客户姓名,手机号,公司,客户来源,负责人,跟进阶段,客户等级,预计金额,所在城市,备注,标签,性别,生日,出生年份,年龄,身高,婚况,学历,月收入,年收入,职业,住房,购车,籍贯,工作地,微信号,身份证号,备注说明\n张三,13800138000,示例公司,线上咨询,白板,初步沟通,普通客户,0,天津,首次导入示例,新客户,男,1995-01-01,1995,31,177cm,未婚,本科,8001-12000元,150000,工程师,已购房,已购车,天津,天津,zhangsan,120000199501010000,补充说明";
   const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" })); link.download = "优客云-客户导入模板.csv"; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 0);
   toast("客户导入模板已下载");
 }
@@ -5434,15 +5586,20 @@ function bindViewEvents() {
 
   const customerSearch = document.querySelector("#customerSearch");
   customerSearch?.addEventListener("input", event => { state.customerSearch = event.target.value; });
-  customerSearch?.addEventListener("keydown", event => { if (event.key === "Enter") render(); });
+  customerSearch?.addEventListener("keydown", event => { if (event.key === "Enter") { state.customerPage = 1; render(); refreshCustomerSearchFromApi(); } });
   document.querySelector("#whiteboardNameSearch")?.addEventListener("input", event => { state.whiteboardNameSearch = event.target.value; });
   document.querySelector("#whiteboardNameSearch")?.addEventListener("keydown", event => { if (event.key === "Enter") render(); });
   document.querySelector("#whiteboardStatusFilter")?.addEventListener("change", event => { state.whiteboardStatus = event.target.value; render(); });
   const customerNameSearch = document.querySelector("#customerNameSearch");
   customerNameSearch?.addEventListener("input", event => { state.customerNameSearch = event.target.value; });
-  customerNameSearch?.addEventListener("keydown", event => { if (event.key === "Enter") { state.customerPage = 1; state.poolCustomerPage = 1; render(); } });
+  customerNameSearch?.addEventListener("keydown", event => { if (event.key === "Enter") { state.customerPage = 1; state.poolCustomerPage = 1; render(); refreshCustomerSearchFromApi(); } });
   const stageFilter = document.querySelector("#stageFilter");
-  stageFilter?.addEventListener("click", () => { state.customerStage = "全部阶段"; const level = document.querySelector("#levelFilter"); level?.focus(); level?.closest(".status-filter")?.classList.add("open"); });
+  stageFilter?.addEventListener("click", event => {
+    event.stopPropagation();
+    const filter = stageFilter.closest(".status-filter");
+    filter?.classList.toggle("open");
+    document.querySelector(".status-filter:not(.stage-filter)")?.classList.remove("open");
+  });
   const levelFilter = document.querySelector("#levelFilter");
   levelFilter?.addEventListener("focus", () => levelFilter.closest(".status-filter")?.classList.add("open"));
   levelFilter?.addEventListener("input", event => {
@@ -5450,7 +5607,13 @@ function bindViewEvents() {
     const menu = levelFilter.closest(".status-filter")?.querySelector(".status-filter-menu");
     menu?.querySelectorAll("button").forEach(button => { button.hidden = value && !button.textContent.includes(value); });
   });
-  document.querySelectorAll("[data-customer-status]").forEach(button => button.addEventListener("click", () => { state.customerStatus = button.dataset.customerStatus; state.customerPage = 1; render(); }));
+  document.querySelectorAll("[data-customer-status]").forEach(button => button.addEventListener("click", () => { state.customerStatus = button.dataset.customerStatus; state.customerPage = 1; render(); refreshCustomerSearchFromApi(); }));
+  document.querySelectorAll("[data-customer-stage]").forEach(button => button.addEventListener("click", () => {
+    state.customerStage = button.dataset.customerStage;
+    state.customerPage = 1;
+    render();
+    refreshCustomerSearchFromApi();
+  }));
   const statusMenu = document.querySelector(".status-filter-menu");
   let statusScrollTimer;
   statusMenu?.addEventListener("scroll", () => {
@@ -5521,6 +5684,8 @@ function bindViewEvents() {
   document.querySelector("#whiteboardTagSearch")?.addEventListener("input", event => { const query = event.target.value.trim(); document.querySelectorAll("[data-whiteboard-tag]").forEach(button => { button.hidden = !!query && !button.textContent.includes(query); }); });
   const customerAdvancedButton = document.querySelector(".customer-list-page .customer-filter-actions .text-button") || document.querySelector("#openWhiteboardAdvanced");
   customerAdvancedButton?.addEventListener("click", () => {
+    state.customerAdvancedDraftCustomerType = state.customerAdvancedDraftCustomerType || "";
+    state.customerAdvancedDraftStatus = state.customerStatus === "全部状态" ? "" : state.customerStatus;
     state.customerAdvancedDraftGender = state.customerGender;
     state.customerAdvancedDraftMaritalStatus = state.customerMaritalStatus;
     state.customerAdvancedDraftAgeMin = state.customerAgeMin;
@@ -5528,6 +5693,7 @@ function bindViewEvents() {
     state.customerAdvancedDraftHeightMin = state.customerHeightMin;
     state.customerAdvancedDraftHeightMax = state.customerHeightMax;
     state.customerAdvancedDraftEducation = selectedCustomerEducations(state.customerEducation);
+    state.customerAdvancedDraftLevels = [...state.customerAdvancedLevels];
     state.customerAdvancedOwnerSelection = JSON.parse(JSON.stringify(state.customerOwnerSelection));
     state.customerAdvancedDraftOwnerSelection = JSON.parse(JSON.stringify(state.customerOwnerSelection));
     state.customerAdvancedCollaboratorSelection = JSON.parse(JSON.stringify(state.customerAdvancedCollaboratorSelection));
@@ -5542,6 +5708,18 @@ function bindViewEvents() {
     state.customerAdvancedDraftUncontactedDaysCustom = state.customerUncontactedDaysCustom;
     state.customerAdvancedDraftDialStatus = state.customerAdvancedDialStatus;
     state.customerAdvancedDraftAvatar = state.customerAvatarFilter;
+    state.customerAdvancedDraftNextFollowPreset = state.customerAdvancedNextFollowPreset;
+    state.customerAdvancedDraftSource = state.customerAdvancedSource;
+    state.customerAdvancedDraftNativePlace = state.customerAdvancedNativePlace;
+    state.customerAdvancedDraftWorkLocation = state.customerAdvancedWorkLocation;
+    state.customerAdvancedDraftOccupation = state.customerAdvancedOccupation;
+    state.customerAdvancedDraftHousing = state.customerAdvancedHousing;
+    state.customerAdvancedDraftCar = state.customerAdvancedCar;
+    state.customerAdvancedDraftPersonality = state.customerAdvancedPersonality;
+    state.customerAdvancedDraftInterest = state.customerAdvancedInterest;
+    state.customerAdvancedDraftNote = state.customerAdvancedNote;
+    state.customerAdvancedDraftIncomeMin = state.customerIncomeMin;
+    state.customerAdvancedDraftIncomeMax = state.customerIncomeMax;
     state.customerAdvancedOpen = true;
     state.whiteboardAdvancedOpen = customerAdvancedButton.id === "openWhiteboardAdvanced";
     render();
@@ -5591,6 +5769,7 @@ function bindViewEvents() {
         return;
       }
       state.customerStatus = state.customerAdvancedDraftStatus || "全部状态";
+      state.customerAdvancedLevels = [...state.customerAdvancedDraftLevels];
       state.customerGender = state.customerAdvancedDraftGender;
       state.customerMaritalStatus = state.customerAdvancedDraftMaritalStatus;
       state.customerAdvancedOwnerSelection = JSON.parse(JSON.stringify(state.customerAdvancedDraftOwnerSelection));
@@ -5607,6 +5786,18 @@ function bindViewEvents() {
       state.customerUncontactedDaysCustom = selected === "custom" ? String(customDays) : "";
       state.customerAdvancedDialStatus = state.customerAdvancedDraftDialStatus;
       state.customerAvatarFilter = state.customerAdvancedDraftAvatar;
+      state.customerAdvancedNextFollowPreset = state.customerAdvancedDraftNextFollowPreset;
+      state.customerAdvancedSource = state.customerAdvancedDraftSource;
+      state.customerAdvancedNativePlace = state.customerAdvancedDraftNativePlace;
+      state.customerAdvancedWorkLocation = state.customerAdvancedDraftWorkLocation;
+      state.customerAdvancedOccupation = state.customerAdvancedDraftOccupation;
+      state.customerAdvancedHousing = state.customerAdvancedDraftHousing;
+      state.customerAdvancedCar = state.customerAdvancedDraftCar;
+      state.customerAdvancedPersonality = state.customerAdvancedDraftPersonality;
+      state.customerAdvancedInterest = state.customerAdvancedDraftInterest;
+      state.customerAdvancedNote = state.customerAdvancedDraftNote;
+      state.customerIncomeMin = state.customerAdvancedDraftIncomeMin;
+      state.customerIncomeMax = state.customerAdvancedDraftIncomeMax;
       state.customerPage = 1;
       state.customerAdvancedOpen = false;
       state.whiteboardAdvancedOpen = false;
@@ -5624,6 +5815,39 @@ function bindViewEvents() {
   });
   document.querySelector("#customerTypeFilter")?.addEventListener("change", event => { state.customerAdvancedDraftCustomerType = event.target.value; });
   document.querySelector("#customerAdvancedStatusFilter")?.addEventListener("change", event => { state.customerAdvancedDraftStatus = event.target.value; });
+  document.querySelectorAll("[data-customer-level]").forEach(input => input.addEventListener("change", event => {
+    const value = event.currentTarget.dataset.customerLevel;
+    const selected = new Set(state.customerAdvancedDraftLevels || []);
+    if (event.currentTarget.checked) selected.add(value); else selected.delete(value);
+    state.customerAdvancedDraftLevels = [...selected];
+  }));
+  document.querySelectorAll("[data-customer-next-follow-preset]").forEach(input => input.addEventListener("change", event => {
+    const value = event.currentTarget.dataset.customerNextFollowPreset;
+    if (!event.currentTarget.checked) {
+      if (state.customerAdvancedDraftNextFollowPreset === value) state.customerAdvancedDraftNextFollowPreset = "";
+      return;
+    }
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const end = new Date(start);
+    if (value === "明天") start.setDate(start.getDate() + 1), end.setDate(end.getDate() + 1);
+    else if (value === "本周" || value === "下周") {
+      const day = start.getDay() || 7;
+      if (value === "下周") start.setDate(start.getDate() + (8 - day));
+      else start.setDate(start.getDate() - day + 1);
+      end.setTime(start.getTime());
+      end.setDate(start.getDate() + 6);
+    } else if (value === "本月" || value === "下月") {
+      if (value === "下月") start.setMonth(start.getMonth() + 1);
+      end.setFullYear(start.getFullYear(), start.getMonth() + 1, 0);
+    }
+    state.customerAdvancedDraftNextFollowPreset = value;
+    state.customerAdvancedDraftDateRanges = {
+      ...state.customerAdvancedDraftDateRanges,
+      nextFollow: { start: localDateValue(start), end: localDateValue(end) }
+    };
+    render();
+  }));
   document.querySelector("#customerGenderFilter")?.addEventListener("change", event => {
     if (!state.customerAdvancedOpen) return;
     state.customerAdvancedDraftGender = event.target.value;
@@ -5838,6 +6062,23 @@ function bindViewEvents() {
     if (!state.customerAdvancedOpen) return;
     state.customerAdvancedDraftAvatar = event.target.value;
   });
+  const advancedTextFilters = [
+    ["customerSourceFilter", "customerAdvancedDraftSource"],
+    ["customerNativePlaceFilter", "customerAdvancedDraftNativePlace"],
+    ["customerWorkLocationFilter", "customerAdvancedDraftWorkLocation"],
+    ["customerOccupationFilter", "customerAdvancedDraftOccupation"],
+    ["customerHousingFilter", "customerAdvancedDraftHousing"],
+    ["customerCarFilter", "customerAdvancedDraftCar"],
+    ["customerPersonalityFilter", "customerAdvancedDraftPersonality"],
+    ["customerInterestFilter", "customerAdvancedDraftInterest"],
+    ["customerNoteFilter", "customerAdvancedDraftNote"],
+    ["customerIncomeMin", "customerAdvancedDraftIncomeMin"],
+    ["customerIncomeMax", "customerAdvancedDraftIncomeMax"]
+  ];
+  advancedTextFilters.forEach(([id, key]) => document.querySelector(`#${id}`)?.addEventListener("input", event => {
+    if (!state.customerAdvancedOpen) return;
+    state[key] = event.target.value;
+  }));
   document.querySelector("#whiteboardApplyFilters")?.addEventListener("click", () => render());
   document.querySelector("#whiteboardResetFilters")?.addEventListener("click", () => { state.customerSearch = ""; state.whiteboardNameSearch = ""; state.whiteboardStatus = "全部"; state.whiteboardSelectedTags = []; render(); });
   document.querySelector("#openInventoryTags")?.addEventListener("click", () => { state.whiteboardTagModalOpen = true; render(); });
@@ -5921,6 +6162,12 @@ function bindViewEvents() {
   });
   document.querySelectorAll("[data-customer-scene]").forEach(button => button.addEventListener("click", () => { state.customerScene = button.dataset.customerScene; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
   document.querySelectorAll("[data-quick-filter]").forEach(button => button.addEventListener("click", () => { state.quickFilter = button.dataset.quickFilter; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
+  document.querySelectorAll("[data-customer-tag]").forEach(button => button.addEventListener("click", () => {
+    state.customerTagFilter = state.customerTagFilter === button.dataset.customerTag ? "" : button.dataset.customerTag;
+    state.customerPage = 1;
+    state.poolCustomerPage = 1;
+    refreshCustomerSearchFromApi();
+  }));
   document.querySelectorAll("[data-customer-scope]").forEach(button => button.addEventListener("click", () => { state.customerScope = button.dataset.customerScope; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
   document.querySelectorAll("[data-customer-sort]").forEach(button => button.addEventListener("click", event => {
     event.stopPropagation();
@@ -5988,7 +6235,18 @@ function bindViewEvents() {
     toast("自定义表头已保存");
   });
   document.querySelector("#applyCustomerFilters")?.addEventListener("click", async () => { state.customerPage = 1; state.poolCustomerPage = 1; render(); await refreshCustomerSearchFromApi(); });
-  document.querySelector("#resetCustomerFilters")?.addEventListener("click", () => { state.customerSearch = ""; state.customerNameSearch = ""; state.customerStage = "全部阶段"; state.customerLevel = "全部等级"; state.customerStatus = "全部状态"; state.customerScene = "all"; state.customerOwner = "全部负责人"; state.customerOwnerSelection = { nodes: [] }; state.customerAdvancedCollaboratorSelection = { nodes: [] }; state.customerAdvancedDraftCollaboratorSelection = { nodes: [] }; state.customerAdvancedCollaboratorCascadeOpen = false; state.customerOwnerCascadeOpen = false; state.customerOwnerSearch = ""; state.customerOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"]; state.customerStartDate = ""; state.customerEndDate = ""; state.customerDateRangePickerOpen = false; state.customerDateRangeDraftStart = ""; state.customerDateRangeDraftEnd = ""; state.customerDateRangeViewMonth = ""; state.customerDateRangePicking = "start"; state.customerGender = "all"; state.customerMaritalStatus = "all"; state.customerAgeMin = ""; state.customerAgeMax = ""; state.customerHeightMin = ""; state.customerHeightMax = ""; state.customerEducation = []; state.customerEducationMenuOpen = false; state.customerUncontactedDays = "all"; state.customerUncontactedDaysCustom = ""; state.customerAdvancedDraftGender = "all"; state.customerAdvancedDraftMaritalStatus = "all"; state.customerAdvancedDraftAgeMin = ""; state.customerAdvancedDraftAgeMax = ""; state.customerAdvancedDraftHeightMin = ""; state.customerAdvancedDraftHeightMax = ""; state.customerAdvancedDraftEducation = []; state.customerAdvancedOwnerSelection = { nodes: [] }; state.customerAdvancedDraftOwnerSelection = { nodes: [] }; state.customerAdvancedOwnerCascadeOpen = false; state.customerAdvancedOwnerSearch = ""; state.customerAdvancedOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"]; state.customerAdvancedDraftDateRanges = { registration: { start: "", end: "" }, lastLogin: { start: "", end: "" }, firstAllocation: { start: "", end: "" }, lastFollowUp: { start: "", end: "" } }; state.customerAdvancedDateRanges = { registration: { start: "", end: "" }, lastLogin: { start: "", end: "" }, firstAllocation: { start: "", end: "" }, lastFollowUp: { start: "", end: "" } }; state.customerAdvancedDatePickerOpen = false; state.customerAdvancedDatePickerField = ""; state.customerAdvancedDatePickerDraftStart = ""; state.customerAdvancedDatePickerDraftEnd = ""; state.customerAdvancedDatePickerViewMonth = ""; state.customerAdvancedDatePickerPicking = "start"; state.customerAdvancedDraftUncontactedDays = "all"; state.customerAdvancedDraftUncontactedDaysCustom = ""; state.customerAdvancedDialStatus = "all"; state.customerAdvancedDraftDialStatus = "all"; state.customerAvatarFilter = "all"; state.customerAdvancedDraftAvatar = "all"; state.quickFilter = "全部客户"; state.customerPage = 1; render(); });
+  document.querySelector("#resetCustomerFilters")?.addEventListener("click", () => {
+    state.customerSearch = ""; state.customerNameSearch = ""; state.customerStage = "全部阶段"; state.customerLevel = "全部等级"; state.customerStatus = "全部状态"; state.customerScene = "all"; state.customerTagFilter = ""; state.customerOwner = "全部负责人";
+    state.customerOwnerSelection = { nodes: [] }; state.customerAdvancedCollaboratorSelection = { nodes: [] }; state.customerAdvancedDraftCollaboratorSelection = { nodes: [] }; state.customerAdvancedCollaboratorCascadeOpen = false; state.customerOwnerCascadeOpen = false; state.customerOwnerSearch = ""; state.customerOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"];
+    state.customerStartDate = ""; state.customerEndDate = ""; state.customerDateRangePickerOpen = false; state.customerDateRangeDraftStart = ""; state.customerDateRangeDraftEnd = ""; state.customerDateRangeViewMonth = ""; state.customerDateRangePicking = "start";
+    state.customerGender = "all"; state.customerMaritalStatus = "all"; state.customerAgeMin = ""; state.customerAgeMax = ""; state.customerHeightMin = ""; state.customerHeightMax = ""; state.customerEducation = []; state.customerEducationMenuOpen = false; state.customerUncontactedDays = "all"; state.customerUncontactedDaysCustom = "";
+    state.customerAdvancedDraftCustomerType = ""; state.customerAdvancedDraftStatus = ""; state.customerAdvancedDraftGender = "all"; state.customerAdvancedDraftMaritalStatus = "all"; state.customerAdvancedDraftAgeMin = ""; state.customerAdvancedDraftAgeMax = ""; state.customerAdvancedDraftHeightMin = ""; state.customerAdvancedDraftHeightMax = ""; state.customerAdvancedDraftEducation = []; state.customerAdvancedDraftLevels = [];
+    state.customerAdvancedLevels = []; state.customerAdvancedNextFollowPreset = ""; state.customerAdvancedSource = ""; state.customerAdvancedNativePlace = ""; state.customerAdvancedWorkLocation = ""; state.customerAdvancedOccupation = ""; state.customerAdvancedHousing = ""; state.customerAdvancedCar = ""; state.customerAdvancedPersonality = ""; state.customerAdvancedInterest = ""; state.customerAdvancedNote = ""; state.customerIncomeMin = ""; state.customerIncomeMax = "";
+    state.customerAdvancedDraftSource = ""; state.customerAdvancedDraftNativePlace = ""; state.customerAdvancedDraftWorkLocation = ""; state.customerAdvancedDraftOccupation = ""; state.customerAdvancedDraftHousing = ""; state.customerAdvancedDraftCar = ""; state.customerAdvancedDraftPersonality = ""; state.customerAdvancedDraftInterest = ""; state.customerAdvancedDraftNote = ""; state.customerAdvancedDraftIncomeMin = ""; state.customerAdvancedDraftIncomeMax = ""; state.customerAdvancedDraftNextFollowPreset = "";
+    state.customerAdvancedOwnerSelection = { nodes: [] }; state.customerAdvancedDraftOwnerSelection = { nodes: [] }; state.customerAdvancedOwnerCascadeOpen = false; state.customerAdvancedOwnerSearch = ""; state.customerAdvancedOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"];
+    state.customerAdvancedDraftDateRanges = { registration: { start: "", end: "" }, lastLogin: { start: "", end: "" }, firstAllocation: { start: "", end: "" }, lastFollowUp: { start: "", end: "" }, nextFollow: { start: "", end: "" } }; state.customerAdvancedDateRanges = JSON.parse(JSON.stringify(state.customerAdvancedDraftDateRanges));
+    state.customerAdvancedDatePickerOpen = false; state.customerAdvancedDatePickerField = ""; state.customerAdvancedDatePickerDraftStart = ""; state.customerAdvancedDatePickerDraftEnd = ""; state.customerAdvancedDatePickerViewMonth = ""; state.customerAdvancedDatePickerPicking = "start"; state.customerAdvancedDraftUncontactedDays = "all"; state.customerAdvancedDraftUncontactedDaysCustom = ""; state.customerAdvancedDialStatus = "all"; state.customerAdvancedDraftDialStatus = "all"; state.customerAvatarFilter = "all"; state.customerAdvancedDraftAvatar = "all"; state.quickFilter = "全部客户"; state.customerPage = 1; render(); refreshCustomerSearchFromApi();
+  });
   document.querySelectorAll("[data-select-customer]").forEach(input => input.addEventListener("change", () => { state.selectedCustomerIds = input.checked ? [...new Set([...state.selectedCustomerIds, input.dataset.selectCustomer])] : state.selectedCustomerIds.filter(id => id !== input.dataset.selectCustomer); render(); }));
   document.querySelector("#selectPageCustomers")?.addEventListener("change", event => { const ids = [...document.querySelectorAll("[data-select-customer]")].map(input => input.dataset.selectCustomer); state.selectedCustomerIds = event.target.checked ? [...new Set([...state.selectedCustomerIds, ...ids])] : state.selectedCustomerIds.filter(id => !ids.includes(id)); render(); });
   document.querySelector("#clearCustomerSelection")?.addEventListener("click", () => { state.selectedCustomerIds = []; render(); });
