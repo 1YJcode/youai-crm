@@ -99,7 +99,7 @@ public class CustomerQueryService {
         Map<String, String> values = advanced == null ? Map.of() : advanced;
         addEquals(builder, root, predicates, values, "gender", "gender");
         addEquals(builder, root, predicates, values, "maritalStatus", "maritalStatus");
-        addEquals(builder, root, predicates, values, "customerStatus", "stage");
+        addAnyEquals(builder, root, predicates, values.get("customerStatus"), "stage");
         addAnyEquals(builder, root, predicates, values.get("levels"), "level");
         addLike(builder, root, predicates, values, "source", "source");
         addLike(builder, root, predicates, values, "occupation", "occupation");

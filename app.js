@@ -148,6 +148,7 @@ const state = {
   customerStage: "全部阶段",
   customerLevel: "全部等级",
   customerStatus: "全部状态",
+  customerStatuses: [],
   customerScene: "all",
   customerOwner: "全部负责人",
   customerOwnerSelection: { nodes: [] },
@@ -252,6 +253,8 @@ const state = {
   customerAdvancedOpen: false,
   customerAdvancedDraftCustomerType: "",
   customerAdvancedDraftStatus: "",
+  customerAdvancedDraftStatusSelection: [],
+  customerAdvancedDraftStatusChanged: false,
   customerAdvancedLevels: [],
   customerAdvancedNextFollowPreset: "",
   customerAdvancedSource: "",
@@ -387,6 +390,16 @@ const customerStatusOptions = [
   "结婚",
   "暂停"
 ];
+
+function selectedCustomerStatuses() {
+  const selected = Array.isArray(state.customerStatuses)
+    ? state.customerStatuses.filter(Boolean)
+    : [];
+  if (selected.length) return [...new Set(selected)];
+  return state.customerStatus && state.customerStatus !== "全部状态"
+    ? [state.customerStatus]
+    : [];
+}
 
 const customerStageOptions = [
   "全部阶段",
@@ -1226,6 +1239,7 @@ function requireBackend() {
 
 async function refreshCustomerSearchFromApi() {
   if (!state.auth.token) return;
+  const reopenStatusMenu = Boolean(document.querySelector("#levelFilter")?.closest(".status-filter")?.classList.contains("open"));
   const params = new URLSearchParams();
   const isPoolPage = Boolean(document.querySelector(".pool-page"));
   const pageKey = isPoolPage ? "poolCustomerPage" : "customerPage";
@@ -1243,7 +1257,7 @@ async function refreshCustomerSearchFromApi() {
   const collaboratorNames = customerOwnerSelectionNames(state.customerAdvancedCollaboratorSelection);
   const advanced = {
     customerType: state.customerAdvancedDraftCustomerType,
-    customerStatus: state.customerStatus !== "全部状态" ? state.customerStatus : "",
+    customerStatus: selectedCustomerStatuses().join(","),
     levels: state.customerAdvancedLevels.join(","),
     gender: state.customerGender !== "all" ? state.customerGender : "",
     maritalStatus: state.customerMaritalStatus !== "all" ? state.customerMaritalStatus : "",
@@ -1288,6 +1302,11 @@ async function refreshCustomerSearchFromApi() {
     state[pageKey] = pageData.page + 1;
     if (isPoolPage) state.poolCustomers = normalized; else customers = normalized;
     render();
+    if (reopenStatusMenu) {
+      const nextLevelFilter = document.querySelector("#levelFilter");
+      nextLevelFilter?.focus({ preventScroll: true });
+      nextLevelFilter?.closest(".status-filter")?.classList.add("open");
+    }
   } catch (error) { toast(error.message); }
 }
 
@@ -1976,7 +1995,8 @@ function filteredCustomers(options = {}) {
     const stageMatch = state.customerStage === "全部阶段" || customer.stage === state.customerStage;
     const levelMatch = state.customerLevel === "全部等级" || customer.level === state.customerLevel;
     const customerStatus = customer.statusCategory || customer.customerStatus || customer.stage;
-    const statusMatch = state.customerStatus === "全部状态" || customerStatus === state.customerStatus;
+    const selectedStatuses = selectedCustomerStatuses();
+    const statusMatch = !selectedStatuses.length || selectedStatuses.includes(customerStatus);
     const ownerMatch = state.customerOwner === "全部负责人" || customer.owner === state.customerOwner;
     const ownerHierarchyMatch = customerOwnerHierarchyMatches(customer, state.customerOwnerSelection);
     const advancedOwnerMatch = customerOwnerHierarchyMatches(customer, state.customerAdvancedOwnerSelection);
@@ -2391,6 +2411,7 @@ function customerHeaderModalView() {
 }
 
 function customerListView({ isPool = false } = {}) {
+  const selectedStatuses = selectedCustomerStatuses();
   const meta = (isPool ? state.poolCustomerPageMeta : state.customerPageMeta) || { page: 0, size: state.customerPageSize, totalElements: 0, totalPages: 1 };
   const sourceRows = isPool ? state.poolCustomers : customers;
   const rows = sortedCustomerRows(sourceRows.filter(customer => {
@@ -2418,8 +2439,8 @@ function customerListView({ isPool = false } = {}) {
         <div class="filter-row">
           <label class="field"><span>筛选条件</span><input id="customerSearch" type="search" value="${state.customerSearch}" placeholder="ID/手机号"></label>
           <label class="field"><span>&nbsp;</span><input id="customerNameSearch" type="search" value="${escapeHtml(state.customerNameSearch)}" placeholder="姓名/昵称/备注"></label>
-          <label class="field"><span>&nbsp;</span>${isPool ? `<select id="poolDeepTalkDuration" aria-label="深沟时长"><option value="">深沟时长</option><option value="0-3" ${state.poolDeepTalkDuration === "0-3" ? "selected" : ""}>0-3分钟</option><option value="3-5" ${state.poolDeepTalkDuration === "3-5" ? "selected" : ""}>3-5分钟</option><option value="5-10" ${state.poolDeepTalkDuration === "5-10" ? "selected" : ""}>5-10分钟</option><option value="10+" ${state.poolDeepTalkDuration === "10+" ? "selected" : ""}>10分钟以上</option></select>` : `<div class="status-filter stage-filter"><button id="stageFilter" class="filter-trigger" type="button">${escapeHtml(state.customerStage === "全部阶段" ? "全部" : state.customerStage)}</button><div class="status-filter-menu">${customerStageOptions.map(option => `<button type="button" data-customer-stage="${escapeHtml(option)}">${escapeHtml(option)}</button>`).join("")}</div></div>`}</label>
-          ${isPool ? `<label class="field pool-follow-range"><span>&nbsp;</span><div><input type="search" placeholder="最小跟进次数"><input type="search" placeholder="最大跟进次数"></div></label>` : `<label class="field status-filter-field"><span>&nbsp;</span><div class="status-filter"><input id="levelFilter" type="search" value="${state.customerStatus === "全部状态" ? "" : state.customerStatus}" placeholder="请选择客户状态" autocomplete="off"><div class="status-filter-menu">${customerStatusOptions.map(option => `<button type="button" data-customer-status="${option}">${option}</button>`).join("")}</div></div></label><label class="field"><span>&nbsp;</span>${customerOwnerCascadeControl("main", state.customerOwnerSelection, state.customerOwnerCascadeOpen)}</label>`}<label class="field customer-date-range"><span>&nbsp;</span><div class="date-range-picker-wrap"><div class="date-range-display"><span>${isPool ? "入海开始时间" : state.customerStartDate || "分配开始时间"}</span><b>→</b><span>${isPool ? "入海结束时间" : state.customerEndDate || "分配结束时间"}</span><button class="date-range-picker" id="openDateRangePicker" type="button" aria-label="选择分配时间范围">${icon("calendar")}</button></div>${isPool ? "" : (state.customerDateRangePickerOpen ? customerDateRangePickerView() : "")}</div></label><div class="inline-actions customer-filter-actions"><button class="button primary" id="applyCustomerFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCustomerFilters" type="button">重置</button><button class="text-button" type="button">高级筛选</button></div>
+          <label class="field"><span>&nbsp;</span>${isPool ? `<select id="poolDeepTalkDuration" aria-label="深沟时长"><option value="">深沟时长</option><option value="0-3" ${state.poolDeepTalkDuration === "0-3" ? "selected" : ""}>0-3分钟</option><option value="3-5" ${state.poolDeepTalkDuration === "3-5" ? "selected" : ""}>3-5分钟</option><option value="5-10" ${state.poolDeepTalkDuration === "5-10" ? "selected" : ""}>5-10分钟</option><option value="10+" ${state.poolDeepTalkDuration === "10+" ? "selected" : ""}>10分钟以上</option></select>` : `<div class="status-filter stage-filter"><button id="stageFilter" class="filter-trigger" type="button">${escapeHtml(state.customerStage === "全部阶段" ? "全部" : state.customerStage)}</button></div>`}</label>
+          ${isPool ? `<label class="field pool-follow-range"><span>&nbsp;</span><div><input type="search" placeholder="最小跟进次数"><input type="search" placeholder="最大跟进次数"></div></label>` : `<label class="field status-filter-field"><span>&nbsp;</span><div class="status-filter"><div class="status-filter-control"><div class="status-filter-tags">${selectedStatuses.map(status => `<span class="status-filter-tag">${escapeHtml(status)}<button type="button" data-customer-status-remove="${escapeHtml(status)}" aria-label="移除${escapeHtml(status)}">×</button></span>`).join("")}</div><input id="levelFilter" type="search" value="" placeholder="${selectedStatuses.length ? "继续选择客户状态" : "请选择客户状态"}" autocomplete="off"></div><div class="status-filter-menu">${customerStatusOptions.map(option => `<button class="${selectedStatuses.includes(option) ? "active" : ""}" type="button" data-customer-status="${escapeHtml(option)}" aria-pressed="${selectedStatuses.includes(option) ? "true" : "false"}">${escapeHtml(option)}</button>`).join("")}</div></div></label><label class="field"><span>&nbsp;</span>${customerOwnerCascadeControl("main", state.customerOwnerSelection, state.customerOwnerCascadeOpen)}</label>`}<label class="field customer-date-range"><span>&nbsp;</span><div class="date-range-picker-wrap"><div class="date-range-display"><span>${isPool ? "入海开始时间" : state.customerStartDate || "分配开始时间"}</span><b>→</b><span>${isPool ? "入海结束时间" : state.customerEndDate || "分配结束时间"}</span><button class="date-range-picker" id="openDateRangePicker" type="button" aria-label="选择分配时间范围">${icon("calendar")}</button></div>${isPool ? "" : (state.customerDateRangePickerOpen ? customerDateRangePickerView() : "")}</div></label><div class="inline-actions customer-filter-actions"><button class="button primary" id="applyCustomerFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCustomerFilters" type="button">重置</button><button class="text-button" type="button">高级筛选</button></div>
         </div>
         <div class="filter-footer"><div class="filter-tags">${["全部客户","重点客户","今日待跟进","即将成交"].map(item => `<button class="quick-filter ${state.quickFilter === item ? "active" : ""}" type="button" data-quick-filter="${item}">${item}</button>`).join("")}</div></div>
       </section>
@@ -5751,26 +5772,56 @@ function bindViewEvents() {
   customerNameSearch?.addEventListener("keydown", event => { if (event.key === "Enter") { state.customerPage = 1; state.poolCustomerPage = 1; render(); refreshCustomerSearchFromApi(); } });
   const stageFilter = document.querySelector("#stageFilter");
   stageFilter?.addEventListener("click", event => {
+    event.preventDefault();
     event.stopPropagation();
-    const filter = stageFilter.closest(".status-filter");
-    filter?.classList.toggle("open");
-    document.querySelector(".status-filter:not(.stage-filter)")?.classList.remove("open");
+    document.querySelectorAll(".customer-list-page .status-filter.open").forEach(item => item.classList.remove("open"));
+    if (levelFilter) {
+      levelFilter.focus({ preventScroll: true });
+      levelFilter.closest(".status-filter")?.classList.add("open");
+    }
   });
   const levelFilter = document.querySelector("#levelFilter");
-  levelFilter?.addEventListener("focus", () => levelFilter.closest(".status-filter")?.classList.add("open"));
+  levelFilter?.addEventListener("focus", event => {
+    event.stopPropagation();
+    document.querySelectorAll(".customer-list-page .status-filter.open").forEach(item => item.classList.remove("open"));
+    levelFilter.closest(".status-filter")?.classList.add("open");
+  });
+  levelFilter?.addEventListener("click", event => event.stopPropagation());
   levelFilter?.addEventListener("input", event => {
     const value = event.target.value.trim();
     const menu = levelFilter.closest(".status-filter")?.querySelector(".status-filter-menu");
     menu?.querySelectorAll("button").forEach(button => { button.hidden = value && !button.textContent.includes(value); });
   });
-  document.querySelectorAll("[data-customer-status]").forEach(button => button.addEventListener("click", () => { state.customerStatus = button.dataset.customerStatus; state.customerPage = 1; render(); refreshCustomerSearchFromApi(); }));
-  document.querySelectorAll("[data-customer-stage]").forEach(button => button.addEventListener("click", () => {
-    state.customerStage = button.dataset.customerStage;
+  document.querySelectorAll(".customer-list-page [data-customer-status-remove]").forEach(button => button.addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    const status = button.dataset.customerStatusRemove;
+    state.customerStatuses = selectedCustomerStatuses().filter(item => item !== status);
+    state.customerStatus = state.customerStatuses.length === 1 ? state.customerStatuses[0] : "全部状态";
     state.customerPage = 1;
     render();
+    const nextLevelFilter = document.querySelector("#levelFilter");
+    nextLevelFilter?.focus({ preventScroll: true });
+    nextLevelFilter?.closest(".status-filter")?.classList.add("open");
     refreshCustomerSearchFromApi();
   }));
-  const statusMenu = document.querySelector(".status-filter-menu");
+  document.querySelectorAll(".customer-list-page [data-customer-status]").forEach(button => button.addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    const status = button.dataset.customerStatus;
+    const selected = selectedCustomerStatuses();
+    state.customerStatuses = selected.includes(status)
+      ? selected.filter(item => item !== status)
+      : [...selected, status];
+    state.customerStatus = state.customerStatuses.length === 1 ? state.customerStatuses[0] : "全部状态";
+    state.customerPage = 1;
+    render();
+    const nextLevelFilter = document.querySelector("#levelFilter");
+    nextLevelFilter?.focus({ preventScroll: true });
+    nextLevelFilter?.closest(".status-filter")?.classList.add("open");
+    refreshCustomerSearchFromApi();
+  }));
+  const statusMenu = levelFilter?.closest(".status-filter")?.querySelector(".status-filter-menu");
   let statusScrollTimer;
   statusMenu?.addEventListener("scroll", () => {
     statusMenu.classList.add("scrolling");
@@ -5841,7 +5892,10 @@ function bindViewEvents() {
   const customerAdvancedButton = document.querySelector(".customer-list-page .customer-filter-actions .text-button") || document.querySelector("#openWhiteboardAdvanced");
   customerAdvancedButton?.addEventListener("click", () => {
     state.customerAdvancedDraftCustomerType = state.customerAdvancedDraftCustomerType || "";
-    state.customerAdvancedDraftStatus = state.customerStatus === "全部状态" ? "" : state.customerStatus;
+    const selectedStatuses = selectedCustomerStatuses();
+    state.customerAdvancedDraftStatusSelection = [...selectedStatuses];
+    state.customerAdvancedDraftStatusChanged = false;
+    state.customerAdvancedDraftStatus = selectedStatuses.length === 1 ? selectedStatuses[0] : "";
     state.customerAdvancedDraftGender = state.customerGender;
     state.customerAdvancedDraftMaritalStatus = state.customerMaritalStatus;
     state.customerAdvancedDraftAgeMin = state.customerAgeMin;
@@ -5924,7 +5978,11 @@ function bindViewEvents() {
         document.querySelector("#customerUncontactedDaysCustom")?.focus();
         return;
       }
-      state.customerStatus = state.customerAdvancedDraftStatus || "全部状态";
+      const nextStatuses = state.customerAdvancedDraftStatusChanged
+        ? (state.customerAdvancedDraftStatus ? [state.customerAdvancedDraftStatus] : [])
+        : [...(state.customerAdvancedDraftStatusSelection || [])];
+      state.customerStatuses = nextStatuses;
+      state.customerStatus = nextStatuses.length === 1 ? nextStatuses[0] : "全部状态";
       state.customerAdvancedLevels = [...state.customerAdvancedDraftLevels];
       state.customerGender = state.customerAdvancedDraftGender;
       state.customerMaritalStatus = state.customerAdvancedDraftMaritalStatus;
@@ -5970,7 +6028,10 @@ function bindViewEvents() {
     toast("高级筛选条件已应用");
   });
   document.querySelector("#customerTypeFilter")?.addEventListener("change", event => { state.customerAdvancedDraftCustomerType = event.target.value; });
-  document.querySelector("#customerAdvancedStatusFilter")?.addEventListener("change", event => { state.customerAdvancedDraftStatus = event.target.value; });
+  document.querySelector("#customerAdvancedStatusFilter")?.addEventListener("change", event => {
+    state.customerAdvancedDraftStatus = event.target.value;
+    state.customerAdvancedDraftStatusChanged = true;
+  });
   document.querySelectorAll("[data-customer-level]").forEach(input => input.addEventListener("change", event => {
     const value = event.currentTarget.dataset.customerLevel;
     const selected = new Set(state.customerAdvancedDraftLevels || []);
@@ -6395,11 +6456,11 @@ function bindViewEvents() {
   });
   document.querySelector("#applyCustomerFilters")?.addEventListener("click", async () => { state.customerPage = 1; state.poolCustomerPage = 1; render(); await refreshCustomerSearchFromApi(); });
   document.querySelector("#resetCustomerFilters")?.addEventListener("click", () => {
-    state.customerSearch = ""; state.customerNameSearch = ""; state.customerStage = "全部阶段"; state.customerLevel = "全部等级"; state.customerStatus = "全部状态"; state.customerScene = "all"; state.customerTagFilter = ""; state.customerOwner = "全部负责人"; state.poolDeepTalkDuration = "";
+    state.customerSearch = ""; state.customerNameSearch = ""; state.customerStage = "全部阶段"; state.customerLevel = "全部等级"; state.customerStatus = "全部状态"; state.customerStatuses = []; state.customerScene = "all"; state.customerTagFilter = ""; state.customerOwner = "全部负责人"; state.poolDeepTalkDuration = "";
     state.customerOwnerSelection = { nodes: [] }; state.customerAdvancedCollaboratorSelection = { nodes: [] }; state.customerAdvancedDraftCollaboratorSelection = { nodes: [] }; state.customerAdvancedCollaboratorCascadeOpen = false; state.customerOwnerCascadeOpen = false; state.customerOwnerSearch = ""; state.customerOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"];
     state.customerStartDate = ""; state.customerEndDate = ""; state.customerDateRangePickerOpen = false; state.customerDateRangeDraftStart = ""; state.customerDateRangeDraftEnd = ""; state.customerDateRangeViewMonth = ""; state.customerDateRangePicking = "start";
     state.customerGender = "all"; state.customerMaritalStatus = "all"; state.customerAgeMin = ""; state.customerAgeMax = ""; state.customerHeightMin = ""; state.customerHeightMax = ""; state.customerEducation = []; state.customerEducationMenuOpen = false; state.customerUncontactedDays = "all"; state.customerUncontactedDaysCustom = "";
-    state.customerAdvancedDraftCustomerType = ""; state.customerAdvancedDraftStatus = ""; state.customerAdvancedDraftGender = "all"; state.customerAdvancedDraftMaritalStatus = "all"; state.customerAdvancedDraftAgeMin = ""; state.customerAdvancedDraftAgeMax = ""; state.customerAdvancedDraftHeightMin = ""; state.customerAdvancedDraftHeightMax = ""; state.customerAdvancedDraftEducation = []; state.customerAdvancedDraftLevels = [];
+    state.customerAdvancedDraftCustomerType = ""; state.customerAdvancedDraftStatus = ""; state.customerAdvancedDraftStatusSelection = []; state.customerAdvancedDraftStatusChanged = false; state.customerAdvancedDraftGender = "all"; state.customerAdvancedDraftMaritalStatus = "all"; state.customerAdvancedDraftAgeMin = ""; state.customerAdvancedDraftAgeMax = ""; state.customerAdvancedDraftHeightMin = ""; state.customerAdvancedDraftHeightMax = ""; state.customerAdvancedDraftEducation = []; state.customerAdvancedDraftLevels = [];
     state.customerAdvancedLevels = []; state.customerAdvancedNextFollowPreset = ""; state.customerAdvancedSource = ""; state.customerAdvancedNativePlace = ""; state.customerAdvancedWorkLocation = ""; state.customerAdvancedOccupation = ""; state.customerAdvancedHousing = ""; state.customerAdvancedCar = ""; state.customerAdvancedPersonality = ""; state.customerAdvancedInterest = ""; state.customerAdvancedNote = ""; state.customerIncomeMin = ""; state.customerIncomeMax = "";
     state.customerAdvancedDraftSource = ""; state.customerAdvancedDraftNativePlace = ""; state.customerAdvancedDraftWorkLocation = ""; state.customerAdvancedDraftOccupation = ""; state.customerAdvancedDraftHousing = ""; state.customerAdvancedDraftCar = ""; state.customerAdvancedDraftPersonality = ""; state.customerAdvancedDraftInterest = ""; state.customerAdvancedDraftNote = ""; state.customerAdvancedDraftIncomeMin = ""; state.customerAdvancedDraftIncomeMax = ""; state.customerAdvancedDraftNextFollowPreset = "";
     state.customerAdvancedOwnerSelection = { nodes: [] }; state.customerAdvancedDraftOwnerSelection = { nodes: [] }; state.customerAdvancedOwnerCascadeOpen = false; state.customerAdvancedOwnerSearch = ""; state.customerAdvancedOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"];
