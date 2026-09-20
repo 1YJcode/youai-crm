@@ -16,9 +16,13 @@ public class CustomerResponseMapper {
     }
 
     public CustomerResponse toResponse(Customer customer, Authentication authentication) {
+        return toResponse(customer, authentication, 0);
+    }
+
+    public CustomerResponse toResponse(Customer customer, Authentication authentication, int deepTalkDurationSeconds) {
         boolean contactVisible = accessPolicy.isAdmin(authentication)
                 || (StringUtils.hasText(customer.getOwner())
                     && accessPolicy.canAccessOwner(customer.getOwner(), authentication));
-        return CustomerResponse.from(customer, contactVisible);
+        return CustomerResponse.from(customer, contactVisible, deepTalkDurationSeconds);
     }
 }

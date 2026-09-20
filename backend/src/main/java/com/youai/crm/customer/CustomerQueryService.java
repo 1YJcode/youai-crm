@@ -8,6 +8,8 @@ import java.util.stream.Collectors;
 
 import com.youai.crm.account.AccessPolicy;
 import com.youai.crm.common.NotFoundException;
+import com.youai.crm.communication.CallRecordRepository;
+import com.youai.crm.communication.CustomerCallDuration;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -25,12 +27,14 @@ public class CustomerQueryService {
 
     private static final String PUBLIC_POOL = "\u516c\u6d77";
     private final CustomerRepository repository;
+    private final CallRecordRepository callRecordRepository;
     private final AccessPolicy accessPolicy;
     private final CustomerResponseMapper responseMapper;
 
-    public CustomerQueryService(CustomerRepository repository, AccessPolicy accessPolicy,
+    public CustomerQueryService(CustomerRepository repository, CallRecordRepository callRecordRepository, AccessPolicy accessPolicy,
             CustomerResponseMapper responseMapper) {
         this.repository = repository;
+        this.callRecordRepository = callRecordRepository;
         this.accessPolicy = accessPolicy;
         this.responseMapper = responseMapper;
     }
@@ -306,11 +310,41 @@ public class CustomerQueryService {
         }
     }
 
-    public Page<CustomerResponse> pool(Pageable pageable, Authentication authentication) {
+    public Page<CustomerResponse> pool(Pageable pageable, String deepTalkDuration, Authentication authentication) {
         accessPolicy.scopedOwner(authentication);
-        return repository.findAll((root, query, builder) -> builder.equal(root.get("owner"), PUBLIC_POOL),
-                safePageable(pageable, Sort.by(Sort.Direction.DESC, "id")))
-                .map(customer -> responseMapper.toResponse(customer, authentication));
+        Pageable safePageable = safePageable(pageable, Sort.by(Sort.Direction.DESC, "id"));
+        List<Customer> poolCustomers = repository.findAll(
+                (root, query, builder) -> builder.equal(root.get("owner"), PUBLIC_POOL), safePageable.getSort());
+        Map<String, Integer> durations = deepTalkDurationSeconds(poolCustomers);
+        List<Customer> filtered = poolCustomers.stream()
+                .filter(customer -> matchesDeepTalkDuration(durations.getOrDefault(customer.getCustomerNo(), 0), deepTalkDuration))
+                .toList();
+        int from = (int) Math.min((long) safePageable.getOffset(), filtered.size());
+        int to = Math.min(from + safePageable.getPageSize(), filtered.size());
+        List<CustomerResponse> content = filtered.subList(from, to).stream()
+                .map(customer -> responseMapper.toResponse(customer, authentication,
+                        durations.getOrDefault(customer.getCustomerNo(), 0)))
+                .toList();
+        return new PageImpl<>(content, safePageable, filtered.size());
+    }
+
+    private Map<String, Integer> deepTalkDurationSeconds(List<Customer> customers) {
+        List<String> customerNos = customers.stream().map(Customer::getCustomerNo).toList();
+        if (customerNos.isEmpty()) return Map.of();
+        return callRecordRepository.sumDurationByCustomerNos(customerNos).stream()
+                .collect(Collectors.toMap(CustomerCallDuration::customerNo,
+                        duration -> (int) Math.min(Integer.MAX_VALUE, Math.max(0, duration.durationSeconds()))));
+    }
+
+    private boolean matchesDeepTalkDuration(int seconds, String range) {
+        if (!StringUtils.hasText(range)) return true;
+        return switch (range.trim()) {
+            case "0-3" -> seconds <= 3 * 60;
+            case "3-5" -> seconds > 3 * 60 && seconds <= 5 * 60;
+            case "5-10" -> seconds > 5 * 60 && seconds <= 10 * 60;
+            case "10+" -> seconds > 10 * 60;
+            default -> true;
+        };
     }
 
     public Map<String, Long> tags(Authentication authentication) {

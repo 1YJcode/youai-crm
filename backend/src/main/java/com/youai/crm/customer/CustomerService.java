@@ -47,8 +47,8 @@ public class CustomerService {
         return queryService.search(keyword, stage, level, owner, tag, inPool, advanced, pageable, authentication);
     }
 
-    public Page<CustomerResponse> pool(Pageable pageable, Authentication authentication) {
-        return queryService.pool(pageable, authentication);
+    public Page<CustomerResponse> pool(Pageable pageable, String deepTalkDuration, Authentication authentication) {
+        return queryService.pool(pageable, deepTalkDuration, authentication);
     }
 
     public Map<String, Long> tags(Authentication authentication) {

@@ -45,8 +45,11 @@ public class CustomerController {
     }
 
     @GetMapping("/pool")
-    public Page<CustomerResponse> pool(@PageableDefault(size = 20) Pageable pageable, Authentication authentication) {
-        return service.pool(pageable, authentication);
+    public Page<CustomerResponse> pool(
+            @RequestParam(required = false) String deepTalkDuration,
+            @PageableDefault(size = 20) Pageable pageable,
+            Authentication authentication) {
+        return service.pool(pageable, deepTalkDuration, authentication);
     }
 
     @PostMapping("/inherit")

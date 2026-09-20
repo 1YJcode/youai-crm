@@ -18,12 +18,18 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithMockUser;
 
+import com.youai.crm.communication.CallRecord;
+import com.youai.crm.communication.CallRecordRepository;
+
 @SpringBootTest
 @AutoConfigureMockMvc
 class CustomerControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private CallRecordRepository callRecordRepository;
 
     @Test
     @WithMockUser(username = "admin", roles = "ADMIN")
@@ -229,6 +235,42 @@ class CustomerControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.owner").value("林夕"))
                 .andExpect(jsonPath("$.firstAllocationAt").isNotEmpty());
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void filtersPublicPoolByDeepTalkDuration() throws Exception {
+        String body = """
+                {
+                  "name": "深沟时长测试客户",
+                  "phone": "13800003333",
+                  "company": "优爱测试公司",
+                  "source": "线上咨询",
+                  "owner": "公海"
+                }
+                """;
+        String customerNo = new com.fasterxml.jackson.databind.ObjectMapper().readTree(
+                mockMvc.perform(post("/api/customers")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(body))
+                        .andExpect(status().isCreated())
+                        .andReturn().getResponse().getContentAsString()).get("id").asText();
+
+        CallRecord call = new CallRecord();
+        call.setCustomerNo(customerNo);
+        call.setCustomerName("深沟时长测试客户");
+        call.setPhone("13800003333");
+        call.setOwner("公海");
+        call.setAgent("管理员");
+        call.setDirection("呼出");
+        call.setStatus("已接通");
+        call.setDurationSeconds(240);
+        callRecordRepository.save(call);
+
+        mockMvc.perform(get("/api/customers/pool").param("deepTalkDuration", "3-5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id == '%s')].deepTalkDurationSeconds".formatted(customerNo))
+                        .value(org.hamcrest.Matchers.hasItem(240)));
     }
 
     @Test

@@ -44,7 +44,8 @@ public record CustomerResponse(
         String previousOwner,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
-        List<String> tags) {
+        List<String> tags,
+        Integer deepTalkDurationSeconds) {
 
     public static CustomerResponse from(Customer customer) {
         // Keep the safe projection as the default so a new caller cannot
@@ -58,6 +59,10 @@ public record CustomerResponse(
      * unmasked contact fields.
      */
     public static CustomerResponse from(Customer customer, boolean contactVisible) {
+        return from(customer, contactVisible, 0);
+    }
+
+    public static CustomerResponse from(Customer customer, boolean contactVisible, int deepTalkDurationSeconds) {
         return new CustomerResponse(
                 customer.getCustomerNo(),
                 customer.getName(),
@@ -98,7 +103,8 @@ public record CustomerResponse(
                 customer.getPreviousOwner(),
                 customer.getCreatedAt(),
                 customer.getUpdatedAt(),
-                List.copyOf(customer.getTags()));
+                List.copyOf(customer.getTags()),
+                Math.max(0, deepTalkDurationSeconds));
     }
 
     private static String maskPhone(String phone) {

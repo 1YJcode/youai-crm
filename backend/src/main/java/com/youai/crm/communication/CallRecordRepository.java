@@ -1,6 +1,7 @@
 package com.youai.crm.communication;
 
 import java.util.List;
+import java.util.Collection;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
@@ -20,4 +21,8 @@ public interface CallRecordRepository extends JpaRepository<CallRecord, Long>, J
             + "and c.startedAt >= :start and c.startedAt < :end and c.durationSeconds >= :minimum")
     long countDeepForDashboard(@Param("owner") String owner, @Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end, @Param("minimum") int minimum);
+
+    @Query("select new com.youai.crm.communication.CustomerCallDuration(c.customerNo, coalesce(sum(c.durationSeconds), 0)) "
+            + "from CallRecord c where c.customerNo in :customerNos and c.durationSeconds > 0 group by c.customerNo")
+    List<CustomerCallDuration> sumDurationByCustomerNos(@Param("customerNos") Collection<String> customerNos);
 }
