@@ -279,6 +279,7 @@ const state = {
   customerFollowUpDatePicking: "start",
   customerFollowUpRecords: {},
   customerFollowUpLoaded: {},
+  customerFollowUpAnnotations: {},
   customerContactReveals: {},
   poolCustomers: [],
   importRows: [],
@@ -1909,6 +1910,57 @@ function parseCustomerDate(value) {
   return null;
 }
 
+function customerFollowUpTimelineGroups(records) {
+  const groups = new Map();
+  records.forEach(record => {
+    const date = parseCustomerDate(record.occurredAt || record.at);
+    const dateKey = date ? localDateValue(date) : "unknown";
+    if (!groups.has(dateKey)) {
+      const label = date
+        ? `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+        : "-- --";
+      groups.set(dateKey, { dateKey, label, records: [] });
+    }
+    groups.get(dateKey).records.push(record);
+  });
+  return [...groups.values()];
+}
+
+function customerFollowUpAnnotationKey(recordId, recordType) {
+  return `${String(recordType || "operation").trim().toLowerCase()}:${String(recordId || "").trim()}`;
+}
+
+function customerFollowUpRecordViewModel(record) {
+  const title = String(record.title || record.type || record.channel || "跟进记录").trim();
+  const content = String(record.content ?? record.detail ?? "").trim();
+  const channel = String(record.channel || record.type || "").trim();
+  const recordType = String(record.type || record.category || "operation").trim().toLowerCase();
+  const occurredAt = record.occurredAt || record.at || "";
+  return {
+    ...record,
+    id: record.id || `${recordType}:${occurredAt}:${title}`,
+    recordType,
+    title,
+    content: content || "暂无操作内容",
+    channel,
+    occurredAt,
+    customerStatus: String(record.customerStatus || "").trim(),
+    owner: String(record.owner || "系统").trim(),
+    category: String(record.category || (recordType === "system" ? "system" : "operation")).toLowerCase(),
+  };
+}
+
+function formatCustomerFollowUpTimestamp(value) {
+  if (!value) return "-";
+  const date = parseCustomerDate(value);
+  if (!date) return String(value);
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+  }).formatToParts(date).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+}
+
 function filteredCustomers(options = {}) {
   const includeWhiteboard = options.includeWhiteboard === true;
   const query = state.customerSearch.trim().toLowerCase();
@@ -2891,14 +2943,11 @@ function customerDetailView(id) {
   }));
   const fallbackRecords = [...customerActivityRows().filter(row => String(row.customerId) === String(customer.id) || (!row.customerId && row.type === "跟进任务" && row.customer === customer.name)), ...registrationRecords, ...assignmentRecords]
     .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
-  const records = state.customerFollowUpLoaded[customer.id]
-    ? (state.customerFollowUpRecords[customer.id] || []).map(row => {
-      const title = String(row.title || "").trim();
-      const content = row.content ?? "";
-      const duplicatedTaskText = title && String(content).trim() === title;
-      return { ...row, at: row.occurredAt, detail: content || title, owner: row.owner, type: duplicatedTaskText ? (row.channel || row.type) : (title || row.channel || row.type) };
-    })
-    : fallbackRecords;  const portrait = `<div class="profile-reference-portrait"><div class="profile-reference-placeholder" role="img" aria-label="客户默认头像">${icon("users")}</div><span class="profile-reference-caption">${value(customer.name)}</span></div>`;
+  const records = (state.customerFollowUpLoaded[customer.id]
+    ? (state.customerFollowUpRecords[customer.id] || [])
+    : fallbackRecords).map(customerFollowUpRecordViewModel);
+  const annotations = state.customerFollowUpAnnotations[customer.id] || {};
+  const portrait = `<div class="profile-reference-portrait"><div class="profile-reference-placeholder" role="img" aria-label="客户默认头像">${icon("users")}</div><span class="profile-reference-caption">${value(customer.name)}</span></div>`;
   const noteText = [customer.note, customer.remark].filter(Boolean).join("\n");
   const noteTime = customer.updatedAt || customer.createdAt;
   const profile = `<div class="profile-reference-overview">${portrait}<section class="profile-reference-basic"><h3>基本信息</h3><dl class="profile-reference-basic-grid">${basicRows.flat().join("")}</dl></section><section class="profile-reference-mating"><h3>择偶信息</h3><dl>${matingInfo.map(([label, item]) => cell(label, item)).join("")}</dl></section></div><section class="profile-reference-notes"><h3>备注</h3><dl><div><dt>备注信息</dt><dd><span>${value(noteText)}</span>${noteTime ? `<time>${value(formatDateTime(noteTime))}</time>` : ""}</dd></div></dl></section><section class="profile-reference-photos"><h3>图片</h3><p>暂无照片</p></section>`;
@@ -2906,7 +2955,16 @@ function customerDetailView(id) {
   const moreActions = ["增加协作", "转为库存", "移入公海", "发邀请券", "添加至重点客户", "注销用户"];
   const moreMenu = `<div class="customer-more-actions"><button class="button secondary customer-more-trigger" type="button" data-customer-more-toggle="${value(customer.id)}" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">${icon("more")}</button><div class="customer-more-menu" data-customer-more-menu="${value(customer.id)}" role="menu">${moreActions.map((label, index) => `<button type="button" role="menuitem" data-customer-more-action="${value(index)}" data-customer-id="${value(customer.id)}">${value(label)}</button>`).join("")}</div></div>`;
   const followFilter = `<div class="customer-followup-filter"><select id="customerFollowUpTypeFilter" aria-label="类型"><option value="" ${!state.customerFollowUpFilterType ? "selected" : ""} disabled hidden>类型</option><option value="all" ${state.customerFollowUpFilterType === "all" ? "selected" : ""}>全部</option><option value="sales" ${state.customerFollowUpFilterType === "sales" ? "selected" : ""}>销售</option><option value="invitation" ${state.customerFollowUpFilterType === "invitation" ? "selected" : ""}>邀约</option><option value="service" ${state.customerFollowUpFilterType === "service" ? "selected" : ""}>服务</option><option value="system" ${state.customerFollowUpFilterType === "system" ? "selected" : ""}>系统</option><option value="custom" ${state.customerFollowUpFilterType === "custom" ? "selected" : ""}>自定义</option><optgroup label="企微宝"><option value="wechat_customer_lost" ${state.customerFollowUpFilterType === "wechat_customer_lost" ? "selected" : ""}>客户流失</option><option value="wechat_add_friend" ${state.customerFollowUpFilterType === "wechat_add_friend" ? "selected" : ""}>添加客户好友</option></optgroup></select><div class="customer-followup-date-range"><div class="date-range-picker-wrap"><button class="date-range-display" id="openCustomerFollowUpDateRange" type="button" aria-label="选择跟进记录时间范围"><span>${escapeHtml(state.customerFollowUpFrom || "开始日期")}</span><b>→</b><span>${escapeHtml(state.customerFollowUpTo || "结束日期")}</span><span class="date-range-picker">${icon("calendar")}</span></button>${state.customerFollowUpDatePickerOpen ? customerFollowUpDateRangePickerView() : ""}</div></div><div class="customer-followup-keyword"><input id="customerFollowUpKeyword" value="${escapeHtml(state.customerFollowUpKeyword)}" placeholder="输入关键词" aria-label="跟进关键词"></div><button class="customer-followup-search" id="applyCustomerFollowUpFilter" type="button" aria-label="搜索关键字" title="搜索">${icon("search")}</button></div>`;
-  const follow = `<section class="customer-profile-section"><h3>跟进记录</h3><div class="customer-profile-timeline">${records.map(row => `<div><time>${value(formatDateTime(row.at))}</time><p><strong>${value(row.type)}</strong>　<span class="customer-followup-content">${value(row.detail)}</span><br><small>操作人：${value(row.owner)}</small></p></div>`).join("") || '<p class="customer-profile-empty">暂无客户操作记录</p>'}</div></section>`;  const profileGender = customer.gender || "—";
+  const followUpTimelineGroups = customerFollowUpTimelineGroups(records);
+  const followTimeline = followUpTimelineGroups.map(group => `<section class="customer-follow-day"><div class="customer-follow-day-label"><strong>${value(group.label)}</strong></div><div class="customer-follow-day-records">${group.records.map(row => {
+    const annotation = annotations[customerFollowUpAnnotationKey(row.id, row.recordType)] || {};
+    const annotationComment = String(annotation.comment || "").trim();
+    const category = row.category === "system" ? "system" : "operation";
+    const formattedTime = formatCustomerFollowUpTimestamp(row.occurredAt);
+    return `<article class="customer-follow-record ${annotation.favorite ? "is-favorite" : ""}"><span class="customer-follow-record-marker" aria-hidden="true"></span><div class="customer-follow-record-body"><div class="customer-follow-record-title"><strong>${value(row.title)}</strong><span class="customer-follow-category ${category}">${value(row.channel || row.recordType)}</span>${row.customerStatus ? `<span class="customer-follow-status">客户状态：${value(row.customerStatus)}</span>` : ""}</div><p>${value(row.content)}</p><div class="customer-follow-record-meta"><span>操作人：${value(row.owner)}</span><time datetime="${value(row.occurredAt)}">跟进时间：${value(formattedTime)}</time>${row.completed ? '<span class="customer-follow-completed">已完成</span>' : ""}</div>${annotationComment ? `<div class="customer-follow-comment-preview">${value(annotationComment)}</div>` : ""}</div><div class="customer-follow-record-actions"><time class="customer-follow-filled-time">填写时间：${value(formattedTime)}</time><button class="customer-follow-star ${annotation.favorite ? "active" : ""}" type="button" data-followup-annotation-action="favorite" data-followup-customer="${value(customer.id)}" data-followup-record-id="${value(row.id)}" data-followup-record-type="${value(row.recordType)}" aria-label="${annotation.favorite ? "取消收藏" : "收藏记录"}" aria-pressed="${annotation.favorite ? "true" : "false"}">${icon("star")}</button><button class="customer-follow-comment" type="button" data-followup-annotation-action="comment" data-followup-customer="${value(customer.id)}" data-followup-record-id="${value(row.id)}" data-followup-record-type="${value(row.recordType)}">评论</button></div></article>`;
+  }).join("")}</div></section>`).join("");
+  const follow = `<section class="customer-follow-detail" aria-label="跟进记录"><div class="customer-follow-timeline">${followTimeline || '<div class="customer-follow-empty"><span class="empty-icon">' + icon("clock") + '</span><strong>暂无客户操作记录</strong><p>完成跟进、通话或消息后，记录会显示在这里。</p><button class="button primary" type="button" data-customer-followup>' + icon("plus") + '写跟进</button></div>'}</div></section>`;
+  const profileGender = customer.gender || "—";
   const profileAge = customer.age ? `${customer.age}岁` : "—岁";
   const profileEducation = customer.education || "—";
   const isAssignedToEmployee = !["", "白板", "公海"].includes(String(customer.owner || "").trim());
@@ -4701,14 +4759,43 @@ async function loadCustomerFollowUps(customerId) {
   if (state.customerFollowUpFrom) params.set("from", state.customerFollowUpFrom);
   if (state.customerFollowUpTo) params.set("to", state.customerFollowUpTo);
   try {
-    const records = await apiRequest(`/customers/${encodeURIComponent(customerId)}/follow-ups?${params.toString()}`);
+    const [records, annotations] = await Promise.all([
+      apiRequest(`/customers/${encodeURIComponent(customerId)}/follow-ups?${params.toString()}`),
+      apiRequest(`/customers/${encodeURIComponent(customerId)}/follow-ups/annotations`).catch(() => [])
+    ]);
     state.customerFollowUpRecords[customerId] = records;
+    state.customerFollowUpAnnotations[customerId] = Object.fromEntries((annotations || []).map(annotation => [
+      customerFollowUpAnnotationKey(annotation.recordId, annotation.recordType),
+      annotation
+    ]));
     state.customerFollowUpLoaded[customerId] = true;
     render();
   } catch (error) {
     toast(`跟进记录加载失败：${error.message}`);
   }
 }
+
+async function saveCustomerFollowUpAnnotation(customerId, recordId, recordType, patch = {}) {
+  const annotations = state.customerFollowUpAnnotations[customerId] || {};
+  const key = customerFollowUpAnnotationKey(recordId, recordType);
+  const current = annotations[key] || {};
+  const payload = {
+    recordId,
+    recordType,
+    favorite: patch.favorite ?? Boolean(current.favorite),
+    comment: patch.comment ?? current.comment ?? ""
+  };
+  const saved = state.auth.token
+    ? await apiRequest(`/customers/${encodeURIComponent(customerId)}/follow-ups/annotations`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    })
+    : { ...payload };
+  annotations[key] = saved;
+  state.customerFollowUpAnnotations[customerId] = annotations;
+  render();
+}
+
 async function applyCustomerFollowUpFilter() {
   state.customerFollowUpFilterType = document.querySelector("#customerFollowUpTypeFilter")?.value || "";
   state.customerFollowUpKeyword = document.querySelector("#customerFollowUpKeyword")?.value || "";
@@ -4749,6 +4836,7 @@ async function openCustomer(id) {
   state.customerFollowUpDateViewMonth = "";
   state.customerFollowUpDatePicking = "start";
   state.customerFollowUpLoaded[customer.id] = false;
+  state.customerFollowUpAnnotations[customer.id] = {};
   ensureCurrentWorkspaceTab();
   render();
   window.scrollTo({ top: 0, behavior: "instant" });
@@ -5512,6 +5600,26 @@ function bindViewEvents() {
   });
   document.querySelector("#applyCustomerFollowUpFilter")?.addEventListener("click", applyCustomerFollowUpFilter);
   document.querySelector("#customerFollowUpKeyword")?.addEventListener("keydown", event => { if (event.key === "Enter") applyCustomerFollowUpFilter(); });
+  document.querySelectorAll("[data-followup-annotation-action]").forEach(button => button.addEventListener("click", async event => {
+    event.preventDefault();
+    event.stopPropagation();
+    const customerId = button.dataset.followupCustomer;
+    const recordId = button.dataset.followupRecordId;
+    const recordType = button.dataset.followupRecordType || "operation";
+    const key = customerFollowUpAnnotationKey(recordId, recordType);
+    const current = state.customerFollowUpAnnotations[customerId]?.[key] || {};
+    try {
+      if (button.dataset.followupAnnotationAction === "comment") {
+        const comment = window.prompt("填写评论", current.comment || "");
+        if (comment === null) return;
+        await saveCustomerFollowUpAnnotation(customerId, recordId, recordType, { comment: comment.trim() });
+      } else {
+        await saveCustomerFollowUpAnnotation(customerId, recordId, recordType, { favorite: !current.favorite });
+      }
+    } catch (error) {
+      toast(`保存跟进标注失败：${error.message}`, "error");
+    }
+  }));
   document.querySelectorAll("[data-toggle-private-contact]").forEach(button => button.addEventListener("click", event => {
     event.stopPropagation();
     const key = `${button.dataset.togglePrivateContact}:${button.dataset.privateField}`;

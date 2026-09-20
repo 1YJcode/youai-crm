@@ -2724,17 +2724,18 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 .customer-follow-search-input input { padding-left: 29px; }
 .customer-follow-summary { display: flex; min-height: 38px; align-items: center; justify-content: space-between; gap: 14px; color: #98a2b3; font-size: 11px; }
 .customer-follow-summary span:first-child { color: #667085; }
-.customer-follow-timeline { padding-bottom: 12px; }
-.customer-follow-day { display: grid; grid-template-columns: 78px minmax(0, 1fr); }
-.customer-follow-day-label { position: relative; display: flex; align-items: flex-end; flex-direction: column; gap: 3px; padding: 15px 18px 0 0; color: #98a2b3; font-size: 11px; }
-.customer-follow-day-label::after { position: absolute; top: 23px; right: -4px; width: 8px; height: 8px; background: #269ddd; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #b8ddef; content: ""; }
-.customer-follow-day-label strong { color: #269ddd; font-size: 12px; font-weight: 600; }
-.customer-follow-day-label span { font-size: 10px; }
-.customer-follow-day-records { position: relative; border-left: 1px solid #c9e3ef; }
-.customer-follow-day:last-child .customer-follow-day-records { padding-bottom: 12px; }
+.customer-follow-timeline { position: relative; padding: 2px 0 12px; }
+.customer-follow-timeline::before { position: absolute; top: 16px; bottom: 22px; left: 9px; width: 1px; background: #c9e3ef; content: ""; }
+.customer-follow-day { position: relative; min-width: 0; }
+.customer-follow-day-label { position: relative; display: flex; align-items: flex-start; flex-direction: column; gap: 5px; padding: 12px 0 9px 22px; color: #98a2b3; font-size: 11px; }
+.customer-follow-day-label::after { position: absolute; z-index: 1; top: 18px; left: 5px; width: 8px; height: 8px; background: #269ddd; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #b8ddef; content: ""; }
+.customer-follow-day-label strong { display: inline-flex; min-height: 22px; align-items: center; padding: 0 8px; color: #fff; background: #269ddd; border-radius: 2px; font-size: 11px; font-weight: 600; line-height: 1; }
+.customer-follow-day-label span { color: #98a2b3; font-size: 10px; }
+.customer-follow-day-records { min-width: 0; margin-left: 22px; padding: 0 0 14px; border-bottom: 1px solid #edf1f5; }
+.customer-follow-day:last-child .customer-follow-day-records { padding-bottom: 12px; border-bottom: 0; }
 .customer-follow-record { position: relative; display: flex; min-height: 126px; align-items: stretch; justify-content: space-between; gap: 20px; padding: 20px 6px 18px 22px; border-bottom: 1px solid #f0f2f4; background: #fff; transition: background .15s ease; }
 .customer-follow-record:hover { background: #fbfdff; }
-.customer-follow-record-marker { position: absolute; top: 26px; left: -4px; width: 7px; height: 7px; background: #fff; border: 1px solid #269ddd; border-radius: 50%; }
+.customer-follow-record-marker { position: absolute; top: 26px; left: -16px; width: 7px; height: 7px; background: #fff; border: 1px solid #269ddd; border-radius: 50%; }
 .customer-follow-record-body { min-width: 0; flex: 1 1 auto; }
 .customer-follow-record-title { display: flex; min-height: 20px; align-items: center; gap: 8px; flex-wrap: wrap; color: #51565d; font-size: 12px; }
 .customer-follow-record-title strong { color: #303438; font-weight: 500; }
@@ -2747,7 +2748,8 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 .customer-follow-record-meta { display: flex; align-items: center; gap: 22px; color: #a2a9b0; font-size: 11px; }
 .customer-follow-record-meta time { color: #929aa3; }
 .customer-follow-completed { color: #1d9b80; }
-.customer-follow-record-actions { display: flex; min-width: 64px; align-items: flex-end; justify-content: flex-start; flex-direction: column; gap: 17px; }
+.customer-follow-record-actions { display: flex; min-width: 178px; align-items: flex-end; justify-content: flex-start; flex-direction: column; gap: 17px; }
+.customer-follow-filled-time { color: #929aa3; font-size: 11px; white-space: nowrap; }
 .customer-follow-star { display: inline-grid; width: 22px; height: 22px; padding: 2px; place-items: center; color: #858d96; background: transparent; border: 0; cursor: pointer; }
 .customer-follow-star svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.5; }
 .customer-follow-star:hover, .customer-follow-star.active { color: #f4a62a; }
@@ -2771,12 +2773,14 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 @media (max-width: 580px) {
   .customer-follow-detail-header { align-items: flex-start; flex-direction: column; justify-content: center; padding: 14px 0; }
   .customer-follow-filter-bar label { min-width: 0; flex: 1 1 120px; }
-  .customer-follow-day { grid-template-columns: 54px minmax(0, 1fr); }
-  .customer-follow-day-label { padding-right: 12px; }
+  .customer-follow-day-label { padding-left: 18px; }
+  .customer-follow-day-records { margin-left: 18px; }
   .customer-follow-record { gap: 8px; padding-left: 15px; }
+  .customer-follow-record-marker { left: -14px; }
   .customer-follow-record-actions { min-width: 48px; }
   .customer-follow-record-meta { align-items: flex-start; flex-direction: column; gap: 3px; }
   .customer-follow-summary { align-items: flex-start; flex-wrap: wrap; justify-content: flex-start; padding: 8px 0; }
+  .customer-follow-filled-time { white-space: normal; text-align: right; }
 }
 
 /* 客户导入确认弹窗：与设计稿保持轻量提示框样式。 */
