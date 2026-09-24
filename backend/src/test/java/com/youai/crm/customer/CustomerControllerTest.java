@@ -68,6 +68,28 @@ class CustomerControllerTest {
 
     @Test
     @WithMockUser(username = "admin", roles = "ADMIN")
+    void recordsManualPoolEntryTypeAndFiltersPoolByIt() throws Exception {
+        String suffix = String.format("%08d", Math.abs(System.nanoTime() % 100_000_000L));
+        String created = mockMvc.perform(post("/api/customers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"主动放弃测试\",\"phone\":\"138" + suffix + "\",\"source\":\"测试\",\"owner\":\"林夕\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String customerNo = new com.fasterxml.jackson.databind.ObjectMapper().readTree(created).get("id").asText();
+
+        mockMvc.perform(patch("/api/customers/{customerNo}/pool", customerNo)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"inPool\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.poolEntryType").value("主动放弃"));
+
+        mockMvc.perform(get("/api/customers/pool").param("poolEntryType", "主动放弃"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[*].poolEntryType").value(org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.equalTo("主动放弃"))));
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
     void updatesAndReturnsCompleteCustomerProfile() throws Exception {
         String created = mockMvc.perform(post("/api/customers")
                         .contentType(MediaType.APPLICATION_JSON)

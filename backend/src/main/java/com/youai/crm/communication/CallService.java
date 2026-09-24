@@ -2,6 +2,8 @@ package com.youai.crm.communication;
 
 import com.youai.crm.account.AccessPolicy;
 import com.youai.crm.customer.CustomerResponse;
+import com.youai.crm.customer.Customer;
+import com.youai.crm.customer.CustomerRepository;
 import com.youai.crm.customer.CustomerService;
 import jakarta.transaction.Transactional;
 import org.springframework.security.core.Authentication;
@@ -18,11 +20,14 @@ public class CallService {
 
     private final CallRecordRepository repository;
     private final CustomerService customerService;
+    private final CustomerRepository customerRepository;
     private final AccessPolicy accessPolicy;
 
-    public CallService(CallRecordRepository repository, CustomerService customerService, AccessPolicy accessPolicy) {
+    public CallService(CallRecordRepository repository, CustomerService customerService,
+            CustomerRepository customerRepository, AccessPolicy accessPolicy) {
         this.repository = repository;
         this.customerService = customerService;
+        this.customerRepository = customerRepository;
         this.accessPolicy = accessPolicy;
     }
 
@@ -62,6 +67,13 @@ public class CallService {
         call.setStatus(request.status().trim());
         call.setDurationSeconds(request.durationSeconds() == null ? 0 : request.durationSeconds());
         call.setNote(StringUtils.hasText(request.note()) ? request.note().trim() : "暂无沟通备注");
-        return CallResponse.from(repository.save(call));
+        call.setStartedAt(java.time.LocalDateTime.now());
+        CallRecord saved = repository.save(call);
+        Customer customerRecord = customerRepository.findByCustomerNo(customer.id()).orElse(null);
+        if (customerRecord != null) {
+            customerRecord.setLastContactAt(saved.getStartedAt());
+            customerRepository.save(customerRecord);
+        }
+        return CallResponse.from(saved);
     }
 }

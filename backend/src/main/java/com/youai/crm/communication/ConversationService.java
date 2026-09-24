@@ -6,6 +6,8 @@ import java.util.List;
 import com.youai.crm.account.AccessPolicy;
 import com.youai.crm.common.NotFoundException;
 import com.youai.crm.customer.CustomerResponse;
+import com.youai.crm.customer.Customer;
+import com.youai.crm.customer.CustomerRepository;
 import com.youai.crm.customer.CustomerService;
 import jakarta.transaction.Transactional;
 import org.springframework.security.core.Authentication;
@@ -19,16 +21,19 @@ public class ConversationService {
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
     private final CustomerService customerService;
+    private final CustomerRepository customerRepository;
     private final AccessPolicy accessPolicy;
 
     public ConversationService(
             ConversationRepository conversationRepository,
             MessageRepository messageRepository,
             CustomerService customerService,
+            CustomerRepository customerRepository,
             AccessPolicy accessPolicy) {
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
         this.customerService = customerService;
+        this.customerRepository = customerRepository;
         this.accessPolicy = accessPolicy;
     }
 
@@ -77,6 +82,11 @@ public class ConversationService {
         CrmMessage saved = messageRepository.save(message);
         conversation.setLastMessageAt(saved.getSentAt());
         conversationRepository.save(conversation);
+        Customer customer = customerRepository.findByCustomerNo(conversation.getCustomerNo()).orElse(null);
+        if (customer != null) {
+            customer.setLastContactAt(saved.getSentAt());
+            customerRepository.save(customer);
+        }
         return MessageResponse.from(saved);
     }
 

@@ -50,12 +50,14 @@ public class CustomerAssignmentService {
             accessPolicy.requireOwner(customer.getOwner(), authentication);
             if (!PUBLIC_POOL.equals(customer.getOwner())) customer.setPreviousOwner(customer.getOwner());
             customer.setOwner(PUBLIC_POOL);
+            customer.setPoolEntryType("主动放弃");
         } else {
             if (!PUBLIC_POOL.equals(customer.getOwner()) && !accessPolicy.isAdmin(authentication)) {
                 throw new AccessDeniedException("\u53ea\u80fd\u9886\u53d6\u516c\u6d77\u5ba2\u6237");
             }
             customer.setOwner(accessPolicy.isAdmin(authentication)
                     ? accessPolicy.currentDisplayName(authentication) : accessPolicy.currentOwner(authentication));
+            customer.setPoolEntryType(null);
             eventService.recordAssignmentIfNeeded(customer, previousOwner, customer.getOwner(), authentication);
         }
         customer.setLastContactAt(LocalDateTime.now());
@@ -75,6 +77,7 @@ public class CustomerAssignmentService {
         String owner = resolveEmployeeOwner(request.owner());
         String previousOwner = customer.getOwner();
         customer.setOwner(owner);
+        customer.setPoolEntryType(null);
         Customer saved = repository.save(customer);
         eventService.recordAssignmentIfNeeded(saved, previousOwner, owner, request, authentication);
         notifyAssignedEmployee(saved, owner, authentication, request);

@@ -142,6 +142,9 @@ public class CustomerQueryService {
         addDateRange(builder, root, predicates, values, "firstAllocationStart", "firstAllocationEnd", "firstAllocationAt");
         addDateRange(builder, root, predicates, values, "lastFollowUpStart", "lastFollowUpEnd", "lastContactAt");
         addDateRange(builder, root, predicates, values, "nextFollowStart", "nextFollowEnd", "nextFollowAt");
+        if (StringUtils.hasText(values.get("poolEntryType"))) {
+            predicates.add(builder.equal(root.get("poolEntryType"), values.get("poolEntryType").trim()));
+        }
         addAllocationDateRange(builder, root, predicates, values);
         addQuickFilter(builder, root, predicates, values);
         addSceneFilter(builder, root, predicates, values);
@@ -340,13 +343,15 @@ public class CustomerQueryService {
         }
     }
 
-    public Page<CustomerResponse> pool(Pageable pageable, String deepTalkDuration, Authentication authentication) {
+    public Page<CustomerResponse> pool(Pageable pageable, String deepTalkDuration, String poolEntryType, Authentication authentication) {
         accessPolicy.scopedOwner(authentication);
         Pageable safePageable = safePageable(pageable, Sort.by(Sort.Direction.DESC, "id"));
         List<Customer> poolCustomers = repository.findAll(
                 (root, query, builder) -> builder.equal(root.get("owner"), PUBLIC_POOL), safePageable.getSort());
         Map<String, Integer> durations = deepTalkDurationSeconds(poolCustomers);
         List<Customer> filtered = poolCustomers.stream()
+                .filter(customer -> !org.springframework.util.StringUtils.hasText(poolEntryType)
+                        || poolEntryType.equals(customer.getPoolEntryType()))
                 .filter(customer -> matchesDeepTalkDuration(durations.getOrDefault(customer.getCustomerNo(), 0), deepTalkDuration))
                 .toList();
         int from = (int) Math.min((long) safePageable.getOffset(), filtered.size());

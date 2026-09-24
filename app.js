@@ -230,6 +230,9 @@ const state = {
   customerAdvancedDraftIncomeMax: "",
   customerAdvancedDialStatus: "all",
   customerAdvancedDraftDialStatus: "all",
+  customerPoolEntryType: "",
+  customerAdvancedDraftPoolEntryType: "",
+  customerPoolRule: { enabled: true, days: 7 },
   customerAvatarFilter: "all",
   customerAdvancedDraftAvatar: "all",
   customerScope: "all",
@@ -443,6 +446,8 @@ const customerDialStatusOptions = [
   ["callable", "可拨打"],
   ["unavailable", "不可拨打"]
 ];
+
+const customerPoolEntryTypeOptions = ["主动放弃", "未及时跟进，系统推进", "关单会员"];
 
 const customerAvatarOptions = [
   ["all", "全部"],
@@ -1276,6 +1281,7 @@ async function refreshCustomerSearchFromApi() {
   params.set("page", String(Math.max(0, (state[pageKey] || 1) - 1)));
   params.set("size", String(Math.min(Math.max(state.customerPageSize || 20, 1), 100)));
   if (isPoolPage && state.poolDeepTalkDuration) params.set("deepTalkDuration", state.poolDeepTalkDuration);
+  if (isPoolPage && state.customerPoolEntryType) params.set("poolEntryType", state.customerPoolEntryType);
   if (isWhiteboardPage) params.set("whiteboardOnly", "true");
   if (state.customerSearch.trim()) params.set("keyword", state.customerSearch.trim());
   const nameKeyword = isWhiteboardPage ? state.whiteboardNameSearch : state.customerNameSearch;
@@ -1313,6 +1319,7 @@ async function refreshCustomerSearchFromApi() {
     note: state.customerAdvancedNote,
     collaborator: collaboratorNames.join(","),
     uncontactedDays: selectedCustomerUncontactedDaysThreshold() ?? "",
+    poolEntryType: state.customerPoolEntryType,
     registrationStart: state.customerAdvancedDateRanges.registration?.start,
     registrationEnd: state.customerAdvancedDateRanges.registration?.end,
     allocationStart: state.customerStartDate,
@@ -1456,7 +1463,7 @@ function bindServerPaginationControls() {
 async function hydrateFromApi() {
   if (!state.auth.token) return;
   try {
-    const [customerData, taskData, orderData, dashboardData, callData, conversationData, poolData, refundData, templateData, notificationReadData, callReviewData, systemUserData, invitationData, ledgerData, systemNotificationData] = await Promise.all([
+    const [customerData, taskData, orderData, dashboardData, callData, conversationData, poolData, refundData, templateData, notificationReadData, callReviewData, systemUserData, invitationData, ledgerData, systemNotificationData, customerPoolRuleData] = await Promise.all([
       apiRequest("/customers?page=0&size=20"),
       apiRequest("/tasks?page=0&size=20"),
       apiRequest("/orders?page=0&size=10"),
@@ -1471,7 +1478,8 @@ async function hydrateFromApi() {
       isAdmin() ? apiRequest("/auth/users") : Promise.resolve([]),
       apiRequest("/invitations"),
       apiRequest("/ledger-accounts"),
-      apiRequest("/system-notifications")
+      apiRequest("/system-notifications"),
+      apiRequest("/business-settings/customer-pool")
     ]);
     const customerPageData = pageContent(customerData);
     const taskPageData = pageContent(taskData);
@@ -1510,6 +1518,10 @@ async function hydrateFromApi() {
     localStorage.setItem("youai.crm.callReviews", JSON.stringify(state.callReviews));
     conversations = conversationData.map(normalizeConversation);
     state.poolCustomers = poolPageData.content.map(normalizeCustomer);
+    state.customerPoolRule = {
+      enabled: customerPoolRuleData?.enabled !== false,
+      days: Math.max(1, Number(customerPoolRuleData?.days || 7))
+    };
     state.activeConversationId = conversations.some(item => item.id === state.activeConversationId) ? state.activeConversationId : conversations[0]?.id;
     if (state.activeConversationId) {
       const messages = await apiRequest(`/conversations/${state.activeConversationId}/messages`);
@@ -2068,11 +2080,12 @@ function filteredCustomers(options = {}) {
     const lastLoginDateMatch = customerMatchesDateRangeValue(customer.lastLoginAt || customer.lastLogin, advancedDateRanges.lastLogin);
     const firstAllocationDateMatch = customerMatchesDateRangeValue(customer.firstAllocationAt || customer.firstAssignedAt || customer.assignedAt || customer.lastAllocationAt, advancedDateRanges.firstAllocation);
     const lastFollowUpDateMatch = customerMatchesDateRangeValue(customer.lastContactAt || customer.lastContact || customer.updatedAt, advancedDateRanges.lastFollowUp);
+    const poolEntryTypeMatch = !state.customerPoolEntryType || customer.poolEntryType === state.customerPoolEntryType;
     const quickMatch = state.quickFilter === "全部客户" || (state.quickFilter === "重点客户" && customer.level === "重点客户") || (state.quickFilter === "今日待跟进" && customer.nextFollow.includes("今天")) || (state.quickFilter === "即将成交" && ["方案报价", "商务谈判"].includes(customer.stage));
     const sceneMatch = customerMatchesScene(customer, state.customerScene);
     const scopeMatch = state.customerScope === "all" || (state.customerScope === "mine" && customer.owner === currentOwner());
     const ownerScopeMatch = includeWhiteboard ? customer.owner !== "公海" : !["公海", "白板"].includes(customer.owner);
-    return ownerScopeMatch && queryMatch && nameMatch && stageMatch && levelMatch && statusMatch && ownerMatch && ownerHierarchyMatch && advancedOwnerMatch && advancedCollaboratorMatch && avatarMatch && genderMatch && maritalStatusMatch && educationMatch && ageMatch && heightMatch && registrationDateMatch && lastLoginDateMatch && firstAllocationDateMatch && lastFollowUpDateMatch && startDateMatch && endDateMatch && uncontactedDaysMatch && quickMatch && sceneMatch && scopeMatch;
+    return ownerScopeMatch && queryMatch && nameMatch && stageMatch && levelMatch && statusMatch && ownerMatch && ownerHierarchyMatch && advancedOwnerMatch && advancedCollaboratorMatch && avatarMatch && genderMatch && maritalStatusMatch && educationMatch && ageMatch && heightMatch && registrationDateMatch && lastLoginDateMatch && firstAllocationDateMatch && lastFollowUpDateMatch && startDateMatch && endDateMatch && uncontactedDaysMatch && poolEntryTypeMatch && quickMatch && sceneMatch && scopeMatch;
   });
 }
 
@@ -2468,6 +2481,7 @@ function customerListView({ isPool = false } = {}) {
   const rows = sortedCustomerRows(sourceRows.filter(customer => {
     if (!isPool && !customerStatusMatches(customer, selectedStatuses)) return false;
     if (isPool && !customerMatchesDeepTalkDuration(customer, state.poolDeepTalkDuration)) return false;
+    if (isPool && state.customerPoolEntryType && customer.poolEntryType !== state.customerPoolEntryType) return false;
     if (!state.customerTagFilter) return true;
     const tags = Array.isArray(customer.tags) ? customer.tags : [];
     return state.customerTagFilter === "__none__" ? tags.length === 0 : tags.includes(state.customerTagFilter);
@@ -2822,7 +2836,10 @@ function whiteboardAdvancedFilterView({ isPool = false } = {}) {
   const customUncontactedDays = selectedUncontactedDays === "custom"
     ? `<div class="advanced-custom-number"><input id="customerUncontactedDaysCustom" type="number" min="0" step="1" inputmode="numeric" value="${escapeHtml(state.customerAdvancedDraftUncontactedDaysCustom)}" placeholder="请输入天数" aria-label="自定义未联系天数"><span>天</span></div>`
     : "";
-  const dialStatusSelect = `<span class="advanced-unavailable">暂无拨打记录字段</span>`;
+  const isWhiteboardFilter = state.view === "customers" && state.customerSection === "白板列表";
+  const poolEntryTypeSelect = !isWhiteboardFilter
+    ? `<select id="customerPoolEntryTypeFilter" aria-label="入海类型"><option value="" ${!state.customerAdvancedDraftPoolEntryType ? "selected" : ""}>全部</option>${customerPoolEntryTypeOptions.map(option => `<option value="${escapeHtml(option)}" ${state.customerAdvancedDraftPoolEntryType === option ? "selected" : ""}>${escapeHtml(option)}</option>`).join("")}</select>`
+    : `<span class="advanced-unavailable">仅适用于公海列表</span>`;
   const avatarSelect = `<select id="customerAvatarFilter" aria-label="有无头像">${customerAvatarOptions.map(([value, label]) => `<option value="${value}" ${state.customerAdvancedDraftAvatar === value ? "selected" : ""}>${label}</option>`).join("")}</select>`;
   const ownerLabel = isPool ? "前归属人" : "所属人";
   const ownerCascade = customerOwnerCascadeControl("advanced", state.customerAdvancedDraftOwnerSelection, state.customerAdvancedOwnerCascadeOpen, ownerLabel);
@@ -2841,7 +2858,7 @@ function whiteboardAdvancedFilterView({ isPool = false } = {}) {
         <label><span>职业：</span><input id="customerOccupationFilter" value="${escapeHtml(state.customerAdvancedDraftOccupation)}" placeholder="请输入"></label><label><span>购车：</span><input id="customerCarFilter" value="${escapeHtml(state.customerAdvancedDraftCar)}" placeholder="请输入"></label><label><span>购房：</span><input id="customerHousingFilter" value="${escapeHtml(state.customerAdvancedDraftHousing)}" placeholder="请输入"></label><label><span>性格：</span><input id="customerPersonalityFilter" value="${escapeHtml(state.customerAdvancedDraftPersonality)}" placeholder="请输入"></label>
         <label><span>兴趣爱好：</span><input id="customerInterestFilter" value="${escapeHtml(state.customerAdvancedDraftInterest)}" placeholder="请输入"></label>
       </div></section>
-      <div class="advanced-time-grid"><label><strong>客户注册时间：</strong>${dates("registration")}</label><label><strong>最近登录时间：</strong><span class="advanced-unavailable">暂无登录时间字段</span></label><label><strong>首次分配时间：</strong>${dates("firstAllocation")}</label><label><strong>${ownerLabel}：</strong>${ownerCascade}</label><label><strong>协作人：</strong>${collaboratorCascade}</label><label><strong>最后跟进时间：</strong>${dates("lastFollowUp")}</label><label class="advanced-note"><strong>备注信息：</strong><input id="customerNoteFilter" value="${escapeHtml(state.customerAdvancedDraftNote)}" placeholder="请输入"></label><label><strong>有无头像：</strong><span class="advanced-unavailable">暂无头像/拨打状态字段</span></label><label><strong>拨打状态：</strong>${dialStatusSelect}</label></div>
+      <div class="advanced-time-grid"><label><strong>客户注册时间：</strong>${dates("registration")}</label><label><strong>最近登录时间：</strong><span class="advanced-unavailable">暂无登录时间字段</span></label><label><strong>首次分配时间：</strong>${dates("firstAllocation")}</label><label><strong>${ownerLabel}：</strong>${ownerCascade}</label><label><strong>协作人：</strong>${collaboratorCascade}</label><label><strong>最后跟进时间：</strong>${dates("lastFollowUp")}</label><label class="advanced-note"><strong>备注信息：</strong><input id="customerNoteFilter" value="${escapeHtml(state.customerAdvancedDraftNote)}" placeholder="请输入"></label><label><strong>有无头像：</strong><span class="advanced-unavailable">暂无头像字段</span></label><label><strong>入海类型：</strong>${poolEntryTypeSelect}</label></div>
     </div>
     <footer><button class="button secondary" id="cancelWhiteboardAdvanced" type="button">取消</button><button class="button primary" id="queryWhiteboardAdvanced" type="button">查询</button></footer>
   </section></div>`;
@@ -3827,6 +3844,12 @@ const systemUserRecords = [
   { id: 9106, account: "article", name: "article", gender: "女", phone: "18888888889", storeDept: "优爱天津店 · 销售部", department: "—" }
 ];
 
+function customerPoolBusinessSettingsView() {
+  const rule = state.customerPoolRule || { enabled: true, days: 7 };
+  const administrator = isAdmin();
+  return `<section class="data-panel business-settings-panel"><div class="data-toolbar"><div class="panel-title"><h2>客户自动流入公海</h2><span>按自然日检查客户最后跟进时间</span></div></div><form class="business-settings-form" id="customerPoolRuleForm"><label class="business-setting-row"><span>自动流入公海</span><span class="business-setting-control"><input type="checkbox" name="enabled" ${rule.enabled ? "checked" : ""} ${administrator ? "" : "disabled"}><span>开启未及时跟进客户自动流入公海</span></span></label><label class="business-setting-row"><span>流出天数</span><span class="business-setting-control"><input type="number" name="days" min="1" max="3650" step="1" value="${escapeHtml(rule.days)}" ${administrator ? "" : "disabled"}><span>个自然日未跟进后，系统自动流入公海</span></span></label><p class="business-settings-hint">新建客户的登记时间作为初始跟进时间；销售记录跟进任务后会重新计算。${administrator ? "" : "此设置仅管理员可修改。"}</p>${administrator ? `<div class="business-settings-actions"><button class="button primary" type="submit">保存设置</button></div>` : ""}</form></section>`;
+}
+
 function systemView() {
   const sections = ["用户管理", "菜单管理", "部门管理", "业务设置"];
   const active = sections.includes(state.systemSection) ? state.systemSection : sections[0];
@@ -3863,7 +3886,7 @@ function systemView() {
       ? `<section class="data-panel"><div class="data-toolbar"><div class="panel-title"><h2>菜单管理</h2><span>配置系统菜单及访问权限</span></div></div><div class="empty-state"><span class="empty-icon">${icon("sliders")}</span><strong>菜单权限配置</strong><p>管理员可在此维护菜单及角色权限。</p></div></section>`
       : active === "部门管理"
         ? `<section class="data-panel"><div class="data-toolbar"><div class="panel-title"><h2>部门管理</h2><span>维护组织架构与部门信息</span></div></div><div class="empty-state"><span class="empty-icon">${icon("users")}</span><strong>部门管理</strong><p>可在此维护部门和上下级关系。</p></div></section>`
-        : `<section class="data-panel"><div class="data-toolbar"><div class="panel-title"><h2>业务设置</h2><span>维护系统通用业务参数</span></div></div><div class="empty-state"><span class="empty-icon">${icon("sliders")}</span><strong>业务设置</strong><p>配置企业信息、业务规则和通知选项。</p></div></section>`;
+        : customerPoolBusinessSettingsView();
   return `<section class="page">${subnav(sections, active, sections)}<div class="page-content">${pageHeading()}${content}</div></section>`;
 }
 
@@ -5623,6 +5646,29 @@ async function submitBusinessForm(event) {
 }
 
 function bindViewEvents() {
+  document.querySelector("#customerPoolRuleForm")?.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!isAdmin()) { toast("仅管理员可以修改业务设置", "error"); return; }
+    const form = event.currentTarget;
+    const days = Number(form.elements.namedItem("days")?.value);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) {
+      toast("流出天数须为 1 到 3650 的自然日", "error");
+      return;
+    }
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true;
+    try {
+      state.customerPoolRule = await apiRequest("/business-settings/customer-pool", {
+        method: "PUT",
+        body: JSON.stringify({ enabled: Boolean(form.elements.namedItem("enabled")?.checked), days })
+      });
+      render();
+      toast("客户自动流入公海规则已保存");
+    } catch (error) {
+      toast(`保存业务设置失败：${error.message}`, "error");
+      submit.disabled = false;
+    }
+  });
   document.querySelectorAll("[data-new-order-customer]").forEach(button => {
     if (button.textContent.includes("新订单")) button.innerHTML = `${icon("plus")}新建订单`;
   });
@@ -6007,6 +6053,7 @@ function bindViewEvents() {
     state.customerAdvancedDraftUncontactedDays = state.customerUncontactedDays;
     state.customerAdvancedDraftUncontactedDaysCustom = state.customerUncontactedDaysCustom;
     state.customerAdvancedDraftDialStatus = state.customerAdvancedDialStatus;
+    state.customerAdvancedDraftPoolEntryType = state.customerPoolEntryType;
     state.customerAdvancedDraftAvatar = state.customerAvatarFilter;
     state.customerAdvancedDraftNextFollowPreset = state.customerAdvancedNextFollowPreset;
     state.customerAdvancedDraftSource = state.customerAdvancedSource;
@@ -6089,6 +6136,7 @@ function bindViewEvents() {
       state.customerUncontactedDays = selected;
       state.customerUncontactedDaysCustom = selected === "custom" ? String(customDays) : "";
       state.customerAdvancedDialStatus = state.customerAdvancedDraftDialStatus;
+      state.customerPoolEntryType = state.customerAdvancedDraftPoolEntryType;
       state.customerAvatarFilter = state.customerAdvancedDraftAvatar;
       state.customerAdvancedNextFollowPreset = state.customerAdvancedDraftNextFollowPreset;
       state.customerAdvancedSource = state.customerAdvancedDraftSource;
@@ -6365,6 +6413,9 @@ function bindViewEvents() {
     if (!state.customerAdvancedOpen) return;
     state.customerAdvancedDraftDialStatus = event.target.value;
   });
+  document.querySelector("#customerPoolEntryTypeFilter")?.addEventListener("change", event => {
+    state.customerAdvancedDraftPoolEntryType = event.target.value;
+  });
   document.querySelector("#customerAvatarFilter")?.addEventListener("change", event => {
     if (!state.customerAdvancedOpen) return;
     state.customerAdvancedDraftAvatar = event.target.value;
@@ -6556,7 +6607,7 @@ function bindViewEvents() {
     state.customerAdvancedDraftSource = ""; state.customerAdvancedDraftNativePlace = ""; state.customerAdvancedDraftWorkLocation = ""; state.customerAdvancedDraftOccupation = ""; state.customerAdvancedDraftHousing = ""; state.customerAdvancedDraftCar = ""; state.customerAdvancedDraftPersonality = ""; state.customerAdvancedDraftInterest = ""; state.customerAdvancedDraftNote = ""; state.customerAdvancedDraftIncomeMin = ""; state.customerAdvancedDraftIncomeMax = ""; state.customerAdvancedDraftNextFollowPreset = "";
     state.customerAdvancedOwnerSelection = { nodes: [] }; state.customerAdvancedDraftOwnerSelection = { nodes: [] }; state.customerAdvancedOwnerCascadeOpen = false; state.customerAdvancedOwnerSearch = ""; state.customerAdvancedOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"];
     state.customerAdvancedDraftDateRanges = { registration: { start: "", end: "" }, lastLogin: { start: "", end: "" }, firstAllocation: { start: "", end: "" }, lastFollowUp: { start: "", end: "" }, nextFollow: { start: "", end: "" } }; state.customerAdvancedDateRanges = JSON.parse(JSON.stringify(state.customerAdvancedDraftDateRanges));
-    state.customerAdvancedDatePickerOpen = false; state.customerAdvancedDatePickerField = ""; state.customerAdvancedDatePickerDraftStart = ""; state.customerAdvancedDatePickerDraftEnd = ""; state.customerAdvancedDatePickerViewMonth = ""; state.customerAdvancedDatePickerPicking = "start"; state.customerAdvancedDraftUncontactedDays = "all"; state.customerAdvancedDraftUncontactedDaysCustom = ""; state.customerAdvancedDialStatus = "all"; state.customerAdvancedDraftDialStatus = "all"; state.customerAvatarFilter = "all"; state.customerAdvancedDraftAvatar = "all"; state.quickFilter = "全部客户"; state.customerPage = 1; render(); refreshCustomerSearchFromApi();
+    state.customerAdvancedDatePickerOpen = false; state.customerAdvancedDatePickerField = ""; state.customerAdvancedDatePickerDraftStart = ""; state.customerAdvancedDatePickerDraftEnd = ""; state.customerAdvancedDatePickerViewMonth = ""; state.customerAdvancedDatePickerPicking = "start"; state.customerAdvancedDraftUncontactedDays = "all"; state.customerAdvancedDraftUncontactedDaysCustom = ""; state.customerAdvancedDialStatus = "all"; state.customerAdvancedDraftDialStatus = "all"; state.customerPoolEntryType = ""; state.customerAdvancedDraftPoolEntryType = ""; state.customerAvatarFilter = "all"; state.customerAdvancedDraftAvatar = "all"; state.quickFilter = "全部客户"; state.customerPage = 1; state.poolCustomerPage = 1; render(); refreshCustomerSearchFromApi();
   });
   document.querySelectorAll("[data-select-customer]").forEach(input => input.addEventListener("change", () => { state.selectedCustomerIds = input.checked ? [...new Set([...state.selectedCustomerIds, input.dataset.selectCustomer])] : state.selectedCustomerIds.filter(id => id !== input.dataset.selectCustomer); render(); }));
   document.querySelector("#selectPageCustomers")?.addEventListener("change", event => { const ids = [...document.querySelectorAll("[data-select-customer]")].map(input => input.dataset.selectCustomer); state.selectedCustomerIds = event.target.checked ? [...new Set([...state.selectedCustomerIds, ...ids])] : state.selectedCustomerIds.filter(id => !ids.includes(id)); render(); });

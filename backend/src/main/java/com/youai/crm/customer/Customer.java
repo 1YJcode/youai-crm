@@ -111,6 +111,9 @@ public class Customer {
     @Column(name = "previous_owner", length = 32)
     private String previousOwner;
 
+    @Column(name = "pool_entry_type", length = 64)
+    private String poolEntryType;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "crm_customer_tag", joinColumns = @JoinColumn(name = "customer_id"))
     @OrderColumn(name = "sort_order")
@@ -233,6 +236,8 @@ public class Customer {
     public void setLastAllocationAt(LocalDateTime lastAllocationAt) { this.lastAllocationAt = lastAllocationAt; }
     public String getPreviousOwner() { return previousOwner; }
     public void setPreviousOwner(String previousOwner) { this.previousOwner = previousOwner; }
+    public String getPoolEntryType() { return poolEntryType; }
+    public void setPoolEntryType(String poolEntryType) { this.poolEntryType = poolEntryType; }
     public List<String> getTags() { return tags; }
     public void setTags(List<String> tags) { this.tags = new ArrayList<>(tags); }
     public LocalDateTime getCreatedAt() { return createdAt; }

@@ -1779,6 +1779,20 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 .system-user-password-footer .button.secondary { color: #596273; background: #fff; border-color: #d9dde5; }
 .editor-inline { display: flex; align-items: center; gap: 8px; }
 .editor-inline input { flex: 1; }
+
+.business-settings-panel { margin-top: 14px; }
+.business-settings-form { max-width: 820px; padding: 22px 24px 24px; }
+.business-setting-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: 16px; margin-bottom: 18px; color: #344054; font-size: 13px; }
+.business-setting-control { display: flex; min-height: 36px; align-items: center; gap: 10px; color: #667085; }
+.business-setting-control input[type="number"] { width: 112px; min-height: 34px; box-sizing: border-box; padding: 6px 9px; border: 1px solid #d0d5dd; border-radius: 3px; color: #344054; font: inherit; }
+.business-setting-control input[type="checkbox"] { width: 16px; height: 16px; accent-color: #1677ff; }
+.business-settings-hint { margin: 2px 0 0 166px; color: #98a2b3; font-size: 12px; line-height: 1.7; }
+.business-settings-actions { display: flex; justify-content: flex-end; margin-top: 20px; }
+
+@media (max-width: 640px) {
+  .business-setting-row { grid-template-columns: 1fr; gap: 4px; }
+  .business-settings-hint { margin-left: 0; }
+}
 .editor-inline .button { min-height: 32px; padding: 6px 12px; }
 .editor-tag { display: inline-flex; align-items: center; padding: 6px 10px; color: #475467; background: #f2f4f7; border-radius: 3px; }
 .editor-tags, .editor-radios { display: flex; align-items: center; gap: 16px; }
