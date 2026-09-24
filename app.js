@@ -90,12 +90,12 @@ const customerTableColumnDefinitions = [
   { key: "inviter", label: "邀约人", defaultVisible: true, group: "跟进与归属" },
   { key: "collaborator", label: "协作人", defaultVisible: true, group: "跟进与归属" },
   { key: "servicePerson", label: "服务人", defaultVisible: true, group: "跟进与归属" },
-  { key: "customerStatus", label: "客户状态", defaultVisible: false, group: "跟进与归属" },
-  { key: "firstAllocationAt", label: "首次分配时间", defaultVisible: false, group: "跟进与归属" },
-  { key: "lastFollowUpAt", label: "最后跟进", defaultVisible: false, group: "跟进与归属" },
-  { key: "lastLoginAt", label: "最后登录", defaultVisible: false, group: "跟进与归属" },
-  { key: "tags", label: "标签", defaultVisible: false, group: "基础信息" },
-  { key: "source", label: "来源", defaultVisible: false, group: "基础信息" }
+  { key: "customerStatus", label: "客户状态", defaultVisible: true, group: "跟进与归属" },
+  { key: "firstAllocationAt", label: "首次分配时间", defaultVisible: true, group: "跟进与归属" },
+  { key: "lastFollowUpAt", label: "最后跟进", defaultVisible: true, group: "跟进与归属" },
+  { key: "lastLoginAt", label: "最后登录", defaultVisible: true, group: "跟进与归属" },
+  { key: "tags", label: "标签", defaultVisible: true, group: "基础信息" },
+  { key: "source", label: "来源", defaultVisible: true, group: "基础信息" }
 ];
 
 const defaultCustomerTableColumns = customerTableColumnDefinitions
@@ -118,13 +118,16 @@ function storedCustomerTableColumns(user) {
   try {
     const storageKey = customerTableColumnsStorageKey(user);
     if (!storageKey) return [...defaultCustomerTableColumns];
-    const stored = JSON.parse(localStorage.getItem(storageKey) || "null");
+    const storedValue = localStorage.getItem(storageKey);
+    if (storedValue === null) return [...defaultCustomerTableColumns];
+    const stored = JSON.parse(storedValue);
     const allowed = new Set(customerTableColumnDefinitions.map(column => column.key));
     const selected = Array.isArray(stored) ? stored.filter(key => allowed.has(key)) : [];
+    if (!selected.length) return [...defaultCustomerTableColumns];
     const visible = customerTableColumnDefinitions
       .filter(column => customerFixedColumnKeys.includes(column.key) || selected.includes(column.key))
       .map(column => column.key);
-    return visible.length ? visible : [...defaultCustomerTableColumns];
+    return visible;
   } catch (_) {
     return [...defaultCustomerTableColumns];
   }
