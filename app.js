@@ -439,6 +439,141 @@ const customerStageOptions = [
 
 const customerFollowUpTypes = ["到访", "电话", "微信", "短信", "外出", "其他"];
 
+const secondInvitationPrompts = [
+  ["开场白："],
+  ["卖人情：", "帮他做了什么事"],
+  ["重温旧梦：", "成功故事（时间、地点、人物、与你有何关系）/择偶要求/单身原因"],
+  ["信息刺激：", "邀约潜在"],
+  ["强化服务：", "（感兴趣的服务卖点）缺啥补啥（目的预告片）"],
+  ["试穿："],
+  ["简排异："],
+  ["再邀约："],
+  ["必需到店沟通："],
+  ["到店时间："],
+  ["到店方案："],
+  ["卖人情+暖心短信："]
+];
+
+const followupPromptTemplates = [
+  {
+    name: "一通",
+    prompts: [
+      ["开场白：", "此电话主要在建立信任感和资产（15分钟）"], ["重温旧梦："], ["家庭成员："],
+      ["兴趣爱好："], ["约会方式："], ["感情经历："], ["需求：", "扩大需求动机"],
+      ["转身下次来店时间："], ["转身的利益点："], ["短信："]
+    ]
+  },
+  {
+    name: "预测模板",
+    prompts: [
+      ["信息点：", "按百分比来计算，或者会员等级跟他过什么类似的话"], ["需求：", "单身原因+急迫度，核心触动"],
+      ["购买力："], ["消费意识：", "会员资产和消费意识如何"], ["到店由头：", "因为什么原因而到店"],
+      ["到店时间："], ["辅助邀约时间：", "准确的时间，至少2个小时以上"], ["担心和顾虑："],
+      ["是否带朋友，证件是否齐全："], ["今天走下来的理由："]
+    ]
+  },
+  {
+    name: "二通",
+    prompts: [
+      ["开场白："], ["重温旧梦："], ["家庭成员："], ["兴趣爱好："], ["约会方式："], ["感情经历："],
+      ["需求：", "扩大需求动机"], ["转身下次来店时间："], ["转身的利益点："], ["短信："]
+    ]
+  },
+  {
+    name: "小三通",
+    prompts: [
+      ["控单：", "以第三方男士/女士的口吻了解，这需要需求，讲自己的案例或者父母背景"], ["看中地方："],
+      ["忌讳地方："], ["性格脾气："], ["家庭成员："], ["父母年龄多大了："], ["是否喜欢宠物："],
+      ["需要对方包容的地方："], ["饮食忌讳："], ["约会地点："], ["约会时间："], ["爱好："],
+      ["转身的利益点："], ["下次邀约时间："]
+    ]
+  },
+  {
+    name: "小四通",
+    prompts: [
+      ["优点："], ["缺点："], ["你会下厨吗："], ["你觉得您是一位成熟稳重有责任感的男人吗："],
+      ["你会大男子主义吗："], ["婚后要小孩吗：", "能接受几个"], ["生活习惯：", "烟酒"],
+      ["你觉得你属于浪漫的男人吗："], ["能控制自己情绪的男人吗："], ["工作会经常出差吗："],
+      ["到店时间："], ["是否可控："], ["转身的利益点："], ["短信："]
+    ]
+  },
+  { name: "二邀模板", prompts: secondInvitationPrompts },
+  {
+    name: "面谈模板",
+    prompts: [
+      ["单身原因："], ["工作期望："], ["急迫度："], ["择偶要求："], ["人选："], ["品牌："],
+      ["彩礼："], ["兴趣爱好："], ["报价："], ["谈单时间："], ["付款方式："], ["忌讳项："],
+      ["有无配合："], ["情感经历："]
+    ]
+  },
+  {
+    name: "到店回访",
+    prompts: [
+      ["对服务中心评价：", "到服务中心后的整体感觉怎么样"], ["自身优势：", "感觉这次对自己有收获吗"],
+      ["对老师印象：", "对接你的老师印象如何"], ["未单原因：", "最终没有选择咱们这边服务的原因是什么"],
+      ["对门店建议：", "感觉咱们这边对于服务和门店有什么不满意或感觉需要改进的地方"],
+      ["需求点：", "自己理想中的服务是怎么样的，您希望我们会帮到您"],
+      ["重温旧梦：", "择偶/单身原因/需求"], ["信息刺激：", "硬性 软性 越择"], ["刺激感兴趣的点："],
+      ["强化服务："], ["针对性的强化服务："]
+    ]
+  },
+  {
+    name: "接待未成交",
+    prompts: [
+      ["沟通时长："], ["核实资料："], ["单身原因："], ["情感史："], ["迫切动机："], ["择偶要求："],
+      ["信息刺激："], ["服务后反应："], ["报价："], ["报价后反应："], ["最早报价："],
+      ["不买单原因："], ["是否配合："], ["是否需要竞品回访："]
+    ]
+  },
+  {
+    name: "交接模板",
+    prompts: [
+      ["个人资料："], ["单身原因："], ["急迫度："], ["情感经历："], ["择偶要求："], ["人选："],
+      ["品牌："], ["彩礼："], ["兴趣爱好："], ["报价："], ["付款方式："], ["忌讳项："], ["有无配合："]
+    ]
+  }
+];
+
+function followupTemplateContent(templateName) {
+  const template = followupPromptTemplates.find(item => item.name === templateName);
+  if (!template) return "";
+  return template.prompts.map(([label, hint]) => `${label}${hint ? ` ${hint}` : ""}`).join("\n");
+}
+
+function followupContentEditorHtml(content) {
+  return String(content || "").split(/\r?\n/).map(line => {
+    if (!line) return '<div class="followup-content-line"><br></div>';
+    const separator = line.search(/[：:]/);
+    if (separator < 0) return `<div class="followup-content-line"><span class="followup-content-text">${escapeHtml(line)}</span></div>`;
+    const splitAt = separator + 1;
+    return `<div class="followup-content-line"><span class="followup-content-label">${escapeHtml(line.slice(0, splitAt))}</span><span class="followup-content-text">${escapeHtml(line.slice(splitAt))}</span></div>`;
+  }).join("");
+}
+
+function followupContentEditorText(editor) {
+  return String(editor?.innerText || "").replace(/\r\n?/g, "\n").replace(/\n$/, "");
+}
+
+function focusFollowupContentEnd(editor) {
+  editor?.focus();
+  if (!editor) return;
+  const range = document.createRange();
+  range.selectNodeContents(editor);
+  range.collapse(false);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function followupTemplateFieldView(templateName = "") {
+  const selectedTemplate = followupPromptTemplates.some(item => item.name === templateName) ? templateName : "";
+  return `<label class="form-span-2 followup-template-field"><span>模板</span><div class="followup-template-ui" data-followup-template-ui data-selected-template="${escapeHtml(selectedTemplate)}">
+    <input type="hidden" name="template" value="${escapeHtml(selectedTemplate)}">
+    <div class="followup-template-toolbar"><button class="followup-template-toggle" type="button" data-followup-template-toggle aria-expanded="${selectedTemplate ? "false" : "true"}">${selectedTemplate ? "更换模板" : "收起模板"}</button><div class="followup-template-selected" data-followup-template-selected>${selectedTemplate ? `<button type="button" data-followup-template-remove aria-label="移除模板">${escapeHtml(selectedTemplate)} <span aria-hidden="true">×</span></button>` : ""}</div></div>
+    <div class="followup-template-options" data-followup-template-options ${selectedTemplate ? "hidden" : ""}>${followupPromptTemplates.map(template => `<button type="button" class="followup-template-option" data-followup-template="${escapeHtml(template.name)}">${escapeHtml(template.name)}</button>`).join("")}</div>
+  </div></label>`;
+}
+
 const customerPoolReasons = ["非单身", "接通挂", "强烈拒绝", "不是本人", "其他"];
 
 const customerDialStatusOptions = [
@@ -3063,7 +3198,7 @@ function customerDetailView(id) {
     const annotationComment = String(annotation.comment || "").trim();
     const category = row.category === "system" ? "system" : "operation";
     const formattedTime = formatCustomerFollowUpTimestamp(row.occurredAt);
-    return `<article class="customer-follow-record ${annotation.favorite ? "is-favorite" : ""}"><span class="customer-follow-record-marker" aria-hidden="true"></span><div class="customer-follow-record-body"><div class="customer-follow-record-title"><strong>${value(row.title)}</strong><span class="customer-follow-category ${category}">${value(row.channel || row.recordType)}</span>${row.customerStatus ? `<span class="customer-follow-status">客户状态：${value(row.customerStatus)}</span>` : ""}</div><p>${value(row.content)}</p><div class="customer-follow-record-meta"><span>操作人：${value(row.owner)}</span><time datetime="${value(row.occurredAt)}">跟进时间：${value(formattedTime)}</time>${row.completed ? '<span class="customer-follow-completed">已完成</span>' : ""}</div>${annotationComment ? `<div class="customer-follow-comment-preview">${value(annotationComment)}</div>` : ""}</div><div class="customer-follow-record-actions"><time class="customer-follow-filled-time">填写时间：${value(formattedTime)}</time><button class="customer-follow-star ${annotation.favorite ? "active" : ""}" type="button" data-followup-annotation-action="favorite" data-followup-customer="${value(customer.id)}" data-followup-record-id="${value(row.id)}" data-followup-record-type="${value(row.recordType)}" aria-label="${annotation.favorite ? "取消收藏" : "收藏记录"}" aria-pressed="${annotation.favorite ? "true" : "false"}">${icon("star")}</button><button class="customer-follow-comment" type="button" data-followup-annotation-action="comment" data-followup-customer="${value(customer.id)}" data-followup-record-id="${value(row.id)}" data-followup-record-type="${value(row.recordType)}">评论</button></div></article>`;
+    return `<article class="customer-follow-record ${annotation.favorite ? "is-favorite" : ""}"><span class="customer-follow-record-marker" aria-hidden="true"></span><div class="customer-follow-record-body"><div class="customer-follow-record-title"><strong>${value(row.title)}</strong><span class="customer-follow-category ${category}">${value(row.channel || row.recordType)}</span>${row.customerStatus ? `<span class="customer-follow-status">客户状态：${value(row.customerStatus)}</span>` : ""}</div><div class="customer-follow-record-content">${followupContentEditorHtml(row.content)}</div><div class="customer-follow-record-meta"><span><i>操作人：</i><b>${value(row.owner)}</b></span><time datetime="${value(row.occurredAt)}"><i>跟进时间：</i><b>${value(formattedTime)}</b></time>${row.completed ? '<span class="customer-follow-completed">已完成</span>' : ""}</div>${annotationComment ? `<div class="customer-follow-comment-preview">${value(annotationComment)}</div>` : ""}</div><div class="customer-follow-record-actions"><time class="customer-follow-filled-time">填写时间：${value(formattedTime)}</time><button class="customer-follow-star ${annotation.favorite ? "active" : ""}" type="button" data-followup-annotation-action="favorite" data-followup-customer="${value(customer.id)}" data-followup-record-id="${value(row.id)}" data-followup-record-type="${value(row.recordType)}" aria-label="${annotation.favorite ? "取消收藏" : "收藏记录"}" aria-pressed="${annotation.favorite ? "true" : "false"}">${icon("star")}</button><button class="customer-follow-comment" type="button" data-followup-annotation-action="comment" data-followup-customer="${value(customer.id)}" data-followup-record-id="${value(row.id)}" data-followup-record-type="${value(row.recordType)}">评论</button></div></article>`;
   }).join("")}</div></section>`).join("");
   const follow = `<section class="customer-follow-detail" aria-label="跟进记录"><div class="customer-follow-timeline">${followTimeline || '<div class="customer-follow-empty"><span class="empty-icon">' + icon("clock") + '</span><strong>暂无客户操作记录</strong><p>完成跟进、通话或消息后，记录会显示在这里。</p><button class="button primary" type="button" data-customer-followup>' + icon("plus") + '写跟进</button></div>'}</div></section>`;
   const profileGender = customer.gender || "—";
@@ -4279,11 +4414,12 @@ function businessModalFields(type, record) {
   if (type === "task") {
     const dueAt = toDateTimeLocal(record?.dueAt) || toDateTimeLocal(new Date(Date.now() + 24 * 60 * 60 * 1000));
     if (record?.corner) {
+      const followupContent = record?.title || followupTemplateContent(record?.template || "");
       return `<input type="hidden" name="recordId" value=""><input type="hidden" name="reminderTaskId" value="${escapeHtml(record.reminderTaskId || "")}"><input type="hidden" name="customer" value="${escapeHtml(record.customer || "")}"><input type="hidden" name="customerId" value="${escapeHtml(record.customerId || "")}"><div class="form-grid followup-entry-fields">
         <label><span>类型 *</span><select name="type" required><option value="" selected>请选择</option>${customerFollowUpTypes.map(value => `<option value="${value}">${value}</option>`).join("")}</select></label>
         <label><span>时间 *</span><input name="dueAt" type="datetime-local" required value="${dueAt}"></label>
-        <label class="form-span-2"><span>模板</span><select name="template"><option>请选择模板</option><option>首次跟进</option><option>报价跟进</option><option>会议确认</option></select></label>
-        <label class="form-span-2 followup-content-field"><span>内容 *</span><textarea name="title" required maxlength="2000" rows="5" placeholder="请输入跟进内容"></textarea><small class="followup-content-count">已输入 0/2000</small></label>
+        ${followupTemplateFieldView(record?.template || "")}
+        <label class="form-span-2 followup-content-field"><span>内容 *</span><div class="followup-content-editor"><input type="hidden" name="title" value="${escapeHtml(followupContent)}"><div class="followup-content-rich${followupContent ? "" : " is-empty"}" data-followup-rich-content contenteditable="true" role="textbox" aria-multiline="true" aria-label="跟进内容" data-placeholder="选择模板后自动填入内容，也可直接编辑">${followupContentEditorHtml(followupContent)}</div><small class="followup-content-count">已输入 ${String(followupContent).length}/2000</small></div></label>
         <label class="form-span-2 followup-photo-field"><span>照片</span><span class="followup-upload"><input name="photo" type="file" accept="image/*"><strong>＋</strong><small>上传</small></span></label>
         <label class="form-span-2"><span>客户状态</span><div class="followup-status-select"><input type="hidden" name="customerStatus" value=""><button type="button" class="followup-status-trigger">请选择<span class="dropdown-chevron"></span></button><div class="followup-status-options">${customerStatusOptions.map(option => `<button type="button" data-followup-status="${escapeHtml(option)}">${escapeHtml(option)}</button>`).join("")}</div></div></label>
         <label class="checkbox-field form-span-2"><input name="important" type="checkbox"><span>标为重点小计</span></label>
@@ -4437,9 +4573,71 @@ function openBusinessModal(type, record = null) {
       statusTrigger.firstChild.textContent = option.textContent;
       statusSelect.classList.remove("open");
     }));
-    const content = form.querySelector("textarea[name=title]");
+    const content = form.querySelector('input[name="title"]');
+    const contentEditor = form.querySelector("[data-followup-rich-content]");
     const contentCount = form.querySelector(".followup-content-count");
-    content?.addEventListener("input", () => { contentCount.textContent = `已输入 ${content.value.length}/2000`; });
+    const syncFollowupContent = () => {
+      if (!content || !contentEditor) return;
+      let text = followupContentEditorText(contentEditor);
+      if (text.length > 2000) {
+        text = text.slice(0, 2000);
+        contentEditor.innerHTML = followupContentEditorHtml(text);
+        focusFollowupContentEnd(contentEditor);
+      }
+      content.value = text;
+      contentEditor.classList.toggle("is-empty", !text);
+      contentCount.textContent = `已输入 ${text.length}/2000`;
+    };
+    contentEditor?.addEventListener("input", syncFollowupContent);
+    const templateControl = form.querySelector("[data-followup-template-ui]");
+    const templateOptions = templateControl?.querySelector("[data-followup-template-options]");
+    const templateToggle = templateControl?.querySelector("[data-followup-template-toggle]");
+    const selectedTemplateInput = templateControl?.querySelector('input[name="template"]');
+    const selectedTemplateChip = templateControl?.querySelector("[data-followup-template-selected]");
+    const setFollowupTemplate = templateName => {
+      const selected = followupPromptTemplates.some(template => template.name === templateName) ? templateName : "";
+      templateControl.dataset.selectedTemplate = selected;
+      selectedTemplateInput.value = selected;
+      selectedTemplateChip.replaceChildren();
+      if (selected) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.dataset.followupTemplateRemove = "";
+        chip.setAttribute("aria-label", "移除模板");
+        chip.append(document.createTextNode(`${selected} `));
+        const removeIcon = document.createElement("span");
+        removeIcon.setAttribute("aria-hidden", "true");
+        removeIcon.textContent = "×";
+        chip.append(removeIcon);
+        selectedTemplateChip.append(chip);
+      }
+      templateOptions.hidden = Boolean(selected);
+      templateToggle.textContent = selected ? "更换模板" : "收起模板";
+      templateToggle.setAttribute("aria-expanded", String(!selected));
+      if (selected) {
+        contentEditor.innerHTML = followupContentEditorHtml(followupTemplateContent(selected));
+        syncFollowupContent();
+        focusFollowupContentEnd(contentEditor);
+      }
+    };
+    templateControl?.addEventListener("click", event => {
+      const option = event.target.closest("[data-followup-template]");
+      if (option) {
+        setFollowupTemplate(option.dataset.followupTemplate);
+        return;
+      }
+      if (event.target.closest("[data-followup-template-remove]")) {
+        setFollowupTemplate("");
+        return;
+      }
+      if (event.target.closest("[data-followup-template-toggle]")) {
+        templateOptions.hidden = !templateOptions.hidden;
+        templateToggle.textContent = templateControl.dataset.selectedTemplate
+          ? "更换模板"
+          : templateOptions.hidden ? "选择模板" : "收起模板";
+        templateToggle.setAttribute("aria-expanded", String(!templateOptions.hidden));
+      }
+    });
     const nextTaskToggle = form.querySelector("input[name=createNextTask]");
     const nextTaskFields = form.querySelector(".followup-next-fields");
     const nextDueAt = form.querySelector("input[name=nextDueAt]");
@@ -5510,8 +5708,15 @@ async function submitBusinessForm(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const type = form.dataset.type;
+  const richContent = form.querySelector("[data-followup-rich-content]");
+  const titleField = form.querySelector('input[name="title"]');
+  if (richContent && titleField) titleField.value = followupContentEditorText(richContent);
   const data = Object.fromEntries(new FormData(form));
   const submit = form.querySelector("button[type=submit]");
+  if (type === "task" && form.dataset.corner === "true" && !String(data.title || "").trim()) {
+    toast("请填写跟进内容");
+    return;
+  }
   if (submit) submit.disabled = true;
   try {
     requireBackend();
