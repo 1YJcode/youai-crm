@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 
 import org.junit.jupiter.api.Test;
@@ -128,6 +129,52 @@ class CustomerControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").isNotEmpty())
                 .andExpect(jsonPath("$.content[*].owner").value(org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.equalTo("林夕"))));
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void filtersCustomersByMultipleCustomerStatuses() throws Exception {
+        String suffix = String.format("%08d", Math.abs(System.nanoTime() % 100_000_000L));
+        String marker = "状态筛选" + suffix;
+        String firstBody = """
+                {"name":"%s甲","phone":"138%s","company":"测试","source":"测试","owner":"林夕","stage":"筛选阶段甲"}
+                """.formatted(marker, suffix);
+        String secondBody = """
+                {"name":"%s乙","phone":"139%s","company":"测试","source":"测试","owner":"林夕","stage":"筛选阶段乙"}
+                """.formatted(marker, suffix);
+        String excludedBody = """
+                {"name":"%s丙","phone":"137%s","company":"测试","source":"测试","owner":"林夕","stage":"筛选阶段丙"}
+                """.formatted(marker, suffix);
+
+        for (String body : new String[] { firstBody, secondBody, excludedBody }) {
+            mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isCreated());
+        }
+
+        mockMvc.perform(get("/api/customers").param("customerStatus", "筛选阶段甲,筛选阶段乙"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[*].stage")
+                        .value(containsInAnyOrder("筛选阶段甲", "筛选阶段乙")));
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void filtersCustomerStatusContainingChineseComma() throws Exception {
+        String suffix = String.format("%08d", Math.abs(System.nanoTime() % 100_000_000L));
+        String status = "1类：未接通，待跟进";
+        String body = "{\"name\":\"中文逗号状态" + suffix
+                + "\",\"phone\":\"136" + suffix
+                + "\",\"company\":\"测试\",\"source\":\"测试\",\"owner\":\"林夕\",\"stage\":\""
+                + status + "\"}";
+
+        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/customers").param("customerStatus", status))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[*].stage").value(org.hamcrest.Matchers.hasItem(status)));
     }
 
     @Test

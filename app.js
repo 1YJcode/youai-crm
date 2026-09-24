@@ -369,6 +369,7 @@ let followupAlertTimer = null;
 let followupAlertRefreshPromise = null;
 let customerSyncTimer = null;
 let customerSyncPromise = null;
+let customerSearchRequestId = 0;
 let authRefreshPromise = null;
 let lastRenderedTableScrollContext = "";
 
@@ -402,6 +403,21 @@ function selectedCustomerStatuses() {
   return state.customerStatus && state.customerStatus !== "全部状态"
     ? [state.customerStatus]
     : [];
+}
+
+function customerStatusValue(customer) {
+  return String(customer?.statusCategory || customer?.customerStatus || customer?.stage || "").trim();
+}
+
+function customerStatusDisplayValue(customer) {
+  const value = customerStatusValue(customer);
+  return customerStatusOptions.includes(value) ? value : "";
+}
+
+function customerStatusMatches(customer, selectedStatuses) {
+  if (!selectedStatuses.length) return true;
+  const value = customerStatusValue(customer);
+  return selectedStatuses.some(status => String(status).trim() === value);
 }
 
 const customerStageOptions = [
@@ -1242,6 +1258,7 @@ function requireBackend() {
 
 async function refreshCustomerSearchFromApi() {
   if (!state.auth.token) return;
+  const requestId = ++customerSearchRequestId;
   const reopenStatusMenu = Boolean(document.querySelector("#levelFilter")?.closest(".status-filter")?.classList.contains("open"));
   const params = new URLSearchParams();
   const isPoolPage = Boolean(document.querySelector(".pool-page"));
@@ -1311,6 +1328,7 @@ async function refreshCustomerSearchFromApi() {
   try {
     const endpoint = isPoolPage ? "/customers/pool" : "/customers";
     const pageData = pageContent(await apiRequest(`${endpoint}?${params.toString()}`));
+    if (requestId !== customerSearchRequestId) return;
     const normalized = pageData.content.map(normalizeCustomer);
     if (isPoolPage) state.poolCustomerPageMeta = pageData;
     else if (isWhiteboardPage) state.whiteboardCustomerPageMeta = pageData;
@@ -2025,9 +2043,8 @@ function filteredCustomers(options = {}) {
     const nameMatch = !nameQuery || [customer.name, customer.note, customer.remark].join(" ").toLowerCase().includes(nameQuery);
     const stageMatch = state.customerStage === "全部阶段" || customer.stage === state.customerStage;
     const levelMatch = state.customerLevel === "全部等级" || customer.level === state.customerLevel;
-    const customerStatus = customer.statusCategory || customer.customerStatus || customer.stage;
     const selectedStatuses = selectedCustomerStatuses();
-    const statusMatch = !selectedStatuses.length || selectedStatuses.includes(customerStatus);
+    const statusMatch = customerStatusMatches(customer, selectedStatuses);
     const ownerMatch = state.customerOwner === "全部负责人" || customer.owner === state.customerOwner;
     const ownerHierarchyMatch = customerOwnerHierarchyMatches(customer, state.customerOwnerSelection);
     const advancedOwnerMatch = customerOwnerHierarchyMatches(customer, state.customerAdvancedOwnerSelection);
@@ -2408,7 +2425,7 @@ function customerTableColumnHtml(customer, key) {
   if (key === "income") return escapeHtml(customerTableDisplayValue(customer.monthlyIncome || customer.annualIncome || customer.amount));
   if (key === "followUpCount") return escapeHtml(String(customerFollowUpCount(customer)));
   if (key === "uncontactedDays") return escapeHtml(customerUncontactedDaysLabel(customer));
-  if (key === "customerStatus") return escapeHtml(customerTableDisplayValue(customer.statusCategory || customer.customerStatus || customer.stage));
+  if (key === "customerStatus") return escapeHtml(customerTableDisplayValue(customerStatusDisplayValue(customer)));
   if (key === "firstAllocationAt") return escapeHtml(formatDateTime(customer.firstAllocationAt || customer.firstAssignedAt || customer.assignedAt || customer.lastAllocationAt));
   if (key === "lastFollowUpAt") return escapeHtml(formatDateTime(customer.lastContactAt || customer.lastContact || customer.updatedAt));
   if (key === "lastLoginAt") return escapeHtml(formatDateTime(customer.lastLoginAt || customer.lastLogin));
@@ -2446,6 +2463,7 @@ function customerListView({ isPool = false } = {}) {
   const meta = (isPool ? state.poolCustomerPageMeta : state.customerPageMeta) || { page: 0, size: state.customerPageSize, totalElements: 0, totalPages: 1 };
   const sourceRows = isPool ? state.poolCustomers : customers.filter(customer => customer.owner !== "白板");
   const rows = sortedCustomerRows(sourceRows.filter(customer => {
+    if (!isPool && !customerStatusMatches(customer, selectedStatuses)) return false;
     if (isPool && !customerMatchesDeepTalkDuration(customer, state.poolDeepTalkDuration)) return false;
     if (!state.customerTagFilter) return true;
     const tags = Array.isArray(customer.tags) ? customer.tags : [];
@@ -2471,7 +2489,7 @@ function customerListView({ isPool = false } = {}) {
           <label class="field"><span>筛选条件</span><input id="customerSearch" type="search" value="${state.customerSearch}" placeholder="ID/手机号"></label>
           <label class="field"><span>&nbsp;</span><input id="customerNameSearch" type="search" value="${escapeHtml(state.customerNameSearch)}" placeholder="姓名/昵称/备注"></label>
           <label class="field"><span>&nbsp;</span>${isPool ? `<select id="poolDeepTalkDuration" aria-label="深沟时长"><option value="">深沟时长</option><option value="0-3" ${state.poolDeepTalkDuration === "0-3" ? "selected" : ""}>0-3分钟</option><option value="3-5" ${state.poolDeepTalkDuration === "3-5" ? "selected" : ""}>3-5分钟</option><option value="5-10" ${state.poolDeepTalkDuration === "5-10" ? "selected" : ""}>5-10分钟</option><option value="10+" ${state.poolDeepTalkDuration === "10+" ? "selected" : ""}>10分钟以上</option></select>` : `<div class="status-filter stage-filter"><button id="stageFilter" class="filter-trigger" type="button">${escapeHtml(state.customerStage === "全部阶段" ? "全部" : state.customerStage)}</button></div>`}</label>
-          ${isPool ? `<label class="field pool-follow-range"><span>&nbsp;</span><div><input type="search" placeholder="最小跟进次数"><input type="search" placeholder="最大跟进次数"></div></label>` : `<label class="field status-filter-field"><span>&nbsp;</span><div class="status-filter"><div class="status-filter-control"><div class="status-filter-tags">${selectedStatuses.map(status => `<span class="status-filter-tag">${escapeHtml(status)}<button type="button" data-customer-status-remove="${escapeHtml(status)}" aria-label="移除${escapeHtml(status)}">×</button></span>`).join("")}</div><input id="levelFilter" type="search" value="" placeholder="${selectedStatuses.length ? "继续选择客户状态" : "请选择客户状态"}" autocomplete="off"></div><div class="status-filter-menu">${customerStatusOptions.map(option => `<button class="${selectedStatuses.includes(option) ? "active" : ""}" type="button" data-customer-status="${escapeHtml(option)}" aria-pressed="${selectedStatuses.includes(option) ? "true" : "false"}">${escapeHtml(option)}</button>`).join("")}</div></div></label><label class="field"><span>&nbsp;</span>${customerOwnerCascadeControl("main", state.customerOwnerSelection, state.customerOwnerCascadeOpen)}</label>`}<label class="field customer-date-range"><span>&nbsp;</span><div class="date-range-picker-wrap"><div class="date-range-display"><span>${isPool ? "入海开始时间" : state.customerStartDate || "分配开始时间"}</span><b>→</b><span>${isPool ? "入海结束时间" : state.customerEndDate || "分配结束时间"}</span><button class="date-range-picker" id="openDateRangePicker" type="button" aria-label="选择分配时间范围">${icon("calendar")}</button></div>${isPool ? "" : (state.customerDateRangePickerOpen ? customerDateRangePickerView() : "")}</div></label><div class="inline-actions customer-filter-actions"><button class="button primary" id="applyCustomerFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCustomerFilters" type="button">重置</button><button class="text-button" type="button">高级筛选</button></div>
+          ${isPool ? `<label class="field pool-follow-range"><span>&nbsp;</span><div><input type="search" placeholder="最小跟进次数"><input type="search" placeholder="最大跟进次数"></div></label>` : `<label class="field status-filter-field"><span>&nbsp;</span><div class="status-filter"><div id="levelFilter" class="status-filter-control" role="combobox" tabindex="0" aria-label="客户状态筛选" aria-haspopup="listbox" aria-controls="customerStatusOptions" aria-expanded="false"><div class="status-filter-tags">${selectedStatuses.map(status => `<span class="status-filter-tag"><span>${escapeHtml(status)}</span><button type="button" data-customer-status-remove="${escapeHtml(status)}" aria-label="移除${escapeHtml(status)}">×</button></span>`).join("")}</div>${selectedStatuses.length ? "" : `<span class="status-filter-placeholder">请选择客户状态</span>`}</div><div id="customerStatusOptions" class="status-filter-menu" role="listbox" aria-multiselectable="true">${customerStatusOptions.map(option => `<button class="${selectedStatuses.includes(option) ? "active" : ""}" type="button" role="option" data-customer-status="${escapeHtml(option)}" aria-selected="${selectedStatuses.includes(option) ? "true" : "false"}" aria-pressed="${selectedStatuses.includes(option) ? "true" : "false"}">${escapeHtml(option)}</button>`).join("")}</div></div></label><label class="field"><span>&nbsp;</span>${customerOwnerCascadeControl("main", state.customerOwnerSelection, state.customerOwnerCascadeOpen)}</label>`}<label class="field customer-date-range"><span>&nbsp;</span><div class="date-range-picker-wrap"><div class="date-range-display"><span>${isPool ? "入海开始时间" : state.customerStartDate || "分配开始时间"}</span><b>→</b><span>${isPool ? "入海结束时间" : state.customerEndDate || "分配结束时间"}</span><button class="date-range-picker" id="openDateRangePicker" type="button" aria-label="选择分配时间范围">${icon("calendar")}</button></div>${isPool ? "" : (state.customerDateRangePickerOpen ? customerDateRangePickerView() : "")}</div></label><div class="inline-actions customer-filter-actions"><button class="button primary" id="applyCustomerFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCustomerFilters" type="button">重置</button><button class="text-button" type="button">高级筛选</button></div>
         </div>
         <div class="filter-footer"><div class="filter-tags">${["全部客户","重点客户","今日待跟进","即将成交"].map(item => `<button class="quick-filter ${state.quickFilter === item ? "active" : ""}" type="button" data-quick-filter="${item}">${item}</button>`).join("")}</div></div>
       </section>
@@ -5817,9 +5835,11 @@ function bindViewEvents() {
     event.preventDefault();
     event.stopPropagation();
     document.querySelectorAll(".customer-list-page .status-filter.open").forEach(item => item.classList.remove("open"));
+    document.querySelectorAll(".customer-list-page .status-filter-control").forEach(control => control.setAttribute("aria-expanded", "false"));
     if (levelFilter) {
       levelFilter.focus({ preventScroll: true });
       levelFilter.closest(".status-filter")?.classList.add("open");
+      levelFilter.setAttribute("aria-expanded", "true");
     }
   });
   const levelFilter = document.querySelector("#levelFilter");
@@ -5827,13 +5847,28 @@ function bindViewEvents() {
     event.stopPropagation();
     document.querySelectorAll(".customer-list-page .status-filter.open").forEach(item => item.classList.remove("open"));
     levelFilter.closest(".status-filter")?.classList.add("open");
+    levelFilter.setAttribute("aria-expanded", "true");
   });
-  levelFilter?.addEventListener("click", event => event.stopPropagation());
-  levelFilter?.addEventListener("input", event => {
-    const value = event.target.value.trim();
-    const menu = levelFilter.closest(".status-filter")?.querySelector(".status-filter-menu");
-    menu?.querySelectorAll("button").forEach(button => { button.hidden = value && !button.textContent.includes(value); });
+  levelFilter?.addEventListener("click", event => {
+    event.stopPropagation();
+    levelFilter.focus({ preventScroll: true });
   });
+  levelFilter?.addEventListener("keydown", event => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    levelFilter.closest(".status-filter")?.classList.toggle("open");
+    levelFilter.setAttribute("aria-expanded", String(levelFilter.closest(".status-filter")?.classList.contains("open")));
+  });
+  document.querySelectorAll(".customer-list-page .status-filter-control").forEach(control => control.addEventListener("click", event => {
+    if (event.target.closest("[data-customer-status-remove]")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    document.querySelectorAll(".customer-list-page .status-filter.open").forEach(item => item.classList.remove("open"));
+    document.querySelectorAll(".customer-list-page .status-filter-control").forEach(item => item.setAttribute("aria-expanded", "false"));
+    control.closest(".status-filter")?.classList.add("open");
+    control.setAttribute("aria-expanded", "true");
+    control.focus({ preventScroll: true });
+  }));
   document.querySelectorAll(".customer-list-page [data-customer-status-remove]").forEach(button => button.addEventListener("click", event => {
     event.preventDefault();
     event.stopPropagation();
@@ -5845,6 +5880,7 @@ function bindViewEvents() {
     const nextLevelFilter = document.querySelector("#levelFilter");
     nextLevelFilter?.focus({ preventScroll: true });
     nextLevelFilter?.closest(".status-filter")?.classList.add("open");
+    nextLevelFilter?.setAttribute("aria-expanded", "true");
     refreshCustomerSearchFromApi();
   }));
   document.querySelectorAll("[data-whiteboard-page]").forEach(button => button.addEventListener("click", () => {
@@ -5866,6 +5902,7 @@ function bindViewEvents() {
     const nextLevelFilter = document.querySelector("#levelFilter");
     nextLevelFilter?.focus({ preventScroll: true });
     nextLevelFilter?.closest(".status-filter")?.classList.add("open");
+    nextLevelFilter?.setAttribute("aria-expanded", "true");
     refreshCustomerSearchFromApi();
   }));
   const statusMenu = levelFilter?.closest(".status-filter")?.querySelector(".status-filter-menu");
@@ -7307,7 +7344,10 @@ document.addEventListener("click", event => {
     state.customerAdvancedDatePickerOpen = false;
     state.customerAdvancedDatePickerField = "";
   }
-  if (!event.target.closest(".status-filter") && !event.target.closest("#stageFilter")) document.querySelectorAll(".status-filter.open").forEach(item => item.classList.remove("open"));
+  if (!event.target.closest(".status-filter") && !event.target.closest("#stageFilter")) document.querySelectorAll(".status-filter.open").forEach(item => {
+    item.classList.remove("open");
+    item.querySelector(".status-filter-control")?.setAttribute("aria-expanded", "false");
+  });
   if (!event.target.closest(".owner-cascade-filter") && (state.customerOwnerCascadeOpen || state.customerAdvancedOwnerCascadeOpen || state.customerAdvancedCollaboratorCascadeOpen)) {
     state.customerOwnerCascadeOpen = false;
     state.customerAdvancedOwnerCascadeOpen = false;

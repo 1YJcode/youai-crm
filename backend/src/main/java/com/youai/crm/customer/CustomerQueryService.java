@@ -74,7 +74,7 @@ public class CustomerQueryService {
                         builder.like(builder.lower(root.get("note")), like),
                         builder.like(builder.lower(root.get("remark")), like)));
             }
-            addAnyEquals(builder, root, predicates, stage, "stage");
+            addAnyEquals(builder, root, predicates, stage, "stage", ",");
             addAnyEquals(builder, root, predicates, level, "level");
             boolean collaborationScope = "collab".equalsIgnoreCase(queryValues.get("scope"));
             if (!admin && !Boolean.TRUE.equals(inPool) && !collaborationScope) {
@@ -109,7 +109,9 @@ public class CustomerQueryService {
         Map<String, String> values = advanced == null ? Map.of() : advanced;
         addEquals(builder, root, predicates, values, "gender", "gender");
         addEquals(builder, root, predicates, values, "maritalStatus", "maritalStatus");
-        addAnyEquals(builder, root, predicates, values.get("customerStatus"), "stage");
+        // Customer status labels contain a Chinese comma (for example
+        // "1类：未接通，待跟进"), so only the ASCII comma separates selections.
+        addAnyEquals(builder, root, predicates, values.get("customerStatus"), "stage", ",");
         addAnyEquals(builder, root, predicates, values.get("levels"), "level");
         addLike(builder, root, predicates, values, "source", "source");
         addLike(builder, root, predicates, values, "occupation", "occupation");
@@ -185,6 +187,19 @@ public class CustomerQueryService {
             jakarta.persistence.criteria.From<?, Customer> root, List<Predicate> predicates,
             String rawValues, String field) {
         List<String> options = splitValues(rawValues);
+        addAnyEquals(builder, root, predicates, options, field);
+    }
+
+    private void addAnyEquals(jakarta.persistence.criteria.CriteriaBuilder builder,
+            jakarta.persistence.criteria.From<?, Customer> root, List<Predicate> predicates,
+            String rawValues, String field, String delimiters) {
+        List<String> options = splitValues(rawValues, delimiters);
+        addAnyEquals(builder, root, predicates, options, field);
+    }
+
+    private void addAnyEquals(jakarta.persistence.criteria.CriteriaBuilder builder,
+            jakarta.persistence.criteria.From<?, Customer> root, List<Predicate> predicates,
+            List<String> options, String field) {
         if (options.isEmpty()) return;
         jakarta.persistence.criteria.CriteriaBuilder.In<String> in = builder.in(root.get(field));
         options.forEach(in::value);
