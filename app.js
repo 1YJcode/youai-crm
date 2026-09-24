@@ -664,7 +664,7 @@ function customerOwnerCascadeMenu(scope, selection = {}) {
   return `<div class="owner-cascade-menu owner-cascade-tree-menu" role="menu" aria-label="选择所属人"><div class="owner-cascade-tree">${customerOwnerTreeNodeView(customerOwnerTree(), scope, selection, expandedNodes, searchText) || `<span class="owner-cascade-empty">未找到匹配的所属人</span>`}</div></div>`;
 }
 
-function customerOwnerCascadeControl(scope, selection = {}, open = false) {
+function customerOwnerCascadeControl(scope, selection = {}, open = false, placeholder = "所属人") {
   const isAdvanced = scope !== "main";
   const isCollaborator = scope === "advanced-collaborator";
   const toggleId = scope === "main" ? "customerOwnerToggle" : (isCollaborator ? "customerAdvancedCollaboratorToggle" : "customerAdvancedOwnerToggle");
@@ -674,7 +674,7 @@ function customerOwnerCascadeControl(scope, selection = {}, open = false) {
     const label = customerOwnerTreeFindNode(tree, id)?.label || id;
     return `<span class="owner-cascade-chip">${escapeHtml(label)}<span role="button" tabindex="0" ${removeAttribute}="${escapeHtml(id)}" aria-label="移除${escapeHtml(label)}">×</span></span>`;
   }).join("");
-  return `<div class="owner-cascade-filter ${open ? "open" : ""}"><button class="owner-cascade-toggle" id="${toggleId}" type="button" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}"><span class="owner-cascade-values">${chips || '<span class="owner-cascade-placeholder">所属人</span>'}</span><span class="owner-cascade-arrow" aria-hidden="true"></span></button>${open ? customerOwnerCascadeMenu(scope, selection) : ""}</div>`;
+  return `<div class="owner-cascade-filter ${open ? "open" : ""}"><button class="owner-cascade-toggle" id="${toggleId}" type="button" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}"><span class="owner-cascade-values">${chips || `<span class="owner-cascade-placeholder">${escapeHtml(placeholder)}</span>`}</span><span class="owner-cascade-arrow" aria-hidden="true"></span></button>${open ? customerOwnerCascadeMenu(scope, selection) : ""}</div>`;
 }
 
 function customerOwnerToggleNodeSelection(selection, nodeId) {
@@ -2503,7 +2503,7 @@ function customerListView({ isPool = false } = {}) {
         <footer class="pagination"><span>${pageStart}-${pageEnd} 共 ${totalElements} 条</span><button class="page-button" data-customer-page="${currentPage - 1}" type="button" ${currentPage <= 1 ? "disabled" : ""}>‹</button>${visiblePages.map(page => `<button class="page-button ${page === currentPage ? "active" : ""}" data-customer-page="${page}" type="button">${page}</button>`).join("")}<button class="page-button" data-customer-page="${currentPage + 1}" type="button" ${currentPage >= totalPages ? "disabled" : ""}>›</button><select id="customerPageSize"><option value="20" ${state.customerPageSize===20?"selected":""}>20</option><option value="50" ${state.customerPageSize===50?"selected":""}>50</option><option value="100" ${state.customerPageSize===100?"selected":""}>100</option></select><span>条/页</span></footer>
       </section>
     </div>
-  </section>${state.customerAdvancedOpen ? whiteboardAdvancedFilterView() : ""}${!isPool && state.customerHeaderModalOpen ? customerHeaderModalView() : ""}`;
+  </section>${state.customerAdvancedOpen ? whiteboardAdvancedFilterView({ isPool }) : ""}${!isPool && state.customerHeaderModalOpen ? customerHeaderModalView() : ""}`;
 }
 
 function publicPoolCustomers() {
@@ -2788,13 +2788,15 @@ function whiteboardTagModalView() {
   </section></div>`;
 }
 
-function whiteboardAdvancedFilterView() {
+function whiteboardAdvancedFilterView({ isPool = false } = {}) {
   const select = placeholder => `<select><option>${placeholder}</option></select>`;
   const range = (unit = "", minId = "", maxId = "", minValue = "", maxValue = "") => `<div class="advanced-range"><input ${minId ? `id="${minId}"` : ""} value="${escapeHtml(minValue)}" placeholder="${unit}"><b>–</b><input ${maxId ? `id="${maxId}"` : ""} value="${escapeHtml(maxValue)}" placeholder="${unit}"></div>`;
-  const dates = field => {
+  const dates = (field, { customDate = false } = {}) => {
     const selectedRange = state.customerAdvancedDraftDateRanges[field] || { start: "", end: "" };
     const pickerOpen = state.customerAdvancedDatePickerOpen && state.customerAdvancedDatePickerField === field;
-    return `<div class="advanced-date-range-control ${pickerOpen ? "open" : ""}"><button class="advanced-date-range-display" type="button" data-open-customer-advanced-date="${field}" aria-label="选择时间范围"><span>${selectedRange.start || "开始日期"}</span><b>→</b><span>${selectedRange.end || "结束日期"}</span><span class="advanced-date-range-icon">${icon("calendar")}</span></button>${pickerOpen ? customerAdvancedDateRangePickerView(field) : ""}</div>`;
+    const startLabel = customDate ? "自定义开始时间" : "开始日期";
+    const endLabel = customDate ? "自定义结束时间" : "结束日期";
+    return `<div class="advanced-date-range-control ${customDate ? "advanced-custom-date" : ""} ${pickerOpen ? "open" : ""}"><button class="advanced-date-range-display" type="button" data-open-customer-advanced-date="${field}" aria-label="${customDate ? "选择自定义时间范围" : "选择时间范围"}"><span>${selectedRange.start || startLabel}</span><b>→</b><span>${selectedRange.end || endLabel}</span><span class="advanced-date-range-icon">${icon("calendar")}</span></button>${pickerOpen ? customerAdvancedDateRangePickerView(field) : ""}</div>`;
   };
   const selectedGender = state.customerAdvancedDraftGender;
   const genderSelect = `<select id="customerGenderFilter" aria-label="性别">${customerGenderOptions.map(([value, label]) => `<option value="${value}" ${selectedGender === value ? "selected" : ""}>${label}</option>`).join("")}</select>`;
@@ -2822,7 +2824,8 @@ function whiteboardAdvancedFilterView() {
     : "";
   const dialStatusSelect = `<span class="advanced-unavailable">暂无拨打记录字段</span>`;
   const avatarSelect = `<select id="customerAvatarFilter" aria-label="有无头像">${customerAvatarOptions.map(([value, label]) => `<option value="${value}" ${state.customerAdvancedDraftAvatar === value ? "selected" : ""}>${label}</option>`).join("")}</select>`;
-  const ownerCascade = customerOwnerCascadeControl("advanced", state.customerAdvancedDraftOwnerSelection, state.customerAdvancedOwnerCascadeOpen);
+  const ownerLabel = isPool ? "前归属人" : "所属人";
+  const ownerCascade = customerOwnerCascadeControl("advanced", state.customerAdvancedDraftOwnerSelection, state.customerAdvancedOwnerCascadeOpen, ownerLabel);
   const collaboratorCascade = customerOwnerCascadeControl("advanced-collaborator", state.customerAdvancedDraftCollaboratorSelection, state.customerAdvancedCollaboratorCascadeOpen);
   return `<div class="modal-backdrop whiteboard-advanced-backdrop" role="presentation"><section class="whiteboard-advanced-modal" role="dialog" aria-modal="true" aria-label="高级筛选">
     <header><h2>高级筛选</h2><button type="button" id="closeWhiteboardAdvanced" aria-label="关闭">×</button></header>
@@ -2830,7 +2833,7 @@ function whiteboardAdvancedFilterView() {
       <div class="advanced-wide-row"><strong>客户等级：</strong><div class="advanced-checks">${levelChecks}</div></div>
       <label class="advanced-full"><strong>客户类型：</strong><span class="advanced-unavailable">暂无独立客户类型字段</span></label>
       <label class="advanced-full"><strong>客户状态：</strong><select id="customerAdvancedStatusFilter"><option value="" ${!state.customerAdvancedDraftStatus ? "selected" : ""}>全部</option>${customerStatusOptions.map(option => `<option value="${escapeHtml(option)}" ${state.customerAdvancedDraftStatus === option ? "selected" : ""}>${option}</option>`).join("")}</select></label>
-      <div class="advanced-wide-row"><strong>下次跟进时间：</strong><div class="advanced-checks">${["今天", "明天", "本周", "下周", "本月", "下月"].map(item => `<label><input type="checkbox" data-customer-next-follow-preset="${escapeHtml(item)}" ${state.customerAdvancedDraftNextFollowPreset === item ? "checked" : ""}>${item}</label>`).join("")}</div>${dates("nextFollow")}</div>
+      <div class="advanced-wide-row${isPool ? " advanced-next-follow-row" : ""}"><strong>下次跟进时间：</strong><div class="advanced-checks">${["今天", "明天", "本周", "下周", "本月", "下月"].map(item => `<label><input type="checkbox" data-customer-next-follow-preset="${escapeHtml(item)}" ${state.customerAdvancedDraftNextFollowPreset === item ? "checked" : ""}>${item}</label>`).join("")}</div>${dates("nextFollow", { customDate: isPool })}</div>
       <div class="advanced-two-column"><label><strong>未联系天数：</strong><div class="uncontacted-days-control">${uncontactedDaysSelect}${customUncontactedDays}</div></label><label><strong>会员来源：</strong><input id="customerSourceFilter" value="${escapeHtml(state.customerAdvancedDraftSource)}" placeholder="请输入会员来源"></label></div>
       <section class="advanced-profile"><h3>客户资料详情：</h3><div class="advanced-profile-grid">
         <label><span>性别：</span>${genderSelect}</label><label><span>年龄：</span>${ageRange}</label><label><span>身高：</span>${heightRange}</label><label><span>学历：</span>${educationMultiSelect}</label>
@@ -2838,7 +2841,7 @@ function whiteboardAdvancedFilterView() {
         <label><span>职业：</span><input id="customerOccupationFilter" value="${escapeHtml(state.customerAdvancedDraftOccupation)}" placeholder="请输入"></label><label><span>购车：</span><input id="customerCarFilter" value="${escapeHtml(state.customerAdvancedDraftCar)}" placeholder="请输入"></label><label><span>购房：</span><input id="customerHousingFilter" value="${escapeHtml(state.customerAdvancedDraftHousing)}" placeholder="请输入"></label><label><span>性格：</span><input id="customerPersonalityFilter" value="${escapeHtml(state.customerAdvancedDraftPersonality)}" placeholder="请输入"></label>
         <label><span>兴趣爱好：</span><input id="customerInterestFilter" value="${escapeHtml(state.customerAdvancedDraftInterest)}" placeholder="请输入"></label>
       </div></section>
-      <div class="advanced-time-grid"><label><strong>客户注册时间：</strong>${dates("registration")}</label><label><strong>最近登录时间：</strong><span class="advanced-unavailable">暂无登录时间字段</span></label><label><strong>首次分配时间：</strong>${dates("firstAllocation")}</label><label><strong>所属人：</strong>${ownerCascade}</label><label><strong>协作人：</strong>${collaboratorCascade}</label><label><strong>最后跟进时间：</strong>${dates("lastFollowUp")}</label><label class="advanced-note"><strong>备注信息：</strong><input id="customerNoteFilter" value="${escapeHtml(state.customerAdvancedDraftNote)}" placeholder="请输入"></label><label><strong>拨打状态：</strong>${dialStatusSelect}</label><label><strong>有无头像：</strong><span class="advanced-unavailable">暂无头像/拨打状态字段</span></label></div>
+      <div class="advanced-time-grid"><label><strong>客户注册时间：</strong>${dates("registration")}</label><label><strong>最近登录时间：</strong><span class="advanced-unavailable">暂无登录时间字段</span></label><label><strong>首次分配时间：</strong>${dates("firstAllocation")}</label><label><strong>${ownerLabel}：</strong>${ownerCascade}</label><label><strong>协作人：</strong>${collaboratorCascade}</label><label><strong>最后跟进时间：</strong>${dates("lastFollowUp")}</label><label class="advanced-note"><strong>备注信息：</strong><input id="customerNoteFilter" value="${escapeHtml(state.customerAdvancedDraftNote)}" placeholder="请输入"></label><label><strong>有无头像：</strong><span class="advanced-unavailable">暂无头像/拨打状态字段</span></label><label><strong>拨打状态：</strong>${dialStatusSelect}</label></div>
     </div>
     <footer><button class="button secondary" id="cancelWhiteboardAdvanced" type="button">取消</button><button class="button primary" id="queryWhiteboardAdvanced" type="button">查询</button></footer>
   </section></div>`;

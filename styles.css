@@ -669,6 +669,7 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 .customer-date-range-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; padding-top: 10px; color: #98a2b3; border-top: 1px solid #f0f2f5; font-size: 11px; }
 .customer-date-range-footer button { padding: 0; color: var(--primary); background: transparent; border: 0; cursor: pointer; font-size: 11px; }
 .advanced-date-range-control { position: relative; min-width: 0; }
+.advanced-date-range-control.open { z-index: 50; }
 .advanced-date-range-display { display: grid; width: 100%; min-height: 35px; grid-template-columns: minmax(0,1fr) 16px minmax(0,1fr) 18px; align-items: center; gap: 4px; padding: 6px 8px; color: #98a2b3; background: #fff; border: 1px solid #e1e5ea; border-radius: 2px; font-size: 12px; text-align: left; cursor: pointer; }
 .advanced-date-range-display:hover, .advanced-date-range-control.open .advanced-date-range-display { border-color: #1594e8; box-shadow: 0 0 0 2px rgba(21,148,232,.1); }
 .advanced-date-range-display > span:not(.advanced-date-range-icon) { min-width: 0; overflow: hidden; white-space: nowrap; }
@@ -676,6 +677,7 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 .advanced-date-range-icon { display: flex; align-items: center; justify-content: flex-end; }
 .advanced-date-range-icon svg { width: 15px; height: 15px; color: #667085; }
 .advanced-date-range-popover { top: auto; right: auto; bottom: calc(100% + 6px); left: 0; }
+.advanced-next-follow-row .advanced-date-range-popover { top: calc(100% + 6px); right: 0; bottom: auto; left: auto; z-index: 51; }
 .advanced-time-grid > label:nth-child(3) .advanced-date-range-popover, .advanced-time-grid > label:nth-child(6) .advanced-date-range-popover { right: 0; left: auto; }
 .customer-list-page .filter-row .field input, .customer-list-page .filter-row .field select { min-height: 31px; padding: 6px 9px; font-size: 12px; }
 .owner-cascade-filter { position: relative; z-index: 35; width: 100%; min-width: 0; }
@@ -1019,7 +1021,7 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 .whiteboard-advanced-modal > header { display: flex; min-height: 54px; align-items: center; justify-content: space-between; padding: 0 22px; border-bottom: 1px solid #edf0f3; }
 .whiteboard-advanced-modal > header h2 { margin: 0; color: #344054; font-size: 16px; font-weight: 500; }
 .whiteboard-advanced-modal > header button { color: #98a2b3; background: transparent; border: 0; font-size: 27px; cursor: pointer; }
-.whiteboard-advanced-body { overflow-y: hidden; padding: 12px 28px 8px; }
+.whiteboard-advanced-body { overflow: visible; padding: 12px 28px 8px; }
 .whiteboard-advanced-body strong { color: #344054; font-size: 12px; font-weight: 500; white-space: nowrap; }
 .whiteboard-advanced-body input, .whiteboard-advanced-body select { width: 100%; min-width: 0; height: 35px; padding: 6px 9px; color: #475467; background: #fff; border: 1px solid #e1e5ea; border-radius: 2px; font-size: 12px; }
 .advanced-wide-row, .advanced-full { display: grid; grid-template-columns: 104px minmax(0,1fr); align-items: center; min-height: 54px; border-bottom: 1px solid #f0f2f5; }
@@ -1028,6 +1030,7 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 .advanced-checks label { display: flex; align-items: center; gap: 6px; color: #475467; font-size: 12px; }
 .advanced-checks input { width: 15px; height: 15px; }
 .advanced-wide-row:has(.advanced-custom-date) { grid-template-columns: 104px minmax(0,1fr) 330px; }
+.advanced-next-follow-row { grid-template-columns: 104px minmax(0,1fr) 330px; }
 .advanced-custom-date { display: flex; align-items: center; justify-content: flex-end; gap: 10px; color: #98a2b3; font-size: 12px; }
 .advanced-custom-date svg { width: 15px; height: 15px; }
 .uncontacted-days-control { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -1157,6 +1160,7 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
   .advanced-profile-grid { grid-template-columns: repeat(2,minmax(150px,1fr)); }
   .advanced-time-grid { grid-template-columns: 1fr 1fr; }
   .advanced-wide-row:has(.advanced-custom-date) { grid-template-columns: 104px minmax(0,1fr); }
+  .advanced-next-follow-row { grid-template-columns: 104px minmax(0,1fr); }
   .advanced-custom-date { grid-column: 2; justify-content: flex-start; padding-bottom: 10px; }
   .uncontacted-days-control { flex-wrap: wrap; }
 }
