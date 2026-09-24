@@ -232,9 +232,12 @@ const state = {
   customerScope: "all",
   customerPage: 1,
   poolCustomerPage: 1,
+  whiteboardCustomerPage: 1,
   customerPageSize: 20,
   customerPageMeta: { page: 0, size: 20, totalElements: 0, totalPages: 1 },
   poolCustomerPageMeta: { page: 0, size: 20, totalElements: 0, totalPages: 1 },
+  whiteboardCustomerPageMeta: { page: 0, size: 20, totalElements: 0, totalPages: 1 },
+  whiteboardCustomers: [],
   poolDeepTalkDuration: "",
   customerSort: { key: "", direction: "" },
   customerHeaderModalOpen: false,
@@ -1242,17 +1245,28 @@ async function refreshCustomerSearchFromApi() {
   const reopenStatusMenu = Boolean(document.querySelector("#levelFilter")?.closest(".status-filter")?.classList.contains("open"));
   const params = new URLSearchParams();
   const isPoolPage = Boolean(document.querySelector(".pool-page"));
-  const pageKey = isPoolPage ? "poolCustomerPage" : "customerPage";
+  const isWhiteboardPage = Boolean(document.querySelector(".whiteboard-page"));
+  if (isWhiteboardPage && !isAdmin()) {
+    state.whiteboardCustomers = [];
+    state.whiteboardCustomerPageMeta = { page: 0, size: state.customerPageSize, totalElements: 0, totalPages: 1 };
+    render();
+    return;
+  }
+  const pageKey = isPoolPage ? "poolCustomerPage" : isWhiteboardPage ? "whiteboardCustomerPage" : "customerPage";
   params.set("page", String(Math.max(0, (state[pageKey] || 1) - 1)));
   params.set("size", String(Math.min(Math.max(state.customerPageSize || 20, 1), 100)));
   if (isPoolPage && state.poolDeepTalkDuration) params.set("deepTalkDuration", state.poolDeepTalkDuration);
+  if (isWhiteboardPage) params.set("whiteboardOnly", "true");
   if (state.customerSearch.trim()) params.set("keyword", state.customerSearch.trim());
-  if (state.customerNameSearch.trim()) params.set("nameKeyword", state.customerNameSearch.trim());
-  if (state.customerStage !== "全部阶段") params.set("stage", state.customerStage);
+  const nameKeyword = isWhiteboardPage ? state.whiteboardNameSearch : state.customerNameSearch;
+  if (nameKeyword.trim()) params.set("nameKeyword", nameKeyword.trim());
+  if (isWhiteboardPage && state.whiteboardStatus !== "全部") params.set("stage", state.whiteboardStatus);
+  else if (!isWhiteboardPage && state.customerStage !== "全部阶段") params.set("stage", state.customerStage);
   if (state.customerLevel !== "全部等级") params.set("level", state.customerLevel);
-  if (state.customerTagFilter === "__none__") params.set("noTag", "true");
-  else if (state.customerTagFilter) params.set("tag", state.customerTagFilter);
-  const ownerNames = customerOwnerSelectionNames(state.customerOwnerSelection);
+  if (isWhiteboardPage && state.whiteboardSelectedTags.length) params.set("tag", state.whiteboardSelectedTags.join(","));
+  else if (!isWhiteboardPage && state.customerTagFilter === "__none__") params.set("noTag", "true");
+  else if (!isWhiteboardPage && state.customerTagFilter) params.set("tag", state.customerTagFilter);
+  const ownerNames = isWhiteboardPage ? [] : customerOwnerSelectionNames(state.customerOwnerSelection);
   if (ownerNames.length) params.set("owner", ownerNames.join(","));
   const collaboratorNames = customerOwnerSelectionNames(state.customerAdvancedCollaboratorSelection);
   const advanced = {
@@ -1291,16 +1305,24 @@ async function refreshCustomerSearchFromApi() {
     nextFollowEnd: state.customerAdvancedDateRanges.nextFollow?.end,
     quickFilter: state.quickFilter !== "全部客户" ? state.quickFilter : "",
     scene: state.customerScene !== "all" ? state.customerScene : "",
-    scope: state.customerScope !== "all" ? state.customerScope : ""
+    scope: !isWhiteboardPage && state.customerScope !== "all" ? state.customerScope : ""
   };
   Object.entries(advanced).forEach(([key, value]) => { if (value != null && String(value).trim()) params.set(key, value); });
   try {
     const endpoint = isPoolPage ? "/customers/pool" : "/customers";
     const pageData = pageContent(await apiRequest(`${endpoint}?${params.toString()}`));
     const normalized = pageData.content.map(normalizeCustomer);
-    if (isPoolPage) state.poolCustomerPageMeta = pageData; else state.customerPageMeta = pageData;
+    if (isPoolPage) state.poolCustomerPageMeta = pageData;
+    else if (isWhiteboardPage) state.whiteboardCustomerPageMeta = pageData;
+    else state.customerPageMeta = pageData;
     state[pageKey] = pageData.page + 1;
-    if (isPoolPage) state.poolCustomers = normalized; else customers = normalized;
+    if (isPoolPage) state.poolCustomers = normalized;
+    else if (isWhiteboardPage) {
+      state.whiteboardCustomers = normalized;
+      customers = [...new Map([...customers, ...normalized].map(customer => [String(customer.id), customer])).values()];
+    } else {
+      customers = [...new Map([...state.whiteboardCustomers, ...normalized].map(customer => [String(customer.id), customer])).values()];
+    }
     render();
     if (reopenStatusMenu) {
       const nextLevelFilter = document.querySelector("#levelFilter");
@@ -1308,6 +1330,13 @@ async function refreshCustomerSearchFromApi() {
       nextLevelFilter?.closest(".status-filter")?.classList.add("open");
     }
   } catch (error) { toast(error.message); }
+}
+
+function refreshVisibleCustomerList() {
+  if (state.view === "customers" && !state.customerDetailId && ["客户列表", "白板列表"].includes(state.customerSection)) {
+    state.whiteboardCustomerPage = state.customerSection === "白板列表" ? state.whiteboardCustomerPage : 1;
+    refreshCustomerSearchFromApi();
+  }
 }
 
 async function refreshTasksFromApi() {
@@ -1473,6 +1502,7 @@ async function hydrateFromApi() {
     state.backendOnline = true;
     updateConnectionStatus("online", "MySQL 数据服务已连接");
     render();
+    refreshVisibleCustomerList();
     checkUpcomingFollowupAlerts();
   } catch (error) {
     if (!state.auth.token) return;
@@ -1639,6 +1669,7 @@ function activateWorkspaceTab(id) {
   saveWorkspaceTabs();
   location.hash = tab.view;
   render();
+  refreshVisibleCustomerList();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -2413,7 +2444,7 @@ function customerHeaderModalView() {
 function customerListView({ isPool = false } = {}) {
   const selectedStatuses = selectedCustomerStatuses();
   const meta = (isPool ? state.poolCustomerPageMeta : state.customerPageMeta) || { page: 0, size: state.customerPageSize, totalElements: 0, totalPages: 1 };
-  const sourceRows = isPool ? state.poolCustomers : customers;
+  const sourceRows = isPool ? state.poolCustomers : customers.filter(customer => customer.owner !== "白板");
   const rows = sortedCustomerRows(sourceRows.filter(customer => {
     if (isPool && !customerMatchesDeepTalkDuration(customer, state.poolDeepTalkDuration)) return false;
     if (!state.customerTagFilter) return true;
@@ -2684,13 +2715,22 @@ function sincereResourceView() {
 function whiteboardListView() {
   const query = state.customerSearch.trim().toLowerCase();
   const nameQuery = state.whiteboardNameSearch.trim().toLowerCase();
-  const rows = filteredCustomers({ includeWhiteboard: true }).filter(customer => {
+  const rows = state.whiteboardCustomers.filter(customer => {
     const matchesQuery = !query || [customer.id, customer.phone, customer.name, customer.company].join(" ").toLowerCase().includes(query);
     const matchesName = !nameQuery || [customer.name, customer.company, customer.remark, customer.notes, customer.nickname].join(" ").toLowerCase().includes(nameQuery);
     const matchesStatus = state.whiteboardStatus === "全部" || (customer.stage || "未激活") === state.whiteboardStatus;
     const matchesTags = !state.whiteboardSelectedTags.length || state.whiteboardSelectedTags.some(tag => (customer.tags || []).includes(tag));
     return customer.owner === "白板" && matchesQuery && matchesName && matchesStatus && matchesTags;
   });
+  const meta = state.whiteboardCustomerPageMeta || { page: 0, size: state.customerPageSize, totalElements: 0, totalPages: 1 };
+  const totalElements = Number(meta.totalElements || 0);
+  const totalPages = Math.max(1, Number(meta.totalPages || 1));
+  const currentPage = Math.min(Math.max(1, Number(meta.page || 0) + 1), totalPages);
+  const pageSize = Number(meta.size || state.customerPageSize || 20);
+  const pageStart = totalElements ? (currentPage - 1) * pageSize + 1 : 0;
+  const pageEnd = rows.length ? Math.min(pageStart + rows.length - 1, totalElements) : 0;
+  const firstPage = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
+  const visiblePages = Array.from({ length: Math.min(totalPages, 5) }, (_, index) => firstPage + index);
   const canAllocate = isAdmin();
   return `<section class="page whiteboard-page">
     ${subnav(["客户列表", "公海列表", "诚意资源", "白板列表", "客户导入"], state.customerSection, ["客户列表", "公海列表", "诚意资源", "白板列表", "客户导入"])}
@@ -2699,10 +2739,10 @@ function whiteboardListView() {
         <div class="whiteboard-filter-row"><span>筛选条件：</span><input id="customerSearch" value="${escapeHtml(state.customerSearch)}" placeholder="ID/手机号"><input placeholder="洗白ID"><input id="whiteboardNameSearch" value="${escapeHtml(state.whiteboardNameSearch)}" placeholder="姓名/昵称/备注"><select id="whiteboardStatusFilter"><option ${state.whiteboardStatus === "全部" ? "selected" : ""}>全部</option><option ${state.whiteboardStatus === "未激活" ? "selected" : ""}>未激活</option><option ${state.whiteboardStatus === "已激活" ? "selected" : ""}>已激活</option></select><input placeholder="请选择客户状态"><button class="text-button" type="button" id="openWhiteboardTags">更多${state.whiteboardSelectedTags.length ? ` (${state.whiteboardSelectedTags.length})` : ""}</button></div>
         <div class="whiteboard-filter-actions"><button class="button primary" id="whiteboardApplyFilters" type="button">查询</button><button class="button secondary" id="whiteboardResetFilters" type="button">重置</button><button class="text-button" id="openWhiteboardAdvanced" type="button">${icon("sliders")}高级筛选</button></div>
       </section>
-      <div class="whiteboard-actions"><button class="button primary" type="button" id="customerAllocate" ${canAllocate ? "" : "disabled"}>${icon("sliders")}资源调配</button><button class="button secondary" type="button">${icon("user-transfer")}转为库存</button><span>共 ${rows.length} 条白板资源${state.selectedCustomerIds.length ? `，已选择 ${state.selectedCustomerIds.length} 条` : ""}</span></div>
+      <div class="whiteboard-actions"><button class="button primary" type="button" id="customerAllocate" ${canAllocate ? "" : "disabled"}>${icon("sliders")}资源调配</button><button class="button secondary" type="button">${icon("user-transfer")}转为库存</button><span>共 ${totalElements} 条白板资源${state.selectedCustomerIds.length ? `，已选择 ${state.selectedCustomerIds.length} 条` : ""}</span></div>
       <section class="whiteboard-table-panel">
         <div class="table-wrap"><table class="data-table whiteboard-table"><thead><tr><th class="select-column"><input id="selectPageCustomers" type="checkbox" aria-label="全选" ${rows.length && rows.every(customer => state.selectedCustomerIds.includes(customer.id)) ? "checked" : ""}></th><th>标注</th><th>ID</th><th>称呼</th><th>性别</th><th>婚况</th><th>年龄</th><th>学历</th><th>收入</th><th>等级</th><th>城市</th><th>职业</th><th>客户状态</th><th>入库时间</th><th>标签</th><th>来源</th></tr></thead><tbody>${rows.map((customer, index) => `<tr data-customer-id="${escapeHtml(customer.id)}"><td class="select-column"><input type="checkbox" data-select-customer="${escapeHtml(customer.id)}" aria-label="选择${escapeHtml(customer.name)}" ${state.selectedCustomerIds.includes(customer.id) ? "checked" : ""} onclick="event.stopPropagation()"></td><td><span class="whiteboard-flag">⚑</span></td><td><button class="table-link" type="button" data-open-customer="${escapeHtml(customer.id)}">${escapeHtml(customer.id)}</button></td><td>${escapeHtml(customer.name || "—")}</td><td>${escapeHtml(customer.gender || "—")}</td><td>${escapeHtml(customer.maritalStatus || "—")}</td><td>${escapeHtml(customer.age || "—")}</td><td>${escapeHtml(customer.education || "—")}</td><td>${escapeHtml(customer.monthlyIncome || "—")}</td><td>${escapeHtml(customer.level || "普通客户")}</td><td>${escapeHtml(customer.city || "—")}</td><td>${escapeHtml(customer.occupation || "—")}</td><td><span class="pill gray">${escapeHtml(customer.stage || "未激活")}</span></td><td>${escapeHtml(String(customer.createdAt || customer.lastContactAt || "—").replace("T", " ").slice(0, 19))}</td><td><button class="whiteboard-add-tag" type="button">+ 增加标签</button></td><td>${escapeHtml(customer.source || "—")}</td></tr>`).join("")}</tbody></table></div>
-        <footer class="pagination"><span>共 ${rows.length} 条</span><button class="page-button" type="button" disabled>‹</button><button class="page-button active" type="button">1</button><button class="page-button" type="button" disabled>›</button><span>20 条/页</span></footer>
+        <footer class="pagination"><span>${pageStart}-${pageEnd} 共 ${totalElements} 条</span><button class="page-button" data-whiteboard-page="${currentPage - 1}" type="button" ${currentPage <= 1 ? "disabled" : ""}>‹</button>${visiblePages.map(page => `<button class="page-button ${page === currentPage ? "active" : ""}" data-whiteboard-page="${page}" type="button">${page}</button>`).join("")}<button class="page-button" data-whiteboard-page="${currentPage + 1}" type="button" ${currentPage >= totalPages ? "disabled" : ""}>›</button><select id="customerPageSize"><option value="20" ${state.customerPageSize===20?"selected":""}>20</option><option value="50" ${state.customerPageSize===50?"selected":""}>50</option><option value="100" ${state.customerPageSize===100?"selected":""}>100</option></select><span>条/页</span></footer>
       </section>
     </div>
     ${state.whiteboardTagModalOpen ? whiteboardTagModalView() : ""}
@@ -2911,7 +2951,7 @@ function customerDetailView(id) {
     const revealable = isContactRevealable(label);
     const revealed = isContactRevealed(label);
     const displayValue = revealed
-      ? item
+      ? (label === "电话号码" ? String(item ?? "").replace(/\s+/g, "") : item)
       : (label === "电话号码" ? maskPhoneDisplay(item) : label === "微信号" ? maskWechatDisplay(item) : item);
     const displayClass = revealed ? "profile-private-value revealed" : "profile-private-value profile-private-mask";
     const actionSubject = label === "电话号码" ? "号码" : "微信号";
@@ -3272,7 +3312,7 @@ async function refreshAssignedCustomers() {
     })) : [];
     const previousCustomers = customers.map(item => `${item.id}:${item.owner}:${item.updatedAt || ""}`).join("|");
     const previousNotifications = state.systemNotifications.map(item => `${item.id}:${item.read ? "1" : "0"}`).join("|");
-    customers = nextCustomers;
+    customers = [...new Map([...state.whiteboardCustomers, ...nextCustomers].map(customer => [String(customer.id), customer])).values()];
     state.systemNotifications = nextSystemNotifications;
     state.systemNotifications.filter(item => item.read).forEach(item => { state.notificationRead[item.id] = true; });
     localStorage.setItem("youai.crm.notificationRead", JSON.stringify(state.notificationRead));
@@ -4031,6 +4071,7 @@ function navigate(view) {
   location.hash = nextView;
   document.querySelector("#primaryNav").classList.remove("open");
   render();
+  refreshVisibleCustomerList();
   document.querySelector("#app").focus({ preventScroll: true });
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -4972,6 +5013,7 @@ function mergeCustomerRecord(saved) {
     ? list.map(item => item.id === normalized.id ? normalized : item)
     : [...list, normalized];
   customers = replace(customers);
+  state.whiteboardCustomers = replace(state.whiteboardCustomers).filter(item => item.owner === "白板");
   state.poolCustomers = replace(state.poolCustomers).filter(item => item.owner === "公海");
   return normalized;
 }
@@ -5710,7 +5752,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-route]").forEach(button => button.addEventListener("click", () => navigate(button.dataset.route)));
   document.querySelectorAll("[data-subnav-value]").forEach(button => button.addEventListener("click", () => {
     if (state.view === "dashboard") { state.dashboardTab = button.dataset.subnavValue; render(); }
-    if (state.view === "customers") { state.customerSection = button.dataset.subnavValue; state.customerDetailId = null; state.importDetailId = null; render(); }
+    if (state.view === "customers") { state.customerSection = button.dataset.subnavValue; state.customerDetailId = null; state.importDetailId = null; state.customerPage = 1; state.whiteboardCustomerPage = 1; render(); refreshVisibleCustomerList(); }
     if (state.view === "tasks") {
       state.taskMode = button.dataset.subnavValue === "日历视图" ? "calendar" : button.dataset.subnavValue === "跟进记录" ? "activity" : "board";
       render();
@@ -5722,7 +5764,7 @@ function bindViewEvents() {
     if (state.view === "analytics") { state.analyticsSection = button.dataset.subnavValue; render(); }
     if (state.view === "finance") { state.financeSection = button.dataset.subnavValue; render(); }
   }));
-  document.querySelectorAll("[data-customer-section]").forEach(button => button.addEventListener("click", () => { state.customerSection = button.dataset.customerSection; render(); }));
+  document.querySelectorAll("[data-customer-section]").forEach(button => button.addEventListener("click", () => { state.customerSection = button.dataset.customerSection; state.customerPage = 1; state.whiteboardCustomerPage = 1; render(); refreshVisibleCustomerList(); }));
   document.querySelectorAll("[data-range] button").forEach(button => button.addEventListener("click", event => {
     state.range = event.currentTarget.textContent;
     render();
@@ -5763,10 +5805,10 @@ function bindViewEvents() {
 
   const customerSearch = document.querySelector("#customerSearch");
   customerSearch?.addEventListener("input", event => { state.customerSearch = event.target.value; });
-  customerSearch?.addEventListener("keydown", event => { if (event.key === "Enter") { state.customerPage = 1; render(); refreshCustomerSearchFromApi(); } });
+  customerSearch?.addEventListener("keydown", event => { if (event.key === "Enter") { state.customerPage = 1; state.whiteboardCustomerPage = 1; render(); refreshCustomerSearchFromApi(); } });
   document.querySelector("#whiteboardNameSearch")?.addEventListener("input", event => { state.whiteboardNameSearch = event.target.value; });
-  document.querySelector("#whiteboardNameSearch")?.addEventListener("keydown", event => { if (event.key === "Enter") render(); });
-  document.querySelector("#whiteboardStatusFilter")?.addEventListener("change", event => { state.whiteboardStatus = event.target.value; render(); });
+  document.querySelector("#whiteboardNameSearch")?.addEventListener("keydown", event => { if (event.key === "Enter") { state.whiteboardCustomerPage = 1; render(); refreshCustomerSearchFromApi(); } });
+  document.querySelector("#whiteboardStatusFilter")?.addEventListener("change", event => { state.whiteboardStatus = event.target.value; state.whiteboardCustomerPage = 1; render(); refreshCustomerSearchFromApi(); });
   const customerNameSearch = document.querySelector("#customerNameSearch");
   customerNameSearch?.addEventListener("input", event => { state.customerNameSearch = event.target.value; });
   customerNameSearch?.addEventListener("keydown", event => { if (event.key === "Enter") { state.customerPage = 1; state.poolCustomerPage = 1; render(); refreshCustomerSearchFromApi(); } });
@@ -5803,6 +5845,11 @@ function bindViewEvents() {
     const nextLevelFilter = document.querySelector("#levelFilter");
     nextLevelFilter?.focus({ preventScroll: true });
     nextLevelFilter?.closest(".status-filter")?.classList.add("open");
+    refreshCustomerSearchFromApi();
+  }));
+  document.querySelectorAll("[data-whiteboard-page]").forEach(button => button.addEventListener("click", () => {
+    if (button.disabled) return;
+    state.whiteboardCustomerPage = Math.max(1, Number(button.dataset.whiteboardPage));
     refreshCustomerSearchFromApi();
   }));
   document.querySelectorAll(".customer-list-page [data-customer-status]").forEach(button => button.addEventListener("click", event => {
@@ -6296,8 +6343,8 @@ function bindViewEvents() {
     if (!state.customerAdvancedOpen) return;
     state[key] = event.target.value;
   }));
-  document.querySelector("#whiteboardApplyFilters")?.addEventListener("click", () => render());
-  document.querySelector("#whiteboardResetFilters")?.addEventListener("click", () => { state.customerSearch = ""; state.whiteboardNameSearch = ""; state.whiteboardStatus = "全部"; state.whiteboardSelectedTags = []; render(); });
+  document.querySelector("#whiteboardApplyFilters")?.addEventListener("click", () => { state.whiteboardCustomerPage = 1; render(); refreshCustomerSearchFromApi(); });
+  document.querySelector("#whiteboardResetFilters")?.addEventListener("click", () => { state.customerSearch = ""; state.whiteboardNameSearch = ""; state.whiteboardStatus = "全部"; state.whiteboardSelectedTags = []; state.whiteboardCustomerPage = 1; render(); refreshCustomerSearchFromApi(); });
   document.querySelector("#openInventoryTags")?.addEventListener("click", () => { state.whiteboardTagModalOpen = true; render(); });
   document.querySelector("#openInventoryAdvanced")?.addEventListener("click", () => { state.whiteboardAdvancedOpen = true; render(); });
   document.querySelector("#openServiceAdvanced")?.addEventListener("click", () => { state.serviceAdvancedOpen = true; render(); });
@@ -6383,6 +6430,7 @@ function bindViewEvents() {
     state.customerTagFilter = state.customerTagFilter === button.dataset.customerTag ? "" : button.dataset.customerTag;
     state.customerPage = 1;
     state.poolCustomerPage = 1;
+    state.whiteboardCustomerPage = 1;
     refreshCustomerSearchFromApi();
   }));
   document.querySelectorAll("[data-customer-scope]").forEach(button => button.addEventListener("click", () => { state.customerScope = button.dataset.customerScope; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));

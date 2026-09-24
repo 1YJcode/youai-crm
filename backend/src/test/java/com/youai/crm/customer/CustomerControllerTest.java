@@ -132,6 +132,38 @@ class CustomerControllerTest {
 
     @Test
     @WithMockUser(username = "admin", roles = "ADMIN")
+    void keepsWhiteboardCustomersOutOfCustomerListAndInWhiteboardList() throws Exception {
+        String marker = "白板隔离测试" + System.nanoTime();
+        String phoneSuffix = String.format("%08d", Math.abs(System.nanoTime() % 100_000_000L));
+        String assignedBody = "{\"name\":\"" + marker + "-销售\",\"phone\":\"138" + phoneSuffix
+                + "\",\"source\":\"测试\",\"owner\":\"林夕\"}";
+        String whiteboardBody = "{\"name\":\"" + marker + "-白板\",\"phone\":\"139" + phoneSuffix
+                + "\",\"source\":\"测试\",\"owner\":\"白板\"}";
+
+        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(assignedBody))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(whiteboardBody))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/customers").param("keyword", marker))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].owner").value("林夕"));
+        mockMvc.perform(get("/api/customers").param("keyword", marker).param("whiteboardOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].owner").value("白板"));
+    }
+
+    @Test
+    @WithMockUser(username = "linxi", roles = "SALES")
+    void salesCannotQueryUnassignedWhiteboardCustomers() throws Exception {
+        mockMvc.perform(get("/api/customers").param("whiteboardOnly", "true"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
     void duplicateRegistrationIncrementsCountAndCreatesSystemEvent() throws Exception {
         String body = """
                 {

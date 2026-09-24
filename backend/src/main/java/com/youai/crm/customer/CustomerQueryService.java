@@ -16,6 +16,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +27,7 @@ import org.springframework.util.StringUtils;
 public class CustomerQueryService {
 
     private static final String PUBLIC_POOL = "\u516c\u6d77";
+    private static final String WHITEBOARD = "\u767d\u677f";
     private final CustomerRepository repository;
     private final CallRecordRepository callRecordRepository;
     private final AccessPolicy accessPolicy;
@@ -49,9 +51,16 @@ public class CustomerQueryService {
         accessPolicy.scopedOwner(authentication);
         boolean admin = accessPolicy.isAdmin(authentication);
         Map<String, String> queryValues = advanced == null ? Map.of() : advanced;
+        boolean whiteboardOnly = Boolean.parseBoolean(queryValues.get("whiteboardOnly"));
+        if (whiteboardOnly && !admin) {
+            throw new AccessDeniedException("Only administrators can view unassigned whiteboard customers");
+        }
         Pageable safePageable = safePageable(pageable, Sort.by(Sort.Direction.DESC, "id"));
         org.springframework.data.jpa.domain.Specification<Customer> specification = (root, query, builder) -> {
             List<Predicate> predicates = new java.util.ArrayList<>();
+            predicates.add(whiteboardOnly
+                    ? builder.equal(root.get("owner"), WHITEBOARD)
+                    : builder.notEqual(root.get("owner"), WHITEBOARD));
             if (StringUtils.hasText(keyword)) {
                 String like = "%" + keyword.trim() + "%";
                 predicates.add(builder.or(builder.like(root.get("name"), like),
@@ -61,6 +70,7 @@ public class CustomerQueryService {
             if (StringUtils.hasText(queryValues.get("nameKeyword"))) {
                 String like = "%" + queryValues.get("nameKeyword").trim().toLowerCase() + "%";
                 predicates.add(builder.or(builder.like(builder.lower(root.get("name")), like),
+                        builder.like(builder.lower(root.get("company")), like),
                         builder.like(builder.lower(root.get("note")), like),
                         builder.like(builder.lower(root.get("remark")), like)));
             }
@@ -153,7 +163,12 @@ public class CustomerQueryService {
         }
         if (StringUtils.hasText(tag)) {
             query.distinct(true);
-            predicates.add(builder.equal(root.join("tags"), tag.trim()));
+            List<String> tags = splitValues(tag);
+            if (!tags.isEmpty()) {
+                var tagMatches = builder.in(root.join("tags"));
+                tags.forEach(tagMatches::value);
+                predicates.add(tagMatches);
+            }
         }
         if ("true".equalsIgnoreCase(values.get("noTag"))) {
             predicates.add(builder.isEmpty(root.get("tags")));
