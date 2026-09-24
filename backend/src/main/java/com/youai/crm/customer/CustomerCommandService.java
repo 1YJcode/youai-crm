@@ -80,6 +80,8 @@ public class CustomerCommandService {
         String previousOwner = customer.getOwner();
         apply(customer, request, authentication);
         if (!accessPolicy.isAdmin(authentication)) customer.setOwner(accessPolicy.currentOwner(authentication));
+        if (!PUBLIC_POOL.equals(previousOwner) && PUBLIC_POOL.equals(customer.getOwner())) customer.setPoolEntryType("主动放弃");
+        else if (!PUBLIC_POOL.equals(customer.getOwner())) customer.setPoolEntryType(null);
         if (StringUtils.hasText(request.stage())) customer.setStage(request.stage());
         if (request.tags() != null) customer.setTags(request.tags());
         Customer saved = repository.save(customer);

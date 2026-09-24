@@ -14,8 +14,8 @@ public interface CustomerRepository extends JpaRepository<Customer, Long>, JpaSp
     Optional<Customer> findByPhone(String phone);
     long countByOwner(String owner);
     List<Customer> findAllByOwner(String owner);
-    List<Customer> findAllByOwnerNotAndLastContactAtLessThanEqual(String owner, LocalDateTime cutoff);
-    List<Customer> findAllByOwnerNotAndLastContactAtIsNullAndCreatedAtLessThanEqual(String owner, LocalDateTime cutoff);
+    List<Customer> findAllByOwnerNotAndLastContactAtLessThan(String owner, LocalDateTime cutoff);
+    List<Customer> findAllByOwnerNotAndLastContactAtIsNullAndCreatedAtLessThan(String owner, LocalDateTime cutoff);
 
     @Query("select count(c) from Customer c where (:owner is null or c.owner = :owner)")
     long countForDashboard(@Param("owner") String owner);
