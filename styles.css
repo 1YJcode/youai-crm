@@ -1935,7 +1935,6 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 .login-form .button { width: 100%; min-height: 42px; margin-top: 3px; }
 .auth-switch { display: block; margin: 15px auto 0; padding: 5px; color: var(--primary); background: transparent; border: 0; font-size: 12px; cursor: pointer; }
 .auth-switch:hover { text-decoration: underline; }
-.demo-account { margin: 8px 0 0; color: #98a2b3; font-size: 10px; text-align: center; }
 .register-panel { width: min(460px, 100%); }
 .login-error { margin: -4px 0 -2px; color: var(--red); font-size: 12px; }
 .login-hint { display: grid; grid-template-columns: auto 1fr; gap: 7px 11px; margin-top: 25px; padding-top: 17px; color: var(--muted); border-top: 1px solid var(--line); font-size: 11px; }

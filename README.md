@@ -12,16 +12,13 @@
 
 `run-frontend.ps1` 会优先使用 Python；如果系统没有 Python，会自动使用项目内置的 PowerShell 静态服务器。
 
-首次进入会显示登录页。演示账号：
-
-- 管理员：`admin` / `Admin@123`
-- 销售账号：`linxi` / `Linxi@123`
+首次进入会显示登录页。管理员账号由部署时的 `INITIAL_ADMIN_PASSWORD` 配置初始化，密码不会写入前端代码或页面。员工可使用管理员创建的账号，或使用员工绑定的手机号和密码登录。
 
 管理员登录后，点击右上角账号菜单中的“切换账号”即可切换到其他启用账号；销售账号可通过“退出登录”返回登录页，再登录其他账号。
 
 数据权限按角色隔离：管理员可以查看和维护全部业务数据，销售账号只能查看和维护负责人为本人的客户、任务、订单及工作台统计；销售提交其他负责人时，后端会自动归属到当前账号。
 
-默认开发数据库为 `youai_crm`，连接 `127.0.0.1:3306`。数据库账号可通过环境变量 `DB_USERNAME` 和 `DB_PASSWORD` 覆盖。
+默认开发数据库为 `youai_crm`，连接 `127.0.0.1:3306`。数据库账号可通过环境变量 `DB_USERNAME` 和 `DB_PASSWORD` 覆盖。首次使用空数据库时，请先设置 `INITIAL_ADMIN_PASSWORD`；已有管理员账号不会被启动脚本覆盖。
 
 后端默认运行在 `http://127.0.0.1:8080`。首次启动会自动执行 Flyway 数据库迁移并写入少量演示数据；生产环境请通过环境变量覆盖默认数据库密码。
 
@@ -81,7 +78,7 @@ docker compose -f docker-compose.yml -f docker-compose.host-mysql.yml up -d back
 
 该模式不会启动 Compose 内置 MySQL，后端通过 `host.docker.internal:3307` 连接现有数据库。
 
-如需修改密码或端口，可在执行命令前设置 `MYSQL_ROOT_PASSWORD`、`MYSQL_HOST_PORT`、`BACKEND_HOST_PORT` 和 `FRONTEND_HOST_PORT` 环境变量。生产环境必须修改 `JWT_SECRET`。
+如需修改密码或端口，可在执行命令前设置 `MYSQL_ROOT_PASSWORD`、`INITIAL_ADMIN_PASSWORD`、`MYSQL_HOST_PORT`、`BACKEND_HOST_PORT` 和 `FRONTEND_HOST_PORT` 环境变量。生产环境必须修改 `JWT_SECRET`。
 
 ### 生产环境配置
 
@@ -92,6 +89,7 @@ $env:SPRING_PROFILES_ACTIVE = 'prod'
 $env:DB_URL = 'jdbc:mysql://db-host:3306/youai_crm?useSSL=true'
 $env:DB_USERNAME = 'youke_app'
 $env:DB_PASSWORD = '<strong-database-password>'
+$env:INITIAL_ADMIN_PASSWORD = '<strong-initial-admin-password>'
 $env:JWT_SECRET = '<at-least-32-random-characters>'
 ```
 

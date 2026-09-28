@@ -47,6 +47,7 @@ logging:
     org.hibernate.SQL: WARN
 
 security:
+  initial-admin-password: ${INITIAL_ADMIN_PASSWORD:}
   login:
     ip-max-attempts: ${LOGIN_IP_MAX_ATTEMPTS:30}
     ip-window-seconds: ${LOGIN_IP_WINDOW_SECONDS:60}

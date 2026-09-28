@@ -8,6 +8,7 @@ import com.youai.crm.account.Department;
 import com.youai.crm.account.DepartmentRepository;
 import com.youai.crm.account.Role;
 import com.youai.crm.account.RoleRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,7 +24,8 @@ public class UserDataSeeder {
             DepartmentRepository departmentRepository,
             RoleRepository roleRepository,
             CrmUserRepository userRepository,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            @Value("${security.initial-admin-password:}") String initialAdminPassword) {
         return args -> {
             Department adminDepartment = departmentRepository.findByCode("ADMIN")
                     .orElseGet(() -> departmentRepository.save(department("ADMIN", "管理中心")));
@@ -43,73 +45,18 @@ public class UserDataSeeder {
 
             CrmUser adminUser = userRepository.findByUsernameIgnoreCase("admin").orElse(null);
             if (adminUser == null) {
-                adminUser = user("admin", "Admin@123", "赵娣", "13800000001", adminDepartment, Set.of(adminRole), passwordEncoder);
+                if (initialAdminPassword.isBlank()) {
+                    throw new IllegalStateException("未配置 INITIAL_ADMIN_PASSWORD，无法初始化管理员账号");
+                }
+                adminUser = user("admin", initialAdminPassword, "赵娣", "13800000001", adminDepartment, Set.of(adminRole), passwordEncoder);
                 userRepository.save(adminUser);
             } else if (!"赵娣".equals(adminUser.getDisplayName())) {
                 adminUser.setDisplayName("赵娣");
                 userRepository.save(adminUser);
             }
-            ensureUser(userRepository, "admin2", "Admin2@123", "系统管理员2", "13800000004", adminDepartment, Set.of(adminRole), passwordEncoder);
-            ensureUser(userRepository, "linxi", "Linxi@123", "林夕", "13800000002", salesDepartment, Set.of(salesRole), passwordEncoder);
-            ensureUser(userRepository, "chenchen", "Sales@123", "陈晨", "13800000005", salesDepartment, Set.of(salesRole), passwordEncoder);
-            ensureUser(userRepository, "zhouqian", "Sales@123", "周倩", "13800000006", salesDepartment, Set.of(salesRole), passwordEncoder);
-            ensureUser(userRepository, "zhaolei", "Sales@123", "赵磊", "13800000007", salesDepartment, Set.of(salesRole), passwordEncoder);
-            disableDuplicateAccount(userRepository, "yuanjiang", "元江");
-            ensureUserWithDisplayName(userRepository, "yuanjiang", "Sales@123", "元江", "13800000008", salesDepartment, Set.of(salesRole), passwordEncoder);
+            // Employee accounts are created by an administrator. Do not seed shared
+            // demo credentials that could be reused in another environment.
         };
-    }
-
-    private void ensureUser(
-            CrmUserRepository repository,
-            String username,
-            String password,
-            String displayName,
-            String phone,
-            Department department,
-            Set<Role> roles,
-            PasswordEncoder passwordEncoder) {
-        if (repository.findByUsernameIgnoreCase(username).isEmpty()) {
-            repository.save(user(username, password, displayName, phone, department, roles, passwordEncoder));
-        }
-    }
-
-    private void ensureUserWithDisplayName(
-            CrmUserRepository repository,
-            String username,
-            String password,
-            String displayName,
-            String phone,
-            Department department,
-            Set<Role> roles,
-            PasswordEncoder passwordEncoder) {
-        // A legacy or intentionally frozen account may already exist under the
-        // requested username. Do not try to insert it again (the username is
-        // unique), and never re-enable it as a side effect of startup seeding.
-        CrmUser existingByUsername = repository.findByUsernameIgnoreCase(username).orElse(null);
-        if (existingByUsername != null) {
-            if (!displayName.equals(existingByUsername.getDisplayName())) {
-                existingByUsername.setDisplayName(displayName);
-                repository.save(existingByUsername);
-            }
-            return;
-        }
-        boolean exists = repository.findAllByEnabledTrueOrderByDisplayNameAsc().stream()
-                .anyMatch(existing -> displayName.equals(existing.getDisplayName()));
-        if (!exists) {
-            repository.save(user(username, password, displayName, phone, department, roles, passwordEncoder));
-        }
-    }
-
-    private void disableDuplicateAccount(CrmUserRepository repository, String username, String displayName) {
-        repository.findByUsernameIgnoreCase(username).ifPresent(candidate -> {
-            boolean anotherAccountExists = repository.findAllByEnabledTrueOrderByDisplayNameAsc().stream()
-                    .anyMatch(existing -> !existing.getUsername().equalsIgnoreCase(username)
-                            && displayName.equals(existing.getDisplayName()));
-            if (anotherAccountExists && candidate.isEnabled()) {
-                candidate.setEnabled(false);
-                repository.save(candidate);
-            }
-        });
     }
 
     private Department department(String code, String name) {

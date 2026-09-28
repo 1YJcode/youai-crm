@@ -12,6 +12,7 @@ spring:
       ddl-auto: create-drop
 
 security:
+  initial-admin-password: Admin@123
   jwt:
     secret: test-secret-at-least-32-bytes-long-for-jwt
     access-ttl-hours: 2
