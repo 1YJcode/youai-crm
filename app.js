@@ -260,6 +260,7 @@ const state = {
   whiteboardStatus: "全部",
   whiteboardAdvancedOpen: false,
   customerAdvancedOpen: false,
+  customerType: "",
   customerAdvancedDraftCustomerType: "",
   customerAdvancedDraftStatus: "",
   customerAdvancedDraftStatusSelection: [],
@@ -1460,7 +1461,7 @@ async function refreshCustomerSearchFromApi() {
   if (ownerNames.length) params.set("owner", ownerNames.join(","));
   const collaboratorNames = customerOwnerSelectionNames(state.customerAdvancedCollaboratorSelection);
   const advanced = {
-    customerType: state.customerAdvancedDraftCustomerType,
+    customerType: state.customerType,
     customerStatus: selectedCustomerStatuses().join(","),
     levels: state.customerAdvancedLevels.join(","),
     gender: state.customerGender !== "all" ? state.customerGender : "",
@@ -1492,8 +1493,11 @@ async function refreshCustomerSearchFromApi() {
     firstAllocationEnd: state.customerAdvancedDateRanges.firstAllocation?.end,
     lastFollowUpStart: state.customerAdvancedDateRanges.lastFollowUp?.start,
     lastFollowUpEnd: state.customerAdvancedDateRanges.lastFollowUp?.end,
+    lastLoginStart: state.customerAdvancedDateRanges.lastLogin?.start,
+    lastLoginEnd: state.customerAdvancedDateRanges.lastLogin?.end,
     nextFollowStart: state.customerAdvancedDateRanges.nextFollow?.start,
     nextFollowEnd: state.customerAdvancedDateRanges.nextFollow?.end,
+    avatar: state.customerAvatarFilter !== "all" ? state.customerAvatarFilter : "",
     quickFilter: state.quickFilter !== "全部客户" ? state.quickFilter : "",
     scene: state.customerScene !== "all" ? state.customerScene : "",
     scope: !isWhiteboardPage && state.customerScope !== "all" ? state.customerScope : ""
@@ -2713,7 +2717,10 @@ const customerImportDetailColumns = [
   { key: "housing", label: "住房" },
   { key: "car", label: "购车" },
   { key: "nativePlace", label: "籍贯" },
-  { key: "workLocation", label: "工作地" }
+  { key: "workLocation", label: "工作地" },
+  { key: "customerType", label: "客户类型" },
+  { key: "lastLoginAt", label: "最近登录时间" },
+  { key: "avatarUrl", label: "头像地址" }
 ];
 
 function importHistoryRecord(id) {
@@ -3012,7 +3019,7 @@ function whiteboardAdvancedFilterView({ isPool = false } = {}) {
     <header><h2>高级筛选</h2><button type="button" id="closeWhiteboardAdvanced" aria-label="关闭">×</button></header>
     <div class="whiteboard-advanced-body">
       <div class="advanced-wide-row"><strong>客户等级：</strong><div class="advanced-checks">${levelChecks}</div></div>
-      <label class="advanced-full"><strong>客户类型：</strong><span class="advanced-unavailable">暂无独立客户类型字段</span></label>
+      <label class="advanced-full"><strong>客户类型：</strong><select id="customerTypeFilter"><option value="" ${!state.customerAdvancedDraftCustomerType ? "selected" : ""}>全部</option><option value="会员" ${state.customerAdvancedDraftCustomerType === "会员" ? "selected" : ""}>会员</option><option value="非会员" ${state.customerAdvancedDraftCustomerType === "非会员" ? "selected" : ""}>非会员</option><option value="__unknown__" ${state.customerAdvancedDraftCustomerType === "__unknown__" ? "selected" : ""}>未知</option></select></label>
       <label class="advanced-full"><strong>客户状态：</strong><select id="customerAdvancedStatusFilter"><option value="" ${!state.customerAdvancedDraftStatus ? "selected" : ""}>全部</option>${customerStatusOptions.map(option => `<option value="${escapeHtml(option)}" ${state.customerAdvancedDraftStatus === option ? "selected" : ""}>${option}</option>`).join("")}</select></label>
       <div class="advanced-wide-row${isPool ? " advanced-next-follow-row" : ""}"><strong>下次跟进时间：</strong><div class="advanced-checks">${["今天", "明天", "本周", "下周", "本月", "下月"].map(item => `<label><input type="checkbox" data-customer-next-follow-preset="${escapeHtml(item)}" ${state.customerAdvancedDraftNextFollowPreset === item ? "checked" : ""}>${item}</label>`).join("")}</div>${dates("nextFollow", { customDate: isPool })}</div>
       <div class="advanced-two-column"><label><strong>未联系天数：</strong><div class="uncontacted-days-control">${uncontactedDaysSelect}${customUncontactedDays}</div></label><label><strong>会员来源：</strong><input id="customerSourceFilter" value="${escapeHtml(state.customerAdvancedDraftSource)}" placeholder="请输入会员来源"></label></div>
@@ -3022,7 +3029,7 @@ function whiteboardAdvancedFilterView({ isPool = false } = {}) {
         <label><span>职业：</span><input id="customerOccupationFilter" value="${escapeHtml(state.customerAdvancedDraftOccupation)}" placeholder="请输入"></label><label><span>购车：</span><input id="customerCarFilter" value="${escapeHtml(state.customerAdvancedDraftCar)}" placeholder="请输入"></label><label><span>购房：</span><input id="customerHousingFilter" value="${escapeHtml(state.customerAdvancedDraftHousing)}" placeholder="请输入"></label><label><span>性格：</span><input id="customerPersonalityFilter" value="${escapeHtml(state.customerAdvancedDraftPersonality)}" placeholder="请输入"></label>
         <label><span>兴趣爱好：</span><input id="customerInterestFilter" value="${escapeHtml(state.customerAdvancedDraftInterest)}" placeholder="请输入"></label>
       </div></section>
-      <div class="advanced-time-grid"><label><strong>客户注册时间：</strong>${dates("registration")}</label><label><strong>最近登录时间：</strong><span class="advanced-unavailable">暂无登录时间字段</span></label><label><strong>首次分配时间：</strong>${dates("firstAllocation")}</label><label><strong>${ownerLabel}：</strong>${ownerCascade}</label><label><strong>协作人：</strong>${collaboratorCascade}</label><label><strong>最后跟进时间：</strong>${dates("lastFollowUp")}</label><label class="advanced-note"><strong>备注信息：</strong><input id="customerNoteFilter" value="${escapeHtml(state.customerAdvancedDraftNote)}" placeholder="请输入"></label><label><strong>有无头像：</strong><span class="advanced-unavailable">暂无头像字段</span></label><label><strong>入海类型：</strong>${poolEntryTypeSelect}</label></div>
+      <div class="advanced-time-grid"><label><strong>客户注册时间：</strong>${dates("registration")}</label><label><strong>最近登录时间：</strong>${dates("lastLogin")}</label><label><strong>首次分配时间：</strong>${dates("firstAllocation")}</label><label><strong>${ownerLabel}：</strong>${ownerCascade}</label><label><strong>协作人：</strong>${collaboratorCascade}</label><label><strong>最后跟进时间：</strong>${dates("lastFollowUp")}</label><label class="advanced-note"><strong>备注信息：</strong><input id="customerNoteFilter" value="${escapeHtml(state.customerAdvancedDraftNote)}" placeholder="请输入"></label><label><strong>有无头像：</strong>${avatarSelect}</label><label><strong>入海类型：</strong>${poolEntryTypeSelect}</label></div>
     </div>
     <footer><button class="button secondary" id="cancelWhiteboardAdvanced" type="button">取消</button><button class="button primary" id="queryWhiteboardAdvanced" type="button">查询</button></footer>
   </section></div>`;
@@ -3292,7 +3299,7 @@ function callRecordsView() {
     <label><b>ID/手机号：</b><input id="callKeyword" value="${escapeHtml(state.callKeyword)}" placeholder="请输入用户Id或者手机号"></label><label><b>昵称/姓名：</b><input id="callNameKeyword" value="${escapeHtml(state.callNameKeyword)}" placeholder="请输入用户昵称或姓名"></label><label><b>呼出时间：</b><span class="call-date-range"><input type="date" aria-label="开始日期"><i>→</i><input type="date" aria-label="结束日期"></span></label>
     <label><b>处理人：</b><select id="callAgentFilter"><option value="全部坐席">请选择</option>${agents.map(agent => `<option ${agent === state.callAgentFilter ? "selected" : ""}>${escapeHtml(agent)}</option>`).join("")}</select></label><label><b>呼叫类型：</b><select id="callDirectionFilter"><option>全部</option><option ${state.callDirectionFilter === "呼出" ? "selected" : ""}>呼出</option><option ${state.callDirectionFilter === "呼入" ? "selected" : ""}>呼入</option></select></label><label><b>通话状态：</b><select id="callStatusFilter"><option>全部</option><option ${state.callStatusFilter === "已接通" ? "selected" : ""}>已接通</option><option ${state.callStatusFilter === "未接通" ? "selected" : ""}>未接通</option><option ${state.callStatusFilter === "待回拨" ? "selected" : ""}>待回拨</option></select></label>
     <label><b>呼叫时长：</b><select><option>请选择</option></select></label><label><b>通话时长：</b><select><option>请选择</option></select></label><div class="call-filter-actions"><button class="button primary" id="applyCallFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCallFilters" type="button">${icon("repeat")}重置</button></div>
-  </section><section class="call-record-panel"><div class="call-record-tools"><label>AI分析展开预览 <input id="callAiPreview" type="checkbox" ${state.callAiPreview ? "checked" : ""}><span></span></label><button class="button primary" type="button">通话相关数据</button></div><div class="table-wrap"><table class="call-record-table"><thead><tr><th>用户ID</th><th>真实姓名</th><th>呼出时间</th><th>呼叫类型</th><th>处理人</th><th>中间号码</th><th>通话状态</th><th>呼叫时长</th><th>通话时长 ↕</th><th>AI分析状态 ◉</th><th>操作</th></tr></thead><tbody>${records.map(call => `<tr><td><button class="call-id-link">${escapeHtml((call.customerId || String(call.id)).replace(/\D/g, "").slice(-10) || String(call.id))}</button></td><td>${escapeHtml(call.customer || "-")}</td><td>${escapeHtml(call.started || "-")}</td><td>${escapeHtml(call.direction || "-")}</td><td>${escapeHtml(call.agent || call.owner || "-")}</td><td>99915400${String(call.id).slice(-1)}</td><td>${call.status === "未接通" ? "客户未接听" : escapeHtml(call.status || "-")}</td><td>${formatDuration(call.durationSeconds || 0)}</td><td>${call.status === "已接通" ? formatDuration(call.durationSeconds || 0) : "00:00"}</td><td>• ${state.callAiPreview ? "分析完成" : "不分析"}</td><td>${call.recording ? "查看录音" : "无录音"}</td></tr>`).join("") || `<tr><td colspan="11" class="call-empty">暂无通话记录</td></tr>`}</tbody></table></div><footer class="call-pagination"><span>${pageStart}-${pageEnd} 共${totalElements}条</span><button data-call-page="${currentPage - 1}" ${currentPage <= 1 ? "disabled" : ""}>‹</button>${visiblePages.map(page => `<button data-call-page="${page}" class="${page === currentPage ? "active" : ""}">${page}</button>`).join("")}<button data-call-page="${currentPage + 1}" ${currentPage >= totalPages ? "disabled" : ""}>›</button><select id="callPageSize"><option value="10" ${state.callPageSize===10?"selected":""}>10 条/页</option><option value="20" ${state.callPageSize===20?"selected":""}>20 条/页</option><option value="50" ${state.callPageSize===50?"selected":""}>50 条/页</option><option value="100" ${state.callPageSize===100?"selected":""}>100 条/页</option></select></footer></section><footer class="call-copyright">版权所有：爱乐云科技有限公司 京ICP备2021032120号</footer>
+  </section><section class="call-record-panel"><div class="call-record-tools"><label>AI分析展开预览 <input id="callAiPreview" type="checkbox" ${state.callAiPreview ? "checked" : ""}><span></span></label><button class="button primary" type="button">通话相关数据</button></div><div class="table-wrap"><table class="call-record-table"><thead><tr><th>用户ID</th><th>真实姓名</th><th>呼出时间</th><th>呼叫类型</th><th>处理人</th><th>中间号码</th><th>通话状态</th><th>呼叫时长</th><th>通话时长 ↕</th><th>AI分析状态 ◉</th><th>操作</th></tr></thead><tbody>${records.map(call => `<tr><td><button class="call-id-link">${escapeHtml((call.customerId || String(call.id)).replace(/\D/g, "").slice(-10) || String(call.id))}</button></td><td>${escapeHtml(call.customer || "-")}</td><td>${escapeHtml(call.started || "-")}</td><td>${escapeHtml(call.direction || "-")}</td><td>${escapeHtml(call.agent || call.owner || "-")}</td><td>99915400${String(call.id).slice(-1)}</td><td>${call.status === "未接通" ? "客户未接听" : escapeHtml(call.status || "-")}</td><td>${formatDuration(call.durationSeconds || 0)}</td><td>${call.status === "已接通" ? formatDuration(call.durationSeconds || 0) : "00:00"}</td><td>• ${state.callAiPreview ? "分析完成" : "不分析"}</td><td>${call.recording ? "查看录音" : "无录音"}</td></tr>`).join("") || `<tr><td colspan="11" class="call-empty">暂无通话记录</td></tr>`}</tbody></table></div><footer class="call-pagination"><span>${pageStart}-${pageEnd} 共${totalElements}条</span><button data-call-page="${currentPage - 1}" ${currentPage <= 1 ? "disabled" : ""}>‹</button>${visiblePages.map(page => `<button data-call-page="${page}" class="${page === currentPage ? "active" : ""}">${page}</button>`).join("")}<button data-call-page="${currentPage + 1}" ${currentPage >= totalPages ? "disabled" : ""}>›</button><select id="callPageSize"><option value="10" ${state.callPageSize===10?"selected":""}>10 条/页</option><option value="20" ${state.callPageSize===20?"selected":""}>20 条/页</option><option value="50" ${state.callPageSize===50?"selected":""}>50 条/页</option><option value="100" ${state.callPageSize===100?"selected":""}>100 条/页</option></select></footer></section>
   </div></section>`;
 }
 
@@ -3572,7 +3579,8 @@ function updateNotificationChrome() {
     badge.textContent = String(unreadCount);
     badge.hidden = unreadCount === 0;
   }
-  popover.innerHTML = `<div class="popover-title"><span>最新通知${unread.length ? ` · ${unread.length} 条未读` : ""}</span><button type="button" id="readNotifications" ${unread.length ? "" : "disabled"}>全部已读</button></div>${rows.slice(0, 4).map(row => `<button class="notification-item ${state.notificationRead[row.id] ? "read" : ""}" type="button" data-popover-notification="${escapeHtml(row.id)}"><span class="notification-icon">${icon(row.taskId ? "task" : row.conversationId ? "message" : row.customerId ? "phone" : "users")}</span><div><p>${escapeHtml(row.title)}</p><time>${escapeHtml(row.detail)} · ${escapeHtml(formatRelativeDate(row.at))}</time></div></button>`).join("") || `<div class="notification-empty">暂无待处理通知</div>`}<button class="popover-more" type="button" data-open-notification-center>查看全部通知</button>`;
+  const notificationItems = rows.slice(0, 3).map(row => `<button class="notification-item ${state.notificationRead[row.id] ? "read" : ""}" type="button" data-popover-notification="${escapeHtml(row.id)}"><span class="notification-icon">${icon(row.taskId ? "task" : row.conversationId ? "message" : row.customerId ? "phone" : "users")}</span><div><p>${escapeHtml(row.title)}</p><time>${escapeHtml(row.detail)} · ${escapeHtml(formatRelativeDate(row.at))}</time></div></button>`).join("");
+  popover.innerHTML = `<div class="popover-title"><span>最新通知${unread.length ? ` · ${unread.length} 条未读` : ""}</span><button type="button" id="readNotifications" ${unread.length ? "" : "disabled"}>全部已读</button></div>${notificationItems || `<div class="notification-empty">暂无待处理通知</div>`}<button class="popover-more" type="button" data-open-notification-center>查看全部通知</button>`;
 }
 
 async function persistNotificationRead(ids, read) {
@@ -4296,10 +4304,11 @@ function openModal(customer = null) {
   field("customerId").value = customer?.id || "";
   document.querySelector("#modalTitle").textContent = customer ? "编辑客户" : "创建客户";
   if (customer) {
-    const profileFields = ["name", "company", "source", "level", "owner", "stage", "amount", "city", "gender", "birthday", "age", "height", "maritalStatus", "education", "monthlyIncome", "annualIncome", "occupation", "housing", "car", "vehicleHousing", "nativePlace", "workLocation", "wechat", "idCard", "certificationStatus", "familyStatus", "childrenStatus", "matchAgeRange", "matchMaritalStatus", "matchHeightRange", "matchEducation", "matchMonthlyIncome", "matchMostImportant", "matchPersonality", "matchChildren", "matchDealbreakers", "note", "remark"];
+    const profileFields = ["name", "company", "source", "level", "owner", "stage", "amount", "city", "gender", "birthday", "age", "height", "maritalStatus", "education", "monthlyIncome", "annualIncome", "occupation", "housing", "car", "vehicleHousing", "nativePlace", "workLocation", "wechat", "idCard", "certificationStatus", "familyStatus", "childrenStatus", "matchAgeRange", "matchMaritalStatus", "matchHeightRange", "matchEducation", "matchMonthlyIncome", "matchMostImportant", "matchPersonality", "matchChildren", "matchDealbreakers", "customerType", "avatarUrl", "note", "remark"];
     profileFields.forEach(name => { field(name).value = customer[name] ?? ""; });
     field("phone").value = String(customer.phone || "").replace(/\D/g, "");
     field("nextFollowAt").value = toDateTimeLocal(customer.nextFollowAt);
+    field("lastLoginAt").value = toDateTimeLocal(customer.lastLoginAt);
     field("tags").value = (customer.tags || []).join(", ");
   } else {
     field("owner").value = currentOwner();
@@ -5359,7 +5368,8 @@ function parseCustomerCsv(text) {
     source: ["客户来源", "来源", "source"], owner: ["负责人", "销售负责人", "归属员工", "owner"], stage: ["跟进阶段", "阶段", "stage"],
     gender: ["性别", "gender"], birthday: ["生日", "出生日期", "birthday"], birthYear: ["出生年份", "出生年", "birthYear"], age: ["年龄", "age"], height: ["身高", "height"], maritalStatus: ["婚况", "婚姻状况", "maritalStatus"], education: ["学历", "education"], monthlyIncome: ["月收入", "monthlyIncome"], annualIncome: ["年收入", "annualIncome"], occupation: ["职业", "occupation"], housing: ["住房", "住房情况", "housing"], car: ["购车", "购车情况", "car"], nativePlace: ["籍贯", "nativePlace"], workLocation: ["工作地", "工作地点", "workLocation"], wechat: ["微信号", "wechat"], idCard: ["身份证号", "身份证号码", "idCard"], remark: ["备注说明", "remark"], certificationStatus: ["认证情况", "认证状态", "certificationStatus"], familyStatus: ["家庭情况", "familyStatus"], childrenStatus: ["子女情况", "childrenStatus"], vehicleHousing: ["房车情况", "vehicleHousing"],
     level: ["客户等级", "等级", "level"], amount: ["预计金额", "金额", "amount"], city: ["所在城市", "城市", "city"],
-    note: ["备注", "客户备注", "note"], tags: ["标签", "客户标签", "tags"], nextFollowAt: ["下次跟进", "下次跟进时间", "nextFollowAt"], collaborator: ["协作人", "collaborator"]
+    note: ["备注", "客户备注", "note"], tags: ["标签", "客户标签", "tags"], nextFollowAt: ["下次跟进", "下次跟进时间", "nextFollowAt"], collaborator: ["协作人", "collaborator"],
+    customerType: ["客户类型", "customerType"], lastLoginAt: ["最近登录", "最近登录时间", "lastLoginAt"], avatarUrl: ["头像", "头像地址", "avatarUrl"]
   };
   const indexes = Object.fromEntries(Object.entries(aliases).map(([key, names]) => [key, headers.findIndex(header => names.some(name => header === name.toLowerCase()))]));
   if (indexes.phone < 0) throw new Error("未找到手机号列，请使用表头：电话号码、手机号或手机号码");
@@ -5464,6 +5474,9 @@ function importPayloadFromRow(row, toPool = false) {
     matchChildren: row.matchChildren || "",
     matchDealbreakers: row.matchDealbreakers || "",
     collaborator: row.collaborator || "",
+    customerType: row.customerType || "",
+    lastLoginAt: row.lastLoginAt || null,
+    avatarUrl: row.avatarUrl || "",
     tags: row.tags ? (Array.isArray(row.tags) ? row.tags : String(row.tags).split(/[，,]/).map(item => item.trim()).filter(Boolean)) : ["新客户"]
   };
 }
@@ -6274,7 +6287,7 @@ function bindViewEvents() {
   document.querySelector("#whiteboardTagSearch")?.addEventListener("input", event => { const query = event.target.value.trim(); document.querySelectorAll("[data-whiteboard-tag]").forEach(button => { button.hidden = !!query && !button.textContent.includes(query); }); });
   const customerAdvancedButton = document.querySelector(".customer-list-page .customer-filter-actions .text-button") || document.querySelector("#openWhiteboardAdvanced");
   customerAdvancedButton?.addEventListener("click", () => {
-    state.customerAdvancedDraftCustomerType = state.customerAdvancedDraftCustomerType || "";
+    state.customerAdvancedDraftCustomerType = state.customerType;
     const selectedStatuses = selectedCustomerStatuses();
     state.customerAdvancedDraftStatusSelection = [...selectedStatuses];
     state.customerAdvancedDraftStatusChanged = false;
@@ -6366,6 +6379,7 @@ function bindViewEvents() {
         ? (state.customerAdvancedDraftStatus ? [state.customerAdvancedDraftStatus] : [])
         : [...(state.customerAdvancedDraftStatusSelection || [])];
       state.customerStatuses = nextStatuses;
+      state.customerType = state.customerAdvancedDraftCustomerType;
       state.customerStatus = nextStatuses.length === 1 ? nextStatuses[0] : "全部状态";
       state.customerAdvancedLevels = [...state.customerAdvancedDraftLevels];
       state.customerGender = state.customerAdvancedDraftGender;
@@ -6398,6 +6412,7 @@ function bindViewEvents() {
       state.customerIncomeMin = state.customerAdvancedDraftIncomeMin;
       state.customerIncomeMax = state.customerAdvancedDraftIncomeMax;
       state.customerPage = 1;
+      state.poolCustomerPage = 1;
       state.customerAdvancedOpen = false;
       state.whiteboardAdvancedOpen = false;
       state.customerEducationMenuOpen = false;
@@ -6849,7 +6864,7 @@ function bindViewEvents() {
     state.customerOwnerSelection = { nodes: [] }; state.customerAdvancedCollaboratorSelection = { nodes: [] }; state.customerAdvancedDraftCollaboratorSelection = { nodes: [] }; state.customerAdvancedCollaboratorCascadeOpen = false; state.customerOwnerCascadeOpen = false; state.customerOwnerSearch = ""; state.customerOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"];
     state.customerStartDate = ""; state.customerEndDate = ""; state.customerDateRangePickerOpen = false; state.customerDateRangeDraftStart = ""; state.customerDateRangeDraftEnd = ""; state.customerDateRangeViewMonth = ""; state.customerDateRangePicking = "start";
     state.customerGender = "all"; state.customerMaritalStatus = "all"; state.customerAgeMin = ""; state.customerAgeMax = ""; state.customerHeightMin = ""; state.customerHeightMax = ""; state.customerEducation = []; state.customerEducationMenuOpen = false; state.customerUncontactedDays = "all"; state.customerUncontactedDaysCustom = "";
-    state.customerAdvancedDraftCustomerType = ""; state.customerAdvancedDraftStatus = ""; state.customerAdvancedDraftStatusSelection = []; state.customerAdvancedDraftStatusChanged = false; state.customerAdvancedDraftGender = "all"; state.customerAdvancedDraftMaritalStatus = "all"; state.customerAdvancedDraftAgeMin = ""; state.customerAdvancedDraftAgeMax = ""; state.customerAdvancedDraftHeightMin = ""; state.customerAdvancedDraftHeightMax = ""; state.customerAdvancedDraftEducation = []; state.customerAdvancedDraftLevels = [];
+    state.customerType = ""; state.customerAdvancedDraftCustomerType = ""; state.customerAdvancedDraftStatus = ""; state.customerAdvancedDraftStatusSelection = []; state.customerAdvancedDraftStatusChanged = false; state.customerAdvancedDraftGender = "all"; state.customerAdvancedDraftMaritalStatus = "all"; state.customerAdvancedDraftAgeMin = ""; state.customerAdvancedDraftAgeMax = ""; state.customerAdvancedDraftHeightMin = ""; state.customerAdvancedDraftHeightMax = ""; state.customerAdvancedDraftEducation = []; state.customerAdvancedDraftLevels = [];
     state.customerAdvancedLevels = []; state.customerAdvancedNextFollowPreset = ""; state.customerAdvancedSource = ""; state.customerAdvancedNativePlace = ""; state.customerAdvancedWorkLocation = ""; state.customerAdvancedOccupation = ""; state.customerAdvancedHousing = ""; state.customerAdvancedCar = ""; state.customerAdvancedPersonality = ""; state.customerAdvancedInterest = ""; state.customerAdvancedNote = ""; state.customerIncomeMin = ""; state.customerIncomeMax = "";
     state.customerAdvancedDraftSource = ""; state.customerAdvancedDraftNativePlace = ""; state.customerAdvancedDraftWorkLocation = ""; state.customerAdvancedDraftOccupation = ""; state.customerAdvancedDraftHousing = ""; state.customerAdvancedDraftCar = ""; state.customerAdvancedDraftPersonality = ""; state.customerAdvancedDraftInterest = ""; state.customerAdvancedDraftNote = ""; state.customerAdvancedDraftIncomeMin = ""; state.customerAdvancedDraftIncomeMax = ""; state.customerAdvancedDraftNextFollowPreset = "";
     state.customerAdvancedOwnerSelection = { nodes: [] }; state.customerAdvancedDraftOwnerSelection = { nodes: [] }; state.customerAdvancedOwnerCascadeOpen = false; state.customerAdvancedOwnerSearch = ""; state.customerAdvancedOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"];
@@ -7522,7 +7537,8 @@ document.querySelector("#customerForm").addEventListener("submit", async event =
     vehicleHousing: data.vehicleHousing, matchAgeRange: data.matchAgeRange, matchMaritalStatus: data.matchMaritalStatus,
     matchHeightRange: data.matchHeightRange, matchEducation: data.matchEducation, matchMonthlyIncome: data.matchMonthlyIncome,
     matchMostImportant: data.matchMostImportant, matchPersonality: data.matchPersonality, matchChildren: data.matchChildren,
-    matchDealbreakers: data.matchDealbreakers, collaborator: existing?.collaborator || ""
+    matchDealbreakers: data.matchDealbreakers, collaborator: existing?.collaborator || "",
+    customerType: data.customerType, lastLoginAt: data.lastLoginAt || null, avatarUrl: data.avatarUrl
   };
   try {
     requireBackend();
@@ -7633,6 +7649,7 @@ notificationPopover.addEventListener("click", async event => {
     notificationPopover.hidden = true;
     state.messageSection = "短信记录";
     navigate("messages");
+    return;
   }
 });
 document.addEventListener("click", event => {

@@ -57,5 +57,7 @@ public record CustomerRequest(
         Integer registrationCount, String matchAgeRange, String matchMaritalStatus, String matchHeightRange,
         String matchEducation, String matchMonthlyIncome, String matchMostImportant, String matchPersonality,
         String matchChildren, String matchDealbreakers, String collaborator,
+        String customerType, LocalDateTime lastLoginAt,
+        @Size(max = 1000, message = "头像地址不能超过 1000 个字符") String avatarUrl,
         List<String> tags) {
 }

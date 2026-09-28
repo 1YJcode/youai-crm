@@ -120,6 +120,47 @@ class CustomerControllerTest {
 
     @Test
     @WithMockUser(username = "admin", roles = "ADMIN")
+    void appliesCombinedAdvancedFiltersToPublicPoolBeforePagination() throws Exception {
+        String suffix = String.format("%08d", Math.abs(System.nanoTime() % 100_000_000L));
+        String body = """
+                {
+                  "name":"公海高级筛选目标","phone":"139%s","company":"筛选测试","source":"高级筛选来源","owner":"林夕",
+                  "stage":"需求确认","level":"4心","gender":"女","age":"31","height":"168cm","maritalStatus":"未婚",
+                  "education":"本科","monthlyIncome":"20000","occupation":"设计师","housing":"已购房","car":"已购车",
+                  "nativePlace":"天津","workLocation":"北京","remark":"重点筛选备注","matchPersonality":"开朗",
+                  "matchMostImportant":"旅行","collaborator":"陈晨","customerType":"会员",
+                  "lastLoginAt":"2026-09-20T10:30:00","avatarUrl":"https://example.test/avatar.png"
+                }
+                """.formatted(suffix);
+        String created = mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String customerNo = new com.fasterxml.jackson.databind.ObjectMapper().readTree(created).get("id").asText();
+
+        mockMvc.perform(patch("/api/customers/{customerNo}/assignment", customerNo)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"owner\":\"林夕\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/api/customers/{customerNo}/pool", customerNo)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"inPool\":true}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/customers/pool")
+                        .param("owner", "林夕").param("customerType", "会员").param("customerStatus", "需求确认")
+                        .param("levels", "4心").param("gender", "女").param("ageMin", "30").param("ageMax", "32")
+                        .param("source", "高级筛选").param("collaborator", "陈晨").param("note", "重点筛选")
+                        .param("lastLoginStart", "2026-09-20").param("lastLoginEnd", "2026-09-20")
+                        .param("avatar", "has").param("page", "0").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(customerNo))
+                .andExpect(jsonPath("$.content[0].customerType").value("会员"))
+                .andExpect(jsonPath("$.content[0].avatarUrl").value("https://example.test/avatar.png"));
+
+        mockMvc.perform(get("/api/customers/pool").param("customerType", "非会员").param("keyword", "公海高级筛选目标"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(0));
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
     void updatesAndReturnsCompleteCustomerProfile() throws Exception {
         String created = mockMvc.perform(post("/api/customers")
                         .contentType(MediaType.APPLICATION_JSON)

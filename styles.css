@@ -442,7 +442,6 @@ button.profile-private-value { cursor:pointer; font-family:inherit; }
 .call-pagination button { width: 25px; height: 25px; color: #aab0b8; background: #fff; border: 1px solid transparent; }
 .call-pagination button.active { color: #159bdc; border-color: #a8daf1; }
 .call-pagination select { height: 27px; color: #525a64; background: #fff; border: 1px solid #edf0f3; font-size: 11px; }
-.call-copyright { min-height: 113px; padding-top: 24px; color: #515963; text-align: center; font-size: 11px; font-weight: 600; }
 @media (max-width:900px) { .call-record-filter { grid-template-columns: 1fr; padding: 18px; } .call-filter-actions { grid-column: 1; } }
 .seat-management-page { min-height: calc(100vh - var(--topbar-height)); background: #f3f5f8; }
 .seat-management-page .page-content::after { position: absolute; z-index: 0; top: 52px; right: 12px; left: 12px; height: 15px; background: #fff; content: ""; }
@@ -2093,6 +2092,8 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 .customer-avatar-upload input { position: absolute; inset: 0; width: 100% !important; height: 100%; min-height: 0 !important; padding: 0 !important; opacity: 0; cursor: pointer; }
 .customer-avatar-upload span { color: currentColor; font-size: 22px; font-weight: 300; line-height: 1; }
 .customer-avatar-upload strong { color: currentColor; font-size: 12px; font-weight: 400; }
+.customer-avatar-url { display: grid; gap: 7px; color: #475467; font-size: 12px; }
+.customer-avatar-url input { width: 100%; min-width: 0; padding: 8px; border: 1px solid #d0d5dd; border-radius: 4px; font-size: 12px; }
 .customer-basic-panel { min-width: 0; padding-right: 28px; border-right: 1px solid #eef1f4; }
 .customer-basic-grid { display: grid; min-width: 0; grid-template-columns: repeat(3, minmax(185px, 1fr)); gap: 13px 18px; }
 .customer-editor-form .customer-editor-field { display: grid !important; min-width: 0; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 7px !important; }

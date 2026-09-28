@@ -74,6 +74,7 @@ public class DemoDataSeeder {
                 null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null,
+                null, null, null,
                 tags);
     }
 

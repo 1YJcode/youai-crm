@@ -103,7 +103,7 @@
         <div class="customer-editor-body">
           <aside class="customer-avatar-panel">
             <h3>头像上传</h3>
-            <label class="customer-avatar-upload"><input type="file" accept="image/*" aria-label="上传客户头像"><span>＋</span><strong>上传</strong></label>
+            <label class="customer-avatar-url"><span>头像地址</span><input name="avatarUrl" type="url" aria-label="客户头像地址" placeholder="https://..."></label>
           </aside>
           <section class="customer-basic-panel">
             <h3>基本信息</h3>
@@ -129,6 +129,8 @@
               <label class="customer-editor-field"><span>认证情况</span><input name="certificationStatus" placeholder="请输入"></label>
               <label class="customer-editor-field"><span>子女情况</span><input name="childrenStatus" placeholder="请输入"></label>
               <label class="customer-editor-field"><span>客户来源</span><select name="source"><option>线上咨询</option><option>老客转介绍</option><option>市场活动</option><option>主动开发</option></select></label>
+              <label class="customer-editor-field"><span>客户类型</span><select name="customerType"><option value="">未知</option><option>会员</option><option>非会员</option></select></label>
+              <label class="customer-editor-field"><span>最近登录</span><input name="lastLoginAt" type="datetime-local"></label>
               <label class="customer-editor-field"><span>所属公司</span><input name="company" placeholder="公司或机构名称"></label>
               <label class="customer-editor-field"><span>负责人</span><select name="owner"><option>林夕</option><option>陈晨</option><option>周倩</option><option>赵磊</option></select></label>
               <label class="customer-editor-field"><span>客户等级</span><select name="level"><option>重点客户</option><option>普通客户</option><option>潜在客户</option></select></label>

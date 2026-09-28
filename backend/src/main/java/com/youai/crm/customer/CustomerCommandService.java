@@ -159,6 +159,9 @@ public class CustomerCommandService {
         if (request.matchChildren() != null) customer.setMatchChildren(request.matchChildren());
         if (request.matchDealbreakers() != null) customer.setMatchDealbreakers(request.matchDealbreakers());
         if (request.collaborator() != null) customer.setCollaborator(request.collaborator());
+        if (request.customerType() != null) customer.setCustomerType(request.customerType());
+        customer.setLastLoginAt(request.lastLoginAt());
+        if (request.avatarUrl() != null) customer.setAvatarUrl(request.avatarUrl());
     }
 
     private long nextNumber() {

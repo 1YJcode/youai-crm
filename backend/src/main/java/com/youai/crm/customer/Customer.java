@@ -96,6 +96,15 @@ public class Customer {
     @Column(length = 255)
     private String collaborator;
 
+    @Column(name = "customer_type", length = 32)
+    private String customerType;
+
+    @Column(name = "last_login_at")
+    private LocalDateTime lastLoginAt;
+
+    @Column(name = "avatar_url", length = 1000)
+    private String avatarUrl;
+
     @Column(name = "last_contact_at")
     private LocalDateTime lastContactAt;
 
@@ -226,6 +235,12 @@ public class Customer {
     public void setMatchDealbreakers(String value) { matchDealbreakers = value; }
     public String getCollaborator() { return collaborator; }
     public void setCollaborator(String value) { collaborator = value; }
+    public String getCustomerType() { return customerType; }
+    public void setCustomerType(String value) { customerType = value; }
+    public LocalDateTime getLastLoginAt() { return lastLoginAt; }
+    public void setLastLoginAt(LocalDateTime value) { lastLoginAt = value; }
+    public String getAvatarUrl() { return avatarUrl; }
+    public void setAvatarUrl(String value) { avatarUrl = value; }
     public LocalDateTime getLastContactAt() { return lastContactAt; }
     public void setLastContactAt(LocalDateTime lastContactAt) { this.lastContactAt = lastContactAt; }
     public LocalDateTime getNextFollowAt() { return nextFollowAt; }
