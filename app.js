@@ -5087,7 +5087,7 @@ function openSystemUserCreator() {
   drawer.querySelector('input[name="username"]')?.focus();
 }
 
-async function loadCustomerFollowUps(customerId) {
+async function loadCustomerFollowUps(customerId, renderAfterLoad = true) {
   if (!state.auth.token || !customerId) return;
   const params = new URLSearchParams();
   if (state.customerFollowUpFilterType && state.customerFollowUpFilterType !== "all") params.set("type", state.customerFollowUpFilterType);
@@ -5105,7 +5105,7 @@ async function loadCustomerFollowUps(customerId) {
       annotation
     ]));
     state.customerFollowUpLoaded[customerId] = true;
-    render();
+    if (renderAfterLoad) render();
   } catch (error) {
     toast(`跟进记录加载失败：${error.message}`);
   }
@@ -5823,6 +5823,9 @@ async function submitBusinessForm(event) {
         if (reminderIndex >= 0) tasks[reminderIndex] = reminderSaved;
         state.notificationRead[`task-${data.reminderTaskId}`] = true;
         localStorage.setItem("youai.crm.notificationRead", JSON.stringify(state.notificationRead));
+      }
+      if (normalized.customerId && String(state.customerDetailId) === String(normalized.customerId)) {
+        await loadCustomerFollowUps(normalized.customerId, false);
       }
       checkUpcomingFollowupAlerts();
       closeBusinessModal();
@@ -7685,6 +7688,10 @@ async function initialize() {
     if (!state.auth.token) await refreshAuth();
     state.auth.user = await apiRequest("/auth/me");
     loadCustomerTableColumns();
+    // Restore the active workspace before hydration renders. Otherwise the
+    // hydration render creates/activates the default dashboard tab and loses
+    // the page (including customer details) that was open before a refresh.
+    restoreActiveWorkspaceTab();
     await hydrateFromApi();
     showApp();
   } catch (_) {
