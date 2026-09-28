@@ -2641,7 +2641,7 @@ function customerHeaderModalView() {
 function customerListView({ isPool = false } = {}) {
   const selectedStatuses = selectedCustomerStatuses();
   const meta = (isPool ? state.poolCustomerPageMeta : state.customerPageMeta) || { page: 0, size: state.customerPageSize, totalElements: 0, totalPages: 1 };
-  const sourceRows = isPool ? state.poolCustomers : customers.filter(customer => customer.owner !== "白板");
+  const sourceRows = isPool ? state.poolCustomers : customers.filter(customer => !["白板", "公海"].includes(customer.owner));
   const rows = sortedCustomerRows(sourceRows.filter(customer => {
     if (!isPool && !customerStatusMatches(customer, selectedStatuses)) return false;
     if (isPool && !customerMatchesDeepTalkDuration(customer, state.poolDeepTalkDuration)) return false;
@@ -4011,9 +4011,7 @@ const systemUserRecords = [
 ];
 
 function customerPoolBusinessSettingsView() {
-  const rule = state.customerPoolRule || { enabled: true, days: 7 };
-  const administrator = isAdmin();
-  return `<section class="data-panel business-settings-panel"><div class="data-toolbar"><div class="panel-title"><h2>客户自动流入公海</h2><span>按自然日检查客户最后跟进时间</span></div></div><form class="business-settings-form" id="customerPoolRuleForm"><label class="business-setting-row"><span>自动流入公海</span><span class="business-setting-control"><input type="checkbox" name="enabled" ${rule.enabled ? "checked" : ""} ${administrator ? "" : "disabled"}><span>开启未及时跟进客户自动流入公海</span></span></label><label class="business-setting-row"><span>流出天数</span><span class="business-setting-control"><input type="number" name="days" min="1" max="3650" step="1" value="${escapeHtml(rule.days)}" ${administrator ? "" : "disabled"}><span>个自然日未跟进后，系统自动流入公海</span></span></label><p class="business-settings-hint">新建客户的登记时间作为初始跟进时间；销售记录跟进任务后会重新计算。${administrator ? "" : "此设置仅管理员可修改。"}</p>${administrator ? `<div class="business-settings-actions"><button class="button primary" type="submit">保存设置</button></div>` : ""}</form></section>`;
+  return `<section class="data-panel business-settings-panel"><div class="data-toolbar"><div class="panel-title"><h2>客户自动流入公海</h2><span>固定规则 · 按自然日检查</span></div></div><div class="business-settings-form"><div class="business-setting-row"><span>自动流入公海</span><span class="business-setting-control"><input type="checkbox" checked disabled><span>固定启用</span></span></div><div class="business-setting-row"><span>流出天数</span><span class="business-setting-control"><input type="number" value="7" disabled><span>个自然日未跟进后，系统自动流入公海</span></span></div><p class="business-settings-hint">该规则不可关闭或修改。客户进入销售库时开始计算；完成跟进任务、产生通话或发送客户消息后重新计算。白板和公海资源不参与自动归海。</p></div></section>`;
 }
 
 function systemView() {
@@ -5298,7 +5296,7 @@ async function setCustomerPool(customer, inPool, details = {}) {
   requireBackend();
   const saved = await apiRequest(`/customers/${encodeURIComponent(customer.id)}/pool`, { method: "PATCH", body: JSON.stringify({ inPool }) });
   const normalized = mergeCustomerRecord(saved);
-  if (inPool && !isAdmin()) customers = customers.filter(item => item.id !== normalized.id);
+  if (inPool) customers = customers.filter(item => item.id !== normalized.id);
   if (!inPool) state.poolCustomers = state.poolCustomers.filter(item => item.id !== normalized.id);
   const poolDetail = inPool
     ? `客户被移入公海${details.reason ? `，原因：${details.reason}` : ""}${details.note ? `，备注：${details.note}` : ""}`
@@ -5882,29 +5880,6 @@ async function submitBusinessForm(event) {
 }
 
 function bindViewEvents() {
-  document.querySelector("#customerPoolRuleForm")?.addEventListener("submit", async event => {
-    event.preventDefault();
-    if (!isAdmin()) { toast("仅管理员可以修改业务设置", "error"); return; }
-    const form = event.currentTarget;
-    const days = Number(form.elements.namedItem("days")?.value);
-    if (!Number.isInteger(days) || days < 1 || days > 3650) {
-      toast("流出天数须为 1 到 3650 的自然日", "error");
-      return;
-    }
-    const submit = form.querySelector('[type="submit"]');
-    submit.disabled = true;
-    try {
-      state.customerPoolRule = await apiRequest("/business-settings/customer-pool", {
-        method: "PUT",
-        body: JSON.stringify({ enabled: Boolean(form.elements.namedItem("enabled")?.checked), days })
-      });
-      render();
-      toast("客户自动流入公海规则已保存");
-    } catch (error) {
-      toast(`保存业务设置失败：${error.message}`, "error");
-      submit.disabled = false;
-    }
-  });
   document.querySelectorAll("[data-new-order-customer]").forEach(button => {
     if (button.textContent.includes("新订单")) button.innerHTML = `${icon("plus")}新建订单`;
   });
@@ -7550,13 +7525,16 @@ document.querySelector("#customerForm").addEventListener("submit", async event =
     requireBackend();
     const duplicateBefore = !existing ? customers.concat(state.poolCustomers || []).find(customer => String(customer.phone || "").replace(/\D/g, "") === payload.phone) : null;
     const result = await apiRequest(existing ? `/customers/${encodeURIComponent(existing.id)}` : "/customers", { method: existing ? "PUT" : "POST", body: JSON.stringify(payload) });
-    const saved = normalizeCustomer(result);
-    const index = customers.findIndex(customer => customer.id === saved.id);
-    if (index >= 0) customers[index] = saved; else customers.unshift(saved);
+    const saved = mergeCustomerRecord(result);
     state.dashboard = { ...state.dashboard, newCustomers: customers.length, totalCustomers: customers.length };
     closeModal();
     const duplicateRegistration = duplicateBefore && saved.id === duplicateBefore.id && saved.registrationCount > Number(duplicateBefore.registrationCount || 1);
-    toast(duplicateRegistration ? `客户 ${saved.name} 已完成第 ${saved.registrationCount} 次注册` : `客户 ${data.name } 已${existing ? "更新" : "创建"}并写入 MySQL`);
+    if (!existing && !duplicateRegistration && saved.owner === "白板" && isAdmin()) state.customerSection = "白板列表";
+    toast(duplicateRegistration
+      ? `客户 ${saved.name} 已完成第 ${saved.registrationCount} 次注册`
+      : saved.owner === "白板"
+        ? `客户 ${data.name} 已创建并进入白板，等待分配`
+        : `客户 ${data.name} 已${existing ? "更新" : "创建"}并写入 MySQL`);
     render();
   } catch (error) {
     toast(`客户保存失败：${error.message}`);

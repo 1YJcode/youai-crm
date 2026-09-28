@@ -8,7 +8,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.youai.crm.account.CrmUser;
 import com.youai.crm.account.CrmUserRepository;
-import com.youai.crm.account.LoginProtectionService;
 import com.youai.crm.communication.SystemNotification;
 import com.youai.crm.communication.SystemNotificationRepository;
 import com.youai.crm.system.CustomerPoolRule;
@@ -22,13 +21,12 @@ public class CustomerPoolScheduler {
     private final CustomerOperationEventRepository operations;
     private final SystemNotificationRepository notifications;
     private final CrmUserRepository users;
-    private final LoginProtectionService loginProtection;
     private final CustomerPoolRuleService poolRuleService;
     public CustomerPoolScheduler(CustomerRepository customers, CustomerAssignmentEventRepository assignments,
             CustomerOperationEventRepository operations, SystemNotificationRepository notifications, CrmUserRepository users,
-            LoginProtectionService loginProtection, CustomerPoolRuleService poolRuleService) {
+            CustomerPoolRuleService poolRuleService) {
         this.customers = customers; this.assignments = assignments; this.operations = operations; this.notifications = notifications;
-        this.users = users; this.loginProtection = loginProtection;
+        this.users = users;
         this.poolRuleService = poolRuleService;
     }
     @Scheduled(cron = "0 0 2 * * *")
@@ -46,10 +44,11 @@ public class CustomerPoolScheduler {
         for (Customer customer : stale) {
             String previousOwner = customer.getOwner();
             if (POOL.equals(previousOwner) || "白板".equals(previousOwner)) continue;
-            // Historical owners may be frozen, temporarily locked, or already
-            // deleted. Their stale customers must still be released; only
-            // administrator-owned customers are excluded from this job.
-            if (isAdministrator(previousOwner)) continue;
+            // Only assigned sales-library resources participate. Whiteboard,
+            // public-pool, administrator-owned, and historical/non-user owner
+            // values remain untouched.
+            CrmUser salesOwner = employeeOwner(previousOwner);
+            if (salesOwner == null || isAdministrator(previousOwner)) continue;
             customer.setPreviousOwner(previousOwner); customer.setOwner(POOL); customer.setLastAllocationAt(now);
             customer.setPoolEntryType("未及时跟进，系统推进");
             customers.save(customer);
@@ -62,18 +61,13 @@ public class CustomerPoolScheduler {
             operation.setDetail("员工用户" + previousOwner + "超过" + days + "个自然日未跟进，客户流入公海"); operation.setOperator("system"); operations.save(operation);
             String key = "customer-pool-release:" + customer.getId() + ":" + now.toLocalDate();
             if (notifications.findByNotificationKey(key).isEmpty()) {
-                SystemNotification notification = new SystemNotification(); notification.setUsername(notificationRecipient(previousOwner)); notification.setNotificationKey(key);
+                SystemNotification notification = new SystemNotification(); notification.setUsername(salesOwner.getUsername()); notification.setNotificationKey(key);
                 notification.setTitle("客户已流入公海"); notification.setContent("客户「" + customer.getName() + "」超过" + days + "个自然日未跟进，已自动流入公海列表。");
                 notification.setCustomerNo(customer.getCustomerNo()); notifications.save(notification);
             }
             released++;
         }
         return released;
-    }
-
-    private String notificationRecipient(String owner) {
-        CrmUser employee = employeeOwner(owner);
-        return employee == null ? owner : employee.getUsername();
     }
 
     private CrmUser employeeOwner(String owner) {

@@ -10,6 +10,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 
+import java.util.Set;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -21,6 +24,10 @@ import org.springframework.security.test.context.support.WithMockUser;
 
 import com.youai.crm.communication.CallRecord;
 import com.youai.crm.communication.CallRecordRepository;
+import com.youai.crm.account.CrmUser;
+import com.youai.crm.account.CrmUserRepository;
+import com.youai.crm.account.DepartmentRepository;
+import com.youai.crm.account.RoleRepository;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -31,6 +38,29 @@ class CustomerControllerTest {
 
     @Autowired
     private CallRecordRepository callRecordRepository;
+
+    @Autowired private CrmUserRepository userRepository;
+    @Autowired private DepartmentRepository departmentRepository;
+    @Autowired private RoleRepository roleRepository;
+
+    @BeforeEach
+    void ensureSalesUsers() {
+        createSalesUser("linxi", "林夕", "13810000001");
+        createSalesUser("chenchen", "陈晨", "13810000002");
+    }
+
+    private void createSalesUser(String username, String displayName, String phone) {
+        if (userRepository.findByUsernameIgnoreCase(username).isPresent()) return;
+        CrmUser user = new CrmUser();
+        user.setUsername(username);
+        user.setPasswordHash("test-only-password-hash");
+        user.setDisplayName(displayName);
+        user.setPhone(phone);
+        user.setEnabled(true);
+        user.setDepartment(departmentRepository.findByCode("SALES").orElseThrow());
+        user.setRoles(Set.of(roleRepository.findByCode("SALES").orElseThrow()));
+        userRepository.save(user);
+    }
 
     @Test
     @WithMockUser(username = "admin", roles = "ADMIN")
@@ -169,7 +199,8 @@ class CustomerControllerTest {
                 """.formatted(marker, suffix);
 
         for (String body : new String[] { firstBody, secondBody, excludedBody }) {
-            mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(body))
+            mockMvc.perform(post("/api/customers").with(user("linxi").roles("SALES"))
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
                     .andExpect(status().isCreated());
         }
 
@@ -191,7 +222,8 @@ class CustomerControllerTest {
                 + "\",\"company\":\"测试\",\"source\":\"测试\",\"owner\":\"林夕\",\"stage\":\""
                 + status + "\"}";
 
-        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(body))
+        mockMvc.perform(post("/api/customers").with(user("linxi").roles("SALES"))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get("/api/customers").param("customerStatus", status))
@@ -209,7 +241,8 @@ class CustomerControllerTest {
         String whiteboardBody = "{\"name\":\"" + marker + "-白板\",\"phone\":\"139" + phoneSuffix
                 + "\",\"source\":\"测试\",\"owner\":\"白板\"}";
 
-        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(assignedBody))
+        mockMvc.perform(post("/api/customers").with(user("linxi").roles("SALES"))
+                        .contentType(MediaType.APPLICATION_JSON).content(assignedBody))
                 .andExpect(status().isCreated());
         mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(whiteboardBody))
                 .andExpect(status().isCreated());
@@ -222,6 +255,24 @@ class CustomerControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].owner").value("白板"));
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void administratorCreatesToWhiteboardWhileSalesCreatesToOwnLibrary() throws Exception {
+        String suffix = String.format("%08d", Math.abs(System.nanoTime() % 100_000_000L));
+        String adminBody = "{\"name\":\"管理员新建白板\",\"phone\":\"138" + suffix
+                + "\",\"source\":\"测试\",\"owner\":\"林夕\"}";
+        String salesBody = "{\"name\":\"销售新建归属\",\"phone\":\"139" + suffix
+                + "\",\"source\":\"测试\",\"owner\":\"陈晨\"}";
+
+        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(adminBody))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.owner").value("白板"));
+        mockMvc.perform(post("/api/customers").with(user("linxi").roles("SALES"))
+                        .contentType(MediaType.APPLICATION_JSON).content(salesBody))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.owner").value("林夕"));
     }
 
     @Test
@@ -330,6 +381,13 @@ class CustomerControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.owner").value("公海"));
 
+        mockMvc.perform(get("/api/customers").param("keyword", "公海领取测试客户"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
+        mockMvc.perform(get("/api/customers/pool").with(user("chenchen").roles("SALES")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id == '%s')]".formatted(customerNo)).isNotEmpty());
+
         mockMvc.perform(patch("/api/customers/{customerNo}/pool", customerNo)
                         .with(user("linxi").roles("SALES"))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"inPool\":false}"))
@@ -356,6 +414,10 @@ class CustomerControllerTest {
                                 .content(body))
                         .andExpect(status().isCreated())
                         .andReturn().getResponse().getContentAsString()).get("id").asText();
+
+        mockMvc.perform(patch("/api/customers/{customerNo}/pool", customerNo)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"inPool\":true}"))
+                .andExpect(status().isOk());
 
         CallRecord call = new CallRecord();
         call.setCustomerNo(customerNo);
@@ -395,6 +457,10 @@ class CustomerControllerTest {
                         .andExpect(jsonPath("$.wechat").value("contact_test_55"))
                         .andExpect(jsonPath("$.contactVisible").value(true))
                         .andReturn().getResponse().getContentAsString()).get("id").asText();
+
+        mockMvc.perform(patch("/api/customers/{customerNo}/pool", customerNo)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"inPool\":true}"))
+                .andExpect(status().isOk());
 
         mockMvc.perform(get("/api/customers/pool").with(user("chenchen").roles("SALES")))
                 .andExpect(status().isOk())

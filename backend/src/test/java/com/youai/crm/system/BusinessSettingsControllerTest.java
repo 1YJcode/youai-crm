@@ -22,35 +22,24 @@ class BusinessSettingsControllerTest {
 
     @Test
     @WithMockUser(username = "admin", roles = "ADMIN")
-    void administratorCanSaveCustomerPoolRule() throws Exception {
+    void customerPoolRuleIsFixedAtSevenDays() throws Exception {
+        mockMvc.perform(get("/api/business-settings/customer-pool"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(true))
+                .andExpect(jsonPath("$.days").value(7));
+
         mockMvc.perform(put("/api/business-settings/customer-pool")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"enabled\":false,\"days\":12}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.enabled").value(false))
-                .andExpect(jsonPath("$.days").value(12));
-
-        mockMvc.perform(get("/api/business-settings/customer-pool"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.enabled").value(false))
-                .andExpect(jsonPath("$.days").value(12));
+                .andExpect(status().isMethodNotAllowed());
     }
 
     @Test
     @WithMockUser(username = "sales", roles = "SALES")
-    void nonAdministratorCannotChangeCustomerPoolRule() throws Exception {
+    void nonAdministratorCannotChangeFixedCustomerPoolRule() throws Exception {
         mockMvc.perform(put("/api/business-settings/customer-pool")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"enabled\":true,\"days\":7}"))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    @WithMockUser(username = "admin", roles = "ADMIN")
-    void customerPoolDaysMustBePositiveAndBounded() throws Exception {
-        mockMvc.perform(put("/api/business-settings/customer-pool")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"enabled\":true,\"days\":0}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isMethodNotAllowed());
     }
 }

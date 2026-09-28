@@ -58,9 +58,17 @@ public class CustomerQueryService {
         Pageable safePageable = safePageable(pageable, Sort.by(Sort.Direction.DESC, "id"));
         org.springframework.data.jpa.domain.Specification<Customer> specification = (root, query, builder) -> {
             List<Predicate> predicates = new java.util.ArrayList<>();
-            predicates.add(whiteboardOnly
-                    ? builder.equal(root.get("owner"), WHITEBOARD)
-                    : builder.notEqual(root.get("owner"), WHITEBOARD));
+            if (whiteboardOnly) {
+                predicates.add(builder.equal(root.get("owner"), WHITEBOARD));
+            } else if (Boolean.TRUE.equals(inPool)) {
+                predicates.add(builder.equal(root.get("owner"), PUBLIC_POOL));
+            } else {
+                // The normal customer endpoint represents assigned sales-library
+                // resources. Public-pool and unassigned whiteboard records have
+                // dedicated list views and must never leak into this result.
+                predicates.add(builder.notEqual(root.get("owner"), WHITEBOARD));
+                predicates.add(builder.notEqual(root.get("owner"), PUBLIC_POOL));
+            }
             if (StringUtils.hasText(keyword)) {
                 String like = "%" + keyword.trim() + "%";
                 predicates.add(builder.or(builder.like(root.get("name"), like),
@@ -81,10 +89,6 @@ public class CustomerQueryService {
                 predicates.add(builder.equal(root.get("owner"), accessPolicy.currentOwner(authentication)));
             } else if (StringUtils.hasText(owner)) {
                 addAnyEquals(builder, root, predicates, owner, "owner");
-            }
-            if (inPool != null) {
-                predicates.add(inPool ? builder.equal(root.get("owner"), PUBLIC_POOL)
-                        : builder.notEqual(root.get("owner"), PUBLIC_POOL));
             }
             addAdvancedPredicates(root, query, builder, predicates, queryValues, tag, authentication);
             return builder.and(predicates.toArray(Predicate[]::new));

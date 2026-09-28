@@ -63,8 +63,16 @@ public class CustomerCommandService {
 
         Customer customer = new Customer();
         customer.setCustomerNo(nextCustomerNo());
-        apply(customer, request, authentication);
-        if (!accessPolicy.isAdmin(authentication)) customer.setOwner(accessPolicy.currentOwner(authentication));
+        apply(customer, request, authentication, false);
+        boolean imported = "\u6279\u91cf\u5bfc\u5165".equals(registrationSource);
+        if (authentication == null) {
+            // Internal demo/bootstrap data keeps its declared owner. HTTP
+            // callers always provide authentication and follow the rules below.
+        } else if (imported || accessPolicy.isAdmin(authentication)) {
+            customer.setOwner(WHITEBOARD);
+        } else {
+            customer.setOwner(accessPolicy.currentOwner(authentication));
+        }
         customer.setStage(defaultText(request.stage(), "\u521d\u6b65\u6c9f\u901a"));
         customer.setLastContactAt(LocalDateTime.now());
         customer.setTags(request.tags() == null || request.tags().isEmpty()
@@ -78,7 +86,7 @@ public class CustomerCommandService {
     public CustomerResponse update(String customerNo, CustomerRequest request, Authentication authentication) {
         Customer customer = queryService.get(customerNo, authentication);
         String previousOwner = customer.getOwner();
-        apply(customer, request, authentication);
+        apply(customer, request, authentication, true);
         if (!accessPolicy.isAdmin(authentication)) customer.setOwner(accessPolicy.currentOwner(authentication));
         if (!PUBLIC_POOL.equals(previousOwner) && PUBLIC_POOL.equals(customer.getOwner())) customer.setPoolEntryType("主动放弃");
         else if (!PUBLIC_POOL.equals(customer.getOwner())) customer.setPoolEntryType(null);
@@ -107,13 +115,14 @@ public class CustomerCommandService {
         return responseMapper.toResponse(saved, authentication);
     }
 
-    private void apply(Customer customer, CustomerRequest request, Authentication authentication) {
+    private void apply(Customer customer, CustomerRequest request, Authentication authentication,
+            boolean resolveRequestedOwner) {
         customer.setName(request.name().trim());
         customer.setPhone(request.phone().trim());
         customer.setCompany(defaultText(request.company(), "\u4e2a\u4eba\u5ba2\u6237"));
         customer.setSource(request.source().trim());
         String requestedOwner = request.owner().trim();
-        customer.setOwner(authentication != null && accessPolicy.isAdmin(authentication)
+        customer.setOwner(resolveRequestedOwner && authentication != null && accessPolicy.isAdmin(authentication)
                 ? resolveOwner(requestedOwner) : requestedOwner);
         customer.setLevel(defaultText(request.level(), "\u666e\u901a\u5ba2\u6237"));
         customer.setExpectedAmount(request.amount() == null ? BigDecimal.ZERO : request.amount());
