@@ -3161,7 +3161,9 @@ function customerDetailView(id) {
     const displayClass = revealed ? "profile-private-value revealed" : "profile-private-value profile-private-mask";
     const actionSubject = label === "电话号码" ? "号码" : "微信号";
     const privateAction = revealable ? `<span class="profile-private-action">${revealed ? "隐藏" : "查看"}${actionSubject}</span>` : "";
-    const content = `${value(displayValue)}${privateAction}`;
+    const content = revealed && label === "电话号码"
+      ? `<span data-copy-private-phone title="双击复制号码">${value(displayValue)}</span>${privateAction}`
+      : `${value(displayValue)}${privateAction}`;
     const display = revealable
       ? `<button class="${displayClass}" type="button" data-toggle-private-contact="${value(customer.id)}" data-private-field="${value(label)}" aria-label="${revealed ? "隐藏" : "查看"}${actionSubject}">${content}</button>`
       : `<span class="${displayClass}">${content}</span>`;
@@ -5987,12 +5989,45 @@ function bindViewEvents() {
       toast(`保存跟进标注失败：${error.message}`, "error");
     }
   }));
-  document.querySelectorAll("[data-toggle-private-contact]").forEach(button => button.addEventListener("click", event => {
-    event.stopPropagation();
-    const key = `${button.dataset.togglePrivateContact}:${button.dataset.privateField}`;
-    state.customerContactReveals[key] = !state.customerContactReveals[key];
-    render();
-  }));
+  document.querySelectorAll("[data-toggle-private-contact]").forEach(button => {
+    let singleClickTimer = null;
+    const toggleContact = () => {
+      const key = `${button.dataset.togglePrivateContact}:${button.dataset.privateField}`;
+      state.customerContactReveals[key] = !state.customerContactReveals[key];
+      render();
+    };
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      const clickedRevealedPhone = Boolean(event.target.closest("[data-copy-private-phone]"));
+      if (!clickedRevealedPhone) { toggleContact(); return; }
+      clearTimeout(singleClickTimer);
+      if (event.detail === 1) singleClickTimer = setTimeout(toggleContact, 350);
+    });
+    button.querySelector("[data-copy-private-phone]")?.addEventListener("dblclick", async event => {
+      event.preventDefault();
+      event.stopPropagation();
+      clearTimeout(singleClickTimer);
+      const phone = event.currentTarget.textContent.trim();
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(phone);
+        } else {
+          const input = document.createElement("textarea");
+          input.value = phone;
+          input.style.position = "fixed";
+          input.style.opacity = "0";
+          document.body.append(input);
+          input.select();
+          const copied = document.execCommand("copy");
+          input.remove();
+          if (!copied) throw new Error("Clipboard unavailable");
+        }
+        toast("手机号码已复制");
+      } catch (error) {
+        toast("复制失败，请手动复制", "error");
+      }
+    });
+  });
   document.querySelectorAll("[data-dashboard-filter-form]").forEach(form => form.addEventListener("submit", async event => {
     event.preventDefault();
     const from = form.elements.namedItem("from")?.value || "";
