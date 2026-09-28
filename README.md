@@ -34,14 +34,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\test-backend.ps1
 
 ## Docker 一键运行
 
-项目提供了完整的 Docker Compose 配置，会启动 MySQL、Spring Boot 后端和 Nginx 前端。它使用独立的数据卷，默认不会占用现有 `youke-mysql` 的 3307 端口：
+项目提供了完整的 Docker Compose 配置，会启动 MySQL、Spring Boot 后端和 Nginx 前端。首次克隆后，先创建本地配置和独立的 MySQL 8.4 数据卷；将 `.env` 中的 `MYSQL_ROOT_PASSWORD`、`INITIAL_ADMIN_PASSWORD` 和 `JWT_SECRET` 改为自己的值，再启动容器。数据卷不会随 Git 仓库复制，首次启动的是空数据库：
 
 ```powershell
+Copy-Item .env.example .env
+docker volume create youai_mysql84_data
 docker compose up -d --build
 docker compose ps
 ```
 
-启动后访问 `http://127.0.0.1:4173/`，后端地址为 `http://127.0.0.1:8080`，Compose 内置 MySQL 映射到宿主机 `3308`。停止服务：
+启动后访问 `http://127.0.0.1:4173/`，后端地址默认为 `http://127.0.0.1:8080`，Compose 内置 MySQL 默认映射到宿主机 `3308`。端口可在 `.env` 中调整；现有数据只保存在本机 `youai_mysql84_data` 卷中，如需迁移真实数据，请另行备份和恢复。停止服务：
 
 ```powershell
 docker compose down

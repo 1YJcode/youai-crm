@@ -458,9 +458,18 @@ const followupPromptTemplates = [
   {
     name: "一通",
     prompts: [
-      ["开场白：", "此电话主要在建立信任感和资产（15分钟）"], ["重温旧梦："], ["家庭成员："],
-      ["兴趣爱好："], ["约会方式："], ["感情经历："], ["需求：", "扩大需求动机"],
-      ["转身下次来店时间："], ["转身的利益点："], ["短信："]
+      ["核实资料：", "（婚况、资产、收入）建立信任感、赞美、开心的笑"],
+      ["工作圈：", "和你沟通感觉你是一个特别不错的XX，呢（故作惊讶）为什么现在还是单身呢?"],
+      ["生活圈："], ["社交圈："],
+      ["急迫动机：", "是什么原因触动现在想找？内因、外因"],
+      ["如果遇到合适的，想什么时间结束单身啊？："],
+      ["注册渠道：", "你是怎么知道并且注册爱乐空间的啊"],
+      ["炫品牌：", "通过这种方式找对象，有没有什么担心和顾虑的地方?"],
+      ["择偶要求：", "你对于另一半有什么要的要求啊（专业引导语：还有吗？还有吗？）"],
+      ["最看重对方："], ["最忌讳对方："], ["人选介绍："],
+      ["缔结：", "到店利益点"],
+      ["布置作业（就是转身动作）：", "你（会员）需要做什么，我会为你做什么（卖人情）"],
+      ["加微信："]
     ]
   },
   {
@@ -537,12 +546,18 @@ const followupPromptTemplates = [
 function followupTemplateContent(templateName) {
   const template = followupPromptTemplates.find(item => item.name === templateName);
   if (!template) return "";
-  return template.prompts.map(([label, hint]) => `${label}${hint ? ` ${hint}` : ""}`).join("\n");
+  return template.prompts.map(([label]) => label).join("\n");
 }
 
-function followupContentEditorHtml(content) {
-  return String(content || "").split(/\r?\n/).map(line => {
+function followupContentEditorHtml(content, templateName = "") {
+  const prompts = followupPromptTemplates.find(item => item.name === templateName)?.prompts || [];
+  return String(content || "").split(/\r?\n/).map((line, index) => {
     if (!line) return '<div class="followup-content-line"><br></div>';
+    const [label, hint] = prompts[index] || [];
+    if (hint && line.startsWith(label)) {
+      const value = line.slice(label.length);
+      return `<div class="followup-content-line"><span class="followup-content-label">${escapeHtml(label)}</span><span class="followup-content-text" data-hint="${escapeHtml(hint)}">${escapeHtml(value)}</span></div>`;
+    }
     const separator = line.search(/[：:]/);
     if (separator < 0) return `<div class="followup-content-line"><span class="followup-content-text">${escapeHtml(line)}</span></div>`;
     const splitAt = separator + 1;
@@ -4433,7 +4448,7 @@ function businessModalFields(type, record) {
         <label><span>类型 *</span><select name="type" required><option value="" selected>请选择</option>${customerFollowUpTypes.map(value => `<option value="${value}">${value}</option>`).join("")}</select></label>
         <label><span>时间 *</span><input name="dueAt" type="datetime-local" required value="${dueAt}"></label>
         ${followupTemplateFieldView(record?.template || "")}
-        <label class="form-span-2 followup-content-field"><span>内容 *</span><div class="followup-content-editor"><input type="hidden" name="title" value="${escapeHtml(followupContent)}"><div class="followup-content-rich${followupContent ? "" : " is-empty"}" data-followup-rich-content contenteditable="true" role="textbox" aria-multiline="true" aria-label="跟进内容" data-placeholder="选择模板后自动填入内容，也可直接编辑">${followupContentEditorHtml(followupContent)}</div><small class="followup-content-count">已输入 ${String(followupContent).length}/2000</small></div></label>
+        <label class="form-span-2 followup-content-field"><span>内容 *</span><div class="followup-content-editor"><input type="hidden" name="title" value="${escapeHtml(followupContent)}"><div class="followup-content-rich${followupContent ? "" : " is-empty"}" data-followup-rich-content contenteditable="true" role="textbox" aria-multiline="true" aria-label="跟进内容" data-placeholder="选择模板后自动填入内容，也可直接编辑">${followupContentEditorHtml(followupContent, record?.template || "")}</div><small class="followup-content-count">已输入 ${String(followupContent).length}/2000</small></div></label>
         <label class="form-span-2 followup-photo-field"><span>照片</span><span class="followup-upload"><input name="photo" type="file" accept="image/*"><strong>＋</strong><small>上传</small></span></label>
         <label class="form-span-2"><span>客户状态</span><div class="followup-status-select"><input type="hidden" name="customerStatus" value=""><button type="button" class="followup-status-trigger">请选择<span class="dropdown-chevron"></span></button><div class="followup-status-options">${customerStatusOptions.map(option => `<button type="button" data-followup-status="${escapeHtml(option)}">${escapeHtml(option)}</button>`).join("")}</div></div></label>
         <label class="checkbox-field form-span-2"><input name="important" type="checkbox"><span>标为重点小计</span></label>
@@ -4629,7 +4644,7 @@ function openBusinessModal(type, record = null) {
       templateToggle.textContent = selected ? "更换模板" : "收起模板";
       templateToggle.setAttribute("aria-expanded", String(!selected));
       if (selected) {
-        contentEditor.innerHTML = followupContentEditorHtml(followupTemplateContent(selected));
+        contentEditor.innerHTML = followupContentEditorHtml(followupTemplateContent(selected), selected);
         syncFollowupContent();
         focusFollowupContentEnd(contentEditor);
       }

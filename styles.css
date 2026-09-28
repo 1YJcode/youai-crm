@@ -1495,6 +1495,8 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 .followup-content-line { min-height: 21px; }
 .followup-content-label { color: #344054; font-weight: 650; }
 .followup-content-text { color: #9aa4b1; font-weight: 400; }
+.followup-content-text[data-hint]:empty::before { content: attr(data-hint); color: #9aa4b1; pointer-events: none; }
+.followup-content-text[data-hint]:not(:empty) { color: #344054; }
 .followup-corner-backdrop .followup-content-count { margin: 0; padding: 3px 8px 5px; background: #fff; }
 .followup-corner-backdrop .modal-footer { position: static; flex: 0 0 auto; margin: 8px -18px -14px; padding: 10px 18px; background: #fff; box-shadow: 0 -4px 10px rgba(255,255,255,.92); }
 .followup-entry-fields .checkbox-field { display: flex; flex-direction: row; align-items: center; gap: 8px; min-height: 30px; }
