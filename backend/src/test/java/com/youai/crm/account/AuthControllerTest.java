@@ -34,24 +34,20 @@ class AuthControllerTest {
     }
 
     @Test
-    void registersSalesAccountAndReturnsToken() throws Exception {
+    void rejectsPublicRegistration() throws Exception {
         mockMvc.perform(post("/api/auth/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"registertest\",\"password\":\"Password123\",\"displayName\":\"注册测试\",\"phone\":\"13800138000\"}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.accessToken").isNotEmpty())
-                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
-                .andExpect(jsonPath("$.user.username").value("registertest"))
-                .andExpect(jsonPath("$.user.departmentCode").value("SALES"))
-                .andExpect(jsonPath("$.user.roles[0]").value("SALES"));
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/auth/register")
+                .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("admin").roles("ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isForbidden());
     }
 
     @Test
     void logsInRegisteredAccountByPhone() throws Exception {
-        mockMvc.perform(post("/api/auth/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"phonelogintest\",\"password\":\"Password123\",\"displayName\":\"手机号登录测试\",\"phone\":\"13800138009\"}"))
-                .andExpect(status().isCreated());
+        createAndLogin("{\"username\":\"phonelogintest\",\"password\":\"Password123\",\"displayName\":\"手机号登录测试\",\"phone\":\"13800138009\"}");
 
         mockMvc.perform(post("/api/auth/login/phone")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -64,11 +60,7 @@ class AuthControllerTest {
 
     @Test
     void refreshesAccessTokenAndRejectsRefreshTokenAsApiCredential() throws Exception {
-        String registration = mockMvc.perform(post("/api/auth/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"refreshtest\",\"password\":\"Password123\",\"displayName\":\"刷新测试\",\"phone\":\"13800138010\"}"))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
+        String registration = createAndLogin("{\"username\":\"refreshtest\",\"password\":\"Password123\",\"displayName\":\"刷新测试\",\"phone\":\"13800138010\"}");
         String refreshToken = JsonPath.read(registration, "$.refreshToken");
 
         mockMvc.perform(post("/api/auth/refresh")
@@ -92,11 +84,7 @@ class AuthControllerTest {
 
     @Test
     void invalidatesTokenOnLogout() throws Exception {
-        String registration = mockMvc.perform(post("/api/auth/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"logouttest\",\"password\":\"Password123\",\"displayName\":\"注销测试\",\"phone\":\"13800138002\"}"))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
+        String registration = createAndLogin("{\"username\":\"logouttest\",\"password\":\"Password123\",\"displayName\":\"注销测试\",\"phone\":\"13800138002\"}");
         String token = JsonPath.read(registration, "$.accessToken");
         String refreshToken = JsonPath.read(registration, "$.refreshToken");
 
@@ -136,11 +124,7 @@ class AuthControllerTest {
 
     @Test
     void invalidatesExistingEmployeeTokenAfterAdministratorResetsPassword() throws Exception {
-        String registration = mockMvc.perform(post("/api/auth/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"credentialreset\",\"password\":\"Original123\",\"displayName\":\"凭证测试\",\"phone\":\"13800138001\"}"))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
+        String registration = createAndLogin("{\"username\":\"credentialreset\",\"password\":\"Original123\",\"displayName\":\"凭证测试\",\"phone\":\"13800138001\"}");
         String employeeToken = JsonPath.read(registration, "$.accessToken");
         Number employeeId = JsonPath.read(registration, "$.user.id");
 
@@ -174,11 +158,7 @@ class AuthControllerTest {
 
     @Test
     void administratorCanFreezeEmployeeAndInvalidateExistingToken() throws Exception {
-        String registration = mockMvc.perform(post("/api/auth/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"freezetest\",\"password\":\"Password123\",\"displayName\":\"冻结测试\",\"phone\":\"13800138003\"}"))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
+        String registration = createAndLogin("{\"username\":\"freezetest\",\"password\":\"Password123\",\"displayName\":\"冻结测试\",\"phone\":\"13800138003\"}");
         String employeeToken = JsonPath.read(registration, "$.accessToken");
         Number employeeId = JsonPath.read(registration, "$.user.id");
 
@@ -217,5 +197,14 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"freezetest\",\"password\":\"Password123\"}"))
                 .andExpect(status().isOk());
+    }
+    private String createAndLogin(String body) throws Exception {
+        mockMvc.perform(post("/api/auth/users")
+                .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("admin").roles("ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated());
+        return mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
     }
 }

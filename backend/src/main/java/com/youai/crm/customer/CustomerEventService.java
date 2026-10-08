@@ -68,12 +68,17 @@ public class CustomerEventService {
 
     public void recordAssignmentIfNeeded(Customer customer, String previousOwner, String owner,
             CustomerAssignmentRequest request, Authentication authentication) {
+        recordAssignmentIfNeeded(customer, previousOwner, owner, request, authentication, false);
+    }
+
+    public void recordAssignmentIfNeeded(Customer customer, String previousOwner, String owner,
+            CustomerAssignmentRequest request, Authentication authentication, boolean identityChanged) {
         CustomerAssignmentRequest details = request == null
                 ? new CustomerAssignmentRequest(owner, null, null, null) : request;
         boolean hasDetails = StringUtils.hasText(details.type()) || StringUtils.hasText(details.maturity())
                 || StringUtils.hasText(details.reason());
         if (!StringUtils.hasText(owner) || PUBLIC_POOL.equals(owner) || WHITEBOARD.equals(owner)
-                || (Objects.equals(previousOwner, owner) && !hasDetails)) return;
+                || (Objects.equals(previousOwner, owner) && !hasDetails && !identityChanged)) return;
         LocalDateTime now = LocalDateTime.now();
         if (customer.getFirstAllocationAt() == null) customer.setFirstAllocationAt(now);
         customer.setLastAllocationAt(now);
@@ -102,7 +107,7 @@ public class CustomerEventService {
     private Customer authorizedCustomer(String customerNo, Authentication authentication) {
         Customer customer = customerRepository.findByCustomerNo(customerNo)
                 .orElseThrow(() -> new NotFoundException("\u672a\u627e\u5230\u5ba2\u6237\uff1a" + customerNo));
-        accessPolicy.requireOwner(customer.getOwner(), authentication);
+        accessPolicy.requireUserId(customer.getOwnerId(), authentication);
         return customer;
     }
 

@@ -23,25 +23,27 @@ public class ConversationService {
     private final CustomerService customerService;
     private final CustomerRepository customerRepository;
     private final AccessPolicy accessPolicy;
+    private final com.youai.crm.customer.CustomerAccessPolicy customerAccess;
 
     public ConversationService(
             ConversationRepository conversationRepository,
             MessageRepository messageRepository,
             CustomerService customerService,
             CustomerRepository customerRepository,
-            AccessPolicy accessPolicy) {
+            AccessPolicy accessPolicy, com.youai.crm.customer.CustomerAccessPolicy customerAccess) {
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
         this.customerService = customerService;
         this.customerRepository = customerRepository;
         this.accessPolicy = accessPolicy;
+        this.customerAccess = customerAccess;
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<ConversationResponse> list(Authentication authentication) {
         accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
         return conversationRepository.findAllByOrderByLastMessageAtDesc().stream()
-                .filter(conversation -> accessPolicy.canAccessOwner(conversation.getOwner(), authentication))
+                .filter(conversation -> customerAccess.canAccess(conversation.getCustomerNo(), authentication))
                 .map(this::response)
                 .toList();
     }
@@ -58,7 +60,7 @@ public class ConversationService {
                     created.setLastMessageAt(LocalDateTime.now());
                     return conversationRepository.save(created);
                 });
-        accessPolicy.requireOwner(conversation.getOwner(), authentication);
+        customerAccess.requireAccess(conversation.getCustomerNo(), authentication);
         return response(conversation);
     }
 
@@ -108,14 +110,14 @@ public class ConversationService {
     private List<Conversation> visibleConversations(Authentication authentication) {
         accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
         return conversationRepository.findAllByOrderByLastMessageAtDesc().stream()
-                .filter(conversation -> accessPolicy.canAccessOwner(conversation.getOwner(), authentication))
+                .filter(conversation -> customerAccess.canAccess(conversation.getCustomerNo(), authentication))
                 .toList();
     }
 
     private Conversation get(Long id, Authentication authentication) {
         Conversation conversation = conversationRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("未找到会话：" + id));
-        accessPolicy.requireOwner(conversation.getOwner(), authentication);
+        customerAccess.requireAccess(conversation.getCustomerNo(), authentication);
         return conversation;
     }
 

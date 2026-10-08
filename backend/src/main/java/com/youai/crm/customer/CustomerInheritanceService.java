@@ -53,12 +53,9 @@ public class CustomerInheritanceService {
             throw new IllegalArgumentException("接收员工不能与离职员工相同");
         }
 
-        // Customers created by older versions stored either display name or
-        // username. Transfer both forms without processing any customer twice.
         Map<Long, Customer> ownedCustomers = new LinkedHashMap<>();
-        addCustomers(ownedCustomers, source.getDisplayName());
-        if (!source.getUsername().equalsIgnoreCase(source.getDisplayName())) {
-            addCustomers(ownedCustomers, source.getUsername());
+        for (Customer customer : customerRepository.findAllByOwnerId(source.getId())) {
+            ownedCustomers.put(customer.getId(), customer);
         }
 
         CustomerAssignmentRequest details = new CustomerAssignmentRequest(
@@ -67,6 +64,7 @@ public class CustomerInheritanceService {
             String previousOwner = customer.getOwner();
             customer.setPreviousOwner(previousOwner);
             customer.setOwner(target.getDisplayName());
+            customer.setOwnerId(target.getId());
             Customer saved = customerRepository.save(customer);
             eventService.recordAssignmentIfNeeded(saved, previousOwner,
                     target.getDisplayName(), details, authentication);
@@ -77,13 +75,6 @@ public class CustomerInheritanceService {
         }
         return new CustomerInheritanceResponse(source.getDisplayName(),
                 target.getDisplayName(), ownedCustomers.size());
-    }
-
-    private void addCustomers(Map<Long, Customer> result, String owner) {
-        if (!StringUtils.hasText(owner)) return;
-        for (Customer customer : customerRepository.findAllByOwner(owner)) {
-            if (customer.getId() != null) result.putIfAbsent(customer.getId(), customer);
-        }
     }
 
     private CrmUser resolveSource(CustomerInheritanceRequest request) {
@@ -127,7 +118,7 @@ public class CustomerInheritanceService {
 
     private boolean matchesOwner(String candidate, CrmUser user) {
         String value = candidate == null ? "" : candidate.trim();
-        return value.equalsIgnoreCase(user.getDisplayName())
+        return value.equals("user:" + user.getId()) || value.equalsIgnoreCase(user.getDisplayName())
                 || value.equalsIgnoreCase(user.getUsername());
     }
 

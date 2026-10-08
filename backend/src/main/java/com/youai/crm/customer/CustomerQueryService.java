@@ -78,7 +78,7 @@ public class CustomerQueryService {
             addAnyEquals(builder, root, predicates, level, "level");
             boolean collaborationScope = "collab".equalsIgnoreCase(queryValues.get("scope"));
             if (!admin && !Boolean.TRUE.equals(inPool) && !collaborationScope) {
-                predicates.add(builder.equal(root.get("owner"), accessPolicy.currentOwner(authentication)));
+                predicates.add(builder.equal(root.get("ownerId"), accessPolicy.currentUserId(authentication)));
             } else if (StringUtils.hasText(owner)) {
                 addAnyEquals(builder, root, predicates, owner, "owner");
             }
@@ -150,11 +150,11 @@ public class CustomerQueryService {
         addSceneFilter(builder, root, predicates, values);
         if (has(values, "scope")) {
             String scope = values.get("scope").trim();
-            String currentDisplayName = accessPolicy.currentDisplayName(authentication);
+            Long currentUserId = accessPolicy.currentUserId(authentication);
             if ("mine".equalsIgnoreCase(scope)) {
-                predicates.add(builder.equal(root.get("owner"), currentDisplayName));
+                predicates.add(builder.equal(root.get("ownerId"), currentUserId));
             } else if ("collab".equalsIgnoreCase(scope)) {
-                addAnyLike(builder, root, predicates, currentDisplayName, "collaborator", "、,，");
+                predicates.add(builder.isMember(currentUserId, root.get("collaboratorIds")));
             }
         }
         if (has(values, "uncontactedDays")) {
@@ -386,7 +386,8 @@ public class CustomerQueryService {
         accessPolicy.scopedOwner(authentication);
         return repository.findAll().stream()
                 .filter(customer -> accessPolicy.isAdmin(authentication) || PUBLIC_POOL.equals(customer.getOwner())
-                        || accessPolicy.canAccessOwner(customer.getOwner(), authentication))
+                        || accessPolicy.canAccessUserId(customer.getOwnerId(), authentication))
+                .filter(customer -> accessPolicy.canAccessUserId(customer.getOwnerId(), authentication))
                 .flatMap(customer -> customer.getTags().stream())
                 .collect(Collectors.groupingBy(tag -> tag, LinkedHashMap::new, Collectors.counting()));
     }
@@ -398,7 +399,7 @@ public class CustomerQueryService {
     public Customer get(String customerNo, Authentication authentication) {
         Customer customer = repository.findByCustomerNo(customerNo)
                 .orElseThrow(() -> new NotFoundException("鏈壘鍒板鎴凤細" + customerNo));
-        accessPolicy.requireOwner(customer.getOwner(), authentication);
+        accessPolicy.requireUserId(customer.getOwnerId(), authentication);
         return customer;
     }
 

@@ -57,6 +57,15 @@ public class AccessPolicy {
         }
     }
 
+    public boolean canAccessUserId(Long ownerId, Authentication authentication) {
+        if (isAdmin(authentication)) return true;
+        return ownerId != null && authentication != null && ownerId.equals(currentUserId(authentication));
+    }
+
+    public void requireUserId(Long ownerId, Authentication authentication) {
+        if (!canAccessUserId(ownerId, authentication)) throw new AccessDeniedException("只能操作本人负责的数据");
+    }
+
     public void requireOwner(String owner, Authentication authentication) {
         if (!canAccessOwner(owner, authentication)) {
             throw new AccessDeniedException("只能操作本人负责的数据");

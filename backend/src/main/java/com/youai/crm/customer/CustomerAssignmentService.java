@@ -25,19 +25,21 @@ public class CustomerAssignmentService {
     private final AccessPolicy accessPolicy;
     private final CrmUserRepository userRepository;
     private final SystemNotificationRepository notificationRepository;
-    private final CustomerQueryService queryService;
+    private final CustomerOwnershipService ownership;
+    private final com.youai.crm.account.UserIdentityResolver identities;
     private final CustomerResponseMapper responseMapper;
     private final CustomerEventService eventService;
 
     public CustomerAssignmentService(CustomerRepository repository, AccessPolicy accessPolicy,
             CrmUserRepository userRepository, SystemNotificationRepository notificationRepository,
-            CustomerQueryService queryService, CustomerResponseMapper responseMapper,
+            CustomerOwnershipService ownership, com.youai.crm.account.UserIdentityResolver identities, CustomerResponseMapper responseMapper,
             CustomerEventService eventService) {
         this.repository = repository;
         this.accessPolicy = accessPolicy;
         this.userRepository = userRepository;
         this.notificationRepository = notificationRepository;
-        this.queryService = queryService;
+        this.ownership = ownership;
+        this.identities = identities;
         this.responseMapper = responseMapper;
         this.eventService = eventService;
     }
@@ -47,16 +49,15 @@ public class CustomerAssignmentService {
                 .orElseThrow(() -> new NotFoundException("\u672a\u627e\u5230\u5ba2\u6237\uff1a" + customerNo));
         String previousOwner = customer.getOwner();
         if (inPool) {
-            accessPolicy.requireOwner(customer.getOwner(), authentication);
+            accessPolicy.requireUserId(customer.getOwnerId(), authentication);
             if (!PUBLIC_POOL.equals(customer.getOwner())) customer.setPreviousOwner(customer.getOwner());
-            customer.setOwner(PUBLIC_POOL);
+            ownership.assign(customer, PUBLIC_POOL);
             customer.setPoolEntryType("主动放弃");
         } else {
             if (!PUBLIC_POOL.equals(customer.getOwner()) && !accessPolicy.isAdmin(authentication)) {
                 throw new AccessDeniedException("\u53ea\u80fd\u9886\u53d6\u516c\u6d77\u5ba2\u6237");
             }
-            customer.setOwner(accessPolicy.isAdmin(authentication)
-                    ? accessPolicy.currentDisplayName(authentication) : accessPolicy.currentOwner(authentication));
+            ownership.assignCurrent(customer, authentication);
             customer.setPoolEntryType(null);
             eventService.recordAssignmentIfNeeded(customer, previousOwner, customer.getOwner(), authentication);
         }
@@ -74,22 +75,22 @@ public class CustomerAssignmentService {
         if (!accessPolicy.isAdmin(authentication)) throw new AccessDeniedException("\u4ec5\u7ba1\u7406\u5458\u53ef\u4ee5\u5206\u914d\u5ba2\u6237");
         Customer customer = repository.findByCustomerNo(customerNo)
                 .orElseThrow(() -> new NotFoundException("\u672a\u627e\u5230\u5ba2\u6237\uff1a" + customerNo));
-        String owner = resolveEmployeeOwner(request.owner());
+        CrmUser employee = identities.enabledEmployee(request.owner());
+        String owner = employee.getDisplayName();
         String previousOwner = customer.getOwner();
-        customer.setOwner(owner);
+        Long previousOwnerId = customer.getOwnerId();
+        ownership.assign(customer, employee);
         customer.setPoolEntryType(null);
         Customer saved = repository.save(customer);
-        eventService.recordAssignmentIfNeeded(saved, previousOwner, owner, request, authentication);
+        eventService.recordAssignmentIfNeeded(saved, previousOwner, owner, request, authentication,
+                !Objects.equals(previousOwnerId, saved.getOwnerId()));
         notifyAssignedEmployee(saved, owner, authentication, request);
         return responseMapper.toResponse(saved, authentication);
     }
 
     private void notifyAssignedEmployee(Customer customer, String owner, Authentication authentication,
             CustomerAssignmentRequest request) {
-        CrmUser employee = userRepository.findAllByEnabledTrueOrderByDisplayNameAsc().stream()
-                .filter(user -> user.getRoles().stream().noneMatch(role -> "ADMIN".equals(role.getCode())))
-                .filter(user -> owner.equalsIgnoreCase(user.getDisplayName()) || owner.equalsIgnoreCase(user.getUsername()))
-                .findFirst().orElse(null);
+        CrmUser employee = userRepository.findById(customer.getOwnerId()).orElse(null);
         if (employee == null || !StringUtils.hasText(employee.getUsername())) return;
         String allocationTime = customer.getLastAllocationAt() == null
                 ? Long.toString(System.currentTimeMillis()) : customer.getLastAllocationAt().toString();
@@ -104,17 +105,6 @@ public class CustomerAssignmentService {
         notification.setContent(operator + "\u5df2\u5c06\u5ba2\u6237\u300a" + customer.getName() + "\u300b\u5206\u914d\u7ed9\u4f60\uff0c\u53ef\u5728\u5ba2\u6237\u5217\u8868\u67e5\u770b\u3002" + reason);
         notification.setCustomerNo(customer.getCustomerNo());
         notificationRepository.save(notification);
-    }
-
-    private String resolveEmployeeOwner(String requestedOwner) {
-        if (!StringUtils.hasText(requestedOwner) || PUBLIC_POOL.equals(requestedOwner) || "\u767d\u677f".equals(requestedOwner)) {
-            throw new IllegalArgumentException("\u8d1f\u8d23\u4eba\u5fc5\u987b\u9009\u62e9\u771f\u5b9e\u5458\u5de5\u8d26\u53f7");
-        }
-        return userRepository.findAllByEnabledTrueOrderByDisplayNameAsc().stream()
-                .filter(user -> requestedOwner.trim().equalsIgnoreCase(user.getDisplayName()))
-                .filter(user -> user.getRoles().stream().noneMatch(role -> "ADMIN".equals(role.getCode())))
-                .map(CrmUser::getDisplayName).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("\u8d1f\u8d23\u4eba\u8d26\u53f7\u4e0d\u5b58\u5728\uff0c\u8bf7\u9009\u62e9\u771f\u5b9e\u5458\u5de5\u8d26\u53f7"));
     }
 
     private String ownerLabel(String owner) {

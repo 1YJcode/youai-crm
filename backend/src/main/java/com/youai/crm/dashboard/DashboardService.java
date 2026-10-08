@@ -59,10 +59,11 @@ public class DashboardService {
         LocalDateTime end = endDate.plusDays(1).atStartOfDay();
         String normalizedStore = store == null || store.isBlank() ? null : store;
 
-        long totalCustomers = customerRepository.countForDashboard(owner);
-        long newCustomers = customerRepository.countNewForDashboard(owner, start, end);
-        long closedCustomers = customerRepository.countByStageForDashboard(owner, CLOSED_STAGE);
-        BigDecimal pipeline = amount(customerRepository.sumPipelineForDashboard(owner));
+        Long customerOwnerId = accessPolicy.isAdmin(authentication) ? null : accessPolicy.currentUserId(authentication);
+        long totalCustomers = customerRepository.countForDashboard(customerOwnerId);
+        long newCustomers = customerRepository.countNewForDashboard(customerOwnerId, start, end);
+        long closedCustomers = customerRepository.countByStageForDashboard(customerOwnerId, CLOSED_STAGE);
+        BigDecimal pipeline = amount(customerRepository.sumPipelineForDashboard(customerOwnerId));
 
         long followUpsToday = taskRepository.countDueCustomersForDashboard(owner, start, end);
         long pendingTasks = taskRepository.countPendingForDashboard(owner);

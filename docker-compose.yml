@@ -37,6 +37,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:-youke-crm-docker-secret-change-this-before-production}
       JWT_ACCESS_TTL_HOURS: ${JWT_ACCESS_TTL_HOURS:-2}
       JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-7}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       SERVER_PORT: 8080
       TZ: Asia/Shanghai
     depends_on:

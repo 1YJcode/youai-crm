@@ -46,7 +46,7 @@ public record CustomerResponse(
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         List<String> tags,
-        Integer deepTalkDurationSeconds) {
+        Integer deepTalkDurationSeconds, Long ownerId, java.util.Set<Long> collaboratorIds) {
 
     public static CustomerResponse from(Customer customer) {
         // Keep the safe projection as the default so a new caller cannot
@@ -68,16 +68,16 @@ public record CustomerResponse(
                 customer.getCustomerNo(),
                 customer.getName(),
                 contactVisible ? customer.getPhone() : maskPhone(customer.getPhone()),
-                customer.getCompany(),
-                customer.getSource(),
+                contactVisible ? customer.getCompany() : null,
+                contactVisible ? customer.getSource() : null,
                 customer.getOwner(),
                 customer.getStage(),
                 customer.getLevel(),
                 customer.getExpectedAmount(),
                 customer.getCity(),
-                customer.getNote(),
+                contactVisible ? customer.getNote() : null,
                 customer.getGender(),
-                customer.getBirthday(),
+                contactVisible ? customer.getBirthday() : null,
                 customer.getAge(),
                 customer.getHeight(),
                 customer.getMaritalStatus(),
@@ -87,16 +87,16 @@ public record CustomerResponse(
                 customer.getOccupation(),
                 customer.getHousing(),
                 customer.getCar(),
-                customer.getNativePlace(),
-                customer.getWorkLocation(),
+                contactVisible ? customer.getNativePlace() : null,
+                contactVisible ? customer.getWorkLocation() : null,
                 contactVisible ? customer.getWechat() : maskWechat(customer.getWechat()),
                 contactVisible,
-                customer.getIdCard(),
-                customer.getRemark(),
-                customer.getCertificationStatus(), customer.getFamilyStatus(), customer.getChildrenStatus(), customer.getVehicleHousing(),
+                contactVisible ? customer.getIdCard() : null,
+                contactVisible ? customer.getRemark() : null,
+                customer.getCertificationStatus(), contactVisible ? customer.getFamilyStatus() : null, contactVisible ? customer.getChildrenStatus() : null, contactVisible ? customer.getVehicleHousing() : null,
                 customer.getRegistrationCount(), customer.getMatchAgeRange(), customer.getMatchMaritalStatus(), customer.getMatchHeightRange(),
-                customer.getMatchEducation(), customer.getMatchMonthlyIncome(), customer.getMatchMostImportant(), customer.getMatchPersonality(),
-                customer.getMatchChildren(), customer.getMatchDealbreakers(), customer.getCollaborator(),
+                customer.getMatchEducation(), customer.getMatchMonthlyIncome(), contactVisible ? customer.getMatchMostImportant() : null, contactVisible ? customer.getMatchPersonality() : null,
+                contactVisible ? customer.getMatchChildren() : null, contactVisible ? customer.getMatchDealbreakers() : null, customer.getCollaborator(),
                 customer.getLastContactAt(),
                 customer.getNextFollowAt(),
                 customer.getFirstAllocationAt(),
@@ -105,8 +105,8 @@ public record CustomerResponse(
                 customer.getPoolEntryType(),
                 customer.getCreatedAt(),
                 customer.getUpdatedAt(),
-                List.copyOf(customer.getTags()),
-                Math.max(0, deepTalkDurationSeconds));
+                contactVisible ? List.copyOf(customer.getTags()) : List.of(),
+                Math.max(0, deepTalkDurationSeconds), customer.getOwnerId(), java.util.Set.copyOf(customer.getCollaboratorIds()));
     }
 
     private static String maskPhone(String phone) {

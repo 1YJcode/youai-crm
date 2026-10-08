@@ -77,20 +77,21 @@ public class CustomerFollowUpService {
 
         taskRepository.findAll().stream()
                 .filter(task -> sameCustomer(task, customer))
-                .filter(task -> accessPolicy.canAccessOwner(task.getOwner(), authentication))
+                .filter(task -> Objects.equals(task.getCustomerId(), customer.id())
+                        || accessPolicy.canAccessOwner(task.getOwner(), authentication))
                 .map(task -> taskRecord(task, customer))
                 .filter(record -> matches(record, normalizedType, normalizedKeyword, fromAt, toAt))
                 .forEach(records::add);
 
         callRepository.findAllByOrderByStartedAtDesc().stream()
                 .filter(call -> Objects.equals(call.getCustomerNo(), customer.id()))
-                .filter(call -> accessPolicy.canAccessOwner(call.getOwner(), authentication))
+
                 .map(call -> callRecord(call, customer))
                 .filter(record -> matches(record, normalizedType, normalizedKeyword, fromAt, toAt))
                 .forEach(records::add);
 
         conversationRepository.findByCustomerNo(customer.id()).stream()
-                .filter(conversation -> accessPolicy.canAccessOwner(conversation.getOwner(), authentication))
+
                 .flatMap(conversation -> messageRepository.findByConversationIdOrderBySentAtAsc(conversation.getId()).stream())
                 .map(message -> messageRecord(message, customer))
                 .filter(record -> matches(record, normalizedType, normalizedKeyword, fromAt, toAt))

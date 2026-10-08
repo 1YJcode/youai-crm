@@ -24,11 +24,14 @@ public class TaskService {
     private final FollowUpTaskRepository repository;
     private final AccessPolicy accessPolicy;
     private final CustomerRepository customerRepository;
+    private final com.youai.crm.customer.CustomerAccessPolicy customerAccess;
 
-    public TaskService(FollowUpTaskRepository repository, AccessPolicy accessPolicy, CustomerRepository customerRepository) {
+    public TaskService(FollowUpTaskRepository repository, AccessPolicy accessPolicy, CustomerRepository customerRepository,
+            com.youai.crm.customer.CustomerAccessPolicy customerAccess) {
         this.repository = repository;
         this.accessPolicy = accessPolicy;
         this.customerRepository = customerRepository;
+        this.customerAccess = customerAccess;
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
@@ -37,7 +40,14 @@ public class TaskService {
         boolean admin = accessPolicy.isAdmin(authentication);
         var spec = (org.springframework.data.jpa.domain.Specification<FollowUpTask>) (root, query, builder) -> {
             var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
-            if (!admin) predicates.add(builder.equal(root.get("owner"), accessPolicy.currentOwner(authentication)));
+            if (!admin) {
+                String currentOwner = accessPolicy.currentOwner(authentication);
+                var legacyTask = accessPolicy.canAccessOwner(currentOwner, authentication)
+                        ? builder.and(builder.isNull(root.get("customerId")), builder.equal(root.get("owner"), currentOwner))
+                        : builder.disjunction();
+                predicates.add(builder.or(legacyTask,
+                        customerAccess.visibleReference(root.get("customerId"), query, builder, authentication)));
+            }
             else if (StringUtils.hasText(owner)) predicates.add(builder.equal(root.get("owner"), owner.trim()));
             if (StringUtils.hasText(status)) predicates.add(builder.equal(root.get("status"), status.trim()));
             if (completed != null) predicates.add(builder.equal(root.get("completed"), completed));
@@ -103,7 +113,7 @@ public class TaskService {
         if (request.customerId() == null) return;
         Customer customer = customerRepository.findByCustomerNo(request.customerId())
                 .orElseThrow(() -> new NotFoundException("未找到客户：" + request.customerId()));
-        accessPolicy.requireOwner(customer.getOwner(), authentication);
+        accessPolicy.requireUserId(customer.getOwnerId(), authentication);
         task.setCustomerName(customer.getName());
         customer.setLastContactAt(task.getFollowedAt());
         if (StringUtils.hasText(request.customerStatus())) customer.setStage(request.customerStatus().trim());
@@ -121,7 +131,8 @@ public class TaskService {
     private FollowUpTask get(Long id, Authentication authentication) {
         FollowUpTask task = repository.findById(id)
                 .orElseThrow(() -> new NotFoundException("未找到任务：" + id));
-        accessPolicy.requireOwner(task.getOwner(), authentication);
+        if (StringUtils.hasText(task.getCustomerId())) customerAccess.requireAccess(task.getCustomerId(), authentication);
+        else accessPolicy.requireOwner(task.getOwner(), authentication);
         return task;
     }
 }

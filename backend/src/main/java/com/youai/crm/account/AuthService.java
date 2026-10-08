@@ -143,25 +143,8 @@ public class AuthService {
         return value == null ? "" : value.replaceAll("[\\r\\n\\t]", "_");
     }
 
-    @Transactional
     public AuthResponse register(RegisterRequest request) {
-        String username = request.username().trim();
-        if (userRepository.findByUsernameIgnoreCase(username).isPresent()) {
-            throw new IllegalArgumentException("账号已存在，请换一个账号");
-        }
-        Department salesDepartment = departmentRepository.findByCode("SALES")
-                .orElseThrow(() -> new IllegalStateException("销售部门尚未初始化"));
-        Role salesRole = roleRepository.findByCode("SALES")
-                .orElseThrow(() -> new IllegalStateException("销售角色尚未初始化"));
-        CrmUser user = new CrmUser();
-        user.setUsername(username);
-        user.setPasswordHash(passwordEncoder.encode(request.password()));
-        user.setDisplayName(request.displayName().trim());
-        user.setPhone(request.phone() == null ? "" : request.phone().trim());
-        user.setDepartment(salesDepartment);
-        user.setRoles(java.util.Set.of(salesRole));
-        user.setEnabled(true);
-        return tokenResponse(new CrmPrincipal(userRepository.save(user)));
+        throw new AccessDeniedException("不支持自行注册，请联系管理员开通账号");
     }
 
     public UserResponse me(Authentication authentication) {
@@ -254,10 +237,7 @@ public class AuthService {
         if (administrator) {
             throw new IllegalArgumentException("管理员账号不能删除");
         }
-        long customerCount = customerRepository.countByOwner(user.getDisplayName());
-        if (!user.getUsername().equalsIgnoreCase(user.getDisplayName())) {
-            customerCount += customerRepository.countByOwner(user.getUsername());
-        }
+        long customerCount = customerRepository.countByOwnerId(user.getId());
         if (customerCount > 0) {
             throw new IllegalArgumentException("该员工名下仍有 " + customerCount + " 位客户，请先办理离职继承");
         }

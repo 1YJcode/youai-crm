@@ -1,3 +1,5 @@
+param([string]$BuildDirectory = '')
+
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $javaHome = Get-ChildItem -LiteralPath (Join-Path $projectRoot '.tools\jdk') -Directory |
     Select-Object -First 1 -ExpandProperty FullName
@@ -12,5 +14,7 @@ $env:JAVA_HOME = $javaHome
 $maven = Join-Path $mavenHome 'bin\mvn.cmd'
 $localRepository = Join-Path $projectRoot '.m2'
 
-& $maven -f (Join-Path $projectRoot 'backend\pom.xml') "-Dmaven.repo.local=$localRepository" test
+$testArguments = @('-f', (Join-Path $projectRoot 'backend\pom.xml'), "-Dmaven.repo.local=$localRepository")
+if ($BuildDirectory) { $testArguments += "-Dyouai.build.directory=$BuildDirectory" }
+& $maven @testArguments test
 exit $LASTEXITCODE

@@ -30,7 +30,7 @@ public class InvitationService {
     @Transactional
     public InvitationResponse create(InvitationRequest request, Authentication auth) {
         Customer customer = customers.findByCustomerNo(request.customerId()).orElseThrow(() -> new NotFoundException("未找到客户：" + request.customerId()));
-        accessPolicy.requireOwner(customer.getOwner(), auth);
+        accessPolicy.requireUserId(customer.getOwnerId(), auth);
         InvitationRecord row = new InvitationRecord();
         row.setInvitationNo("YQ" + System.currentTimeMillis()); row.setCustomerNo(customer.getCustomerNo());
         row.setInviter(customer.getOwner()); row.setDepartment("销售部"); row.setInvitationMethod(request.invitationMethod().trim());

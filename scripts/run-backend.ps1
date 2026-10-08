@@ -13,6 +13,7 @@ if (-not $javaHome -or -not $mavenHome) {
     throw 'Portable Java or Maven is missing from .tools.'
 }
 
+if (-not $env:SPRING_PROFILES_ACTIVE) { $env:SPRING_PROFILES_ACTIVE = 'dev' }
 $env:JAVA_HOME = $javaHome
 $maven = Join-Path $mavenHome 'bin\mvn.cmd'
 $localRepository = Join-Path $projectRoot '.m2'

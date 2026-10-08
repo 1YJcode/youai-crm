@@ -692,7 +692,7 @@ function customerOwnerAccountUsers() {
       enabled: user.enabled !== false
     }))
     .filter(user => user.enabled !== false && user.name && user.name !== "公海" && user.name !== "白板")
-    .filter((user, index, users) => users.findIndex(item => item.id === user.id || item.name === user.name) === index);
+    .filter((user, index, users) => users.findIndex(item => item.id === user.id) === index);
 }
 
 function customerOwnerIsAdminUser(user) {
@@ -716,7 +716,7 @@ function customerOwnerTree(includeAdmins = true) {
   const users = customerOwnerAccountUsers();
   const adminUsers = includeAdmins ? users.filter(customerOwnerIsAdminUser).map(user => ({
     id: `user:${user.id}`,
-    label: user.name,
+    label: `${user.name}（${user.username}）`,
     owner: user.name,
     children: []
   })) : [];
@@ -995,10 +995,9 @@ function showLogin(message = "", mode = "account") {
   document.querySelector(".help-rail").hidden = true;
   document.querySelector("#workspaceTabs").hidden = true;
   document.querySelector("#followupAlertRegion")?.setAttribute("hidden", "");
-  document.querySelector("#app").innerHTML = `<main class="login-screen"><section class="login-panel reference-login"><div class="reference-logo"><img src="logo-youai.png" alt="优爱 YOUAI"></div><div class="reference-name"><strong>客户经营管理平台</strong><span>让每一次客户沟通都有记录、有结果</span></div><div class="login-tabs"><button class="${mode === "account" ? "active" : ""}" type="button" data-login-mode="account">账号密码登录</button><button class="${mode === "phone" ? "active" : ""}" type="button" data-login-mode="phone">手机号登录</button></div><form class="login-form" id="loginForm" data-login-mode="${mode}"><label><span id="loginIdentityLabel">${mode === "phone" ? "手机号码" : "登录账号"}</span><input name="${mode === "phone" ? "phone" : "username"}" type="${mode === "phone" ? "tel" : "text"}" inputmode="${mode === "phone" ? "numeric" : "text"}" autocomplete="${mode === "phone" ? "tel" : "username"}" pattern="${mode === "phone" ? "1[3-9][0-9]{9}" : "[A-Za-z][A-Za-z0-9_.-]*"}" required placeholder="${mode === "phone" ? "请输入 11 位手机号" : "请输入账号名，例如 admin"}"></label><label><span>登录密码</span><input name="password" type="password" autocomplete="current-password" required placeholder="请输入登录密码"></label><div class="captcha-row"><label><span>验证码</span><input name="captcha" required maxlength="4" autocomplete="off" placeholder="请输入验证码"></label><button type="button" class="captcha-code" id="refreshCaptcha" aria-label="刷新验证码" title="点击刷新验证码">${captcha}</button></div><label class="auto-login"><input type="checkbox" checked> <span>记住登录状态</span></label><p class="login-error" id="loginError" ${message ? "" : "hidden"}>${escapeHtml(message)}</p><button class="button primary" type="submit" id="loginSubmit">登录系统</button></form><button class="auth-switch" type="button" id="showRegister">没有账号？注册销售账号</button><p class="demo-account">账号登录：admin / Admin@123；手机号登录使用员工绑定的手机号和密码</p><footer class="reference-footer">Copyright © 2026<br><span>优爱 YOUAI</span> 出品</footer></section></main>`;
+  document.querySelector("#app").innerHTML = `<main class="login-screen"><section class="login-panel reference-login"><div class="reference-logo"><img src="logo-youai.png" alt="优爱 YOUAI"></div><div class="reference-name"><strong>客户经营管理平台</strong><span>让每一次客户沟通都有记录、有结果</span></div><div class="login-tabs"><button class="${mode === "account" ? "active" : ""}" type="button" data-login-mode="account">账号密码登录</button><button class="${mode === "phone" ? "active" : ""}" type="button" data-login-mode="phone">手机号登录</button></div><form class="login-form" id="loginForm" data-login-mode="${mode}"><label><span id="loginIdentityLabel">${mode === "phone" ? "手机号码" : "登录账号"}</span><input name="${mode === "phone" ? "phone" : "username"}" type="${mode === "phone" ? "tel" : "text"}" inputmode="${mode === "phone" ? "numeric" : "text"}" autocomplete="${mode === "phone" ? "tel" : "username"}" pattern="${mode === "phone" ? "1[3-9][0-9]{9}" : "[A-Za-z][A-Za-z0-9_.-]*"}" required placeholder="${mode === "phone" ? "请输入 11 位手机号" : "请输入账号名，例如 admin"}"></label><label><span>登录密码</span><input name="password" type="password" autocomplete="current-password" required placeholder="请输入登录密码"></label><div class="captcha-row"><label><span>验证码</span><input name="captcha" required maxlength="4" autocomplete="off" placeholder="请输入验证码"></label><button type="button" class="captcha-code" id="refreshCaptcha" aria-label="刷新验证码" title="点击刷新验证码">${captcha}</button></div><label class="auto-login"><input type="checkbox" checked> <span>记住登录状态</span></label><p class="login-error" id="loginError" ${message ? "" : "hidden"}>${escapeHtml(message)}</p><button class="button primary" type="submit" id="loginSubmit">登录系统</button></form><p class="demo-account">没有账号？请联系管理员开通。手机号登录使用员工绑定的手机号和密码。</p><footer class="reference-footer">Copyright © 2026<br><span>优爱 YOUAI</span> 出品</footer></section></main>`;
   document.querySelector("#loginForm").addEventListener("submit", submitLogin);
   document.querySelector("#refreshCaptcha").addEventListener("click", () => showLogin("", document.querySelector("#loginForm")?.dataset.loginMode || "account"));
-  document.querySelector("#showRegister").addEventListener("click", showRegister);
   document.querySelectorAll("[data-login-mode]").forEach(button => button.addEventListener("click", () => switchLoginMode(button.dataset.loginMode)));
   document.querySelector("#loginForm input").focus();
 }
@@ -1032,16 +1031,6 @@ function switchLoginMode(mode) {
   label.textContent = phoneMode ? "手机号码" : "登录账号";
   form.dataset.loginMode = mode;
   identity.focus();
-}
-
-function showRegister(message = "") {
-  document.querySelector(".topbar").hidden = true;
-  document.querySelector(".help-rail").hidden = true;
-  document.querySelector("#workspaceTabs").hidden = true;
-  document.querySelector("#app").innerHTML = `<main class="login-screen register-panel"><section class="login-panel register-panel"><div class="login-brand"><span class="brand-mark">优</span><div><strong>优爱</strong><small>YOUAI</small></div></div><div class="login-copy"><p class="eyebrow">CREATE ACCOUNT</p><h1>注册销售账号</h1><p>新账号将加入销售一部，并使用销售顾问权限。</p></div><form class="login-form" id="registerForm"><label><span>登录账号</span><input name="username" autocomplete="username" minlength="3" maxlength="32" pattern="[A-Za-z][A-Za-z0-9_.-]*" required placeholder="例如：zhangsan"></label><label><span>显示名称</span><input name="displayName" autocomplete="name" minlength="2" maxlength="64" required placeholder="例如：张三"></label><label><span>手机号（选填）</span><input name="phone" inputmode="numeric" autocomplete="tel" pattern="1[3-9][0-9]{9}" placeholder="请输入 11 位手机号"></label><label><span>登录密码</span><input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required placeholder="至少 8 个字符"></label><label><span>确认密码</span><input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" maxlength="72" required placeholder="再次输入密码"></label><p class="login-error" id="registerError" ${message ? "" : "hidden"}>${escapeHtml(message)}</p><button class="button primary" type="submit" id="registerSubmit">注册并进入系统</button></form><button class="auth-switch" type="button" id="showLogin">已有账号？返回登录</button></section></main>`;
-  document.querySelector("#registerForm").addEventListener("submit", submitRegister);
-  document.querySelector("#showLogin").addEventListener("click", () => showLogin());
-  document.querySelector("#registerForm input").focus();
 }
 
 async function submitLogin(event) {
@@ -1085,33 +1074,6 @@ async function submitLogin(event) {
   }
 }
 
-async function submitRegister(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const submit = document.querySelector("#registerSubmit");
-  const error = document.querySelector("#registerError");
-  const data = Object.fromEntries(new FormData(form));
-  error.hidden = true;
-  if (data.password !== data.confirmPassword) {
-    error.textContent = "两次输入的密码不一致";
-    error.hidden = false;
-    form.querySelector('[name="confirmPassword"]').focus();
-    return;
-  }
-  submit.disabled = true;
-  try {
-    const auth = await apiRequest("/auth/register", { method: "POST", body: JSON.stringify({ username: data.username, displayName: data.displayName, phone: data.phone || "", password: data.password }) });
-    saveAuth(auth);
-    showApp();
-    await hydrateFromApi();
-    toast(`账号注册成功，欢迎 ${auth.user.displayName || auth.user.username}`);
-  } catch (requestError) {
-    error.textContent = requestError.message;
-    error.hidden = false;
-  } finally {
-    submit.disabled = false;
-  }
-}
 
 function showApp() {
   document.querySelector(".topbar").hidden = false;
@@ -1239,6 +1201,11 @@ function toDateTimeLocal(value) {
   return local.toISOString().slice(0, 16);
 }
 
+function isCurrentCustomerOwner(customer) {
+  return customer.ownerId != null && state.auth.user?.id != null
+    && String(customer.ownerId) === String(state.auth.user.id);
+}
+
 function currentOwner() {
   return state.auth.user?.displayName || state.auth.user?.username || "林夕";
 }
@@ -1253,17 +1220,22 @@ function ownerOptions(selected = currentOwner()) {
   return owners.map(owner => `<option value="${escapeHtml(owner)}" ${owner === selected ? "selected" : ""}>${escapeHtml(owner)}</option>`).join("");
 }
 
+function customerUserReferenceLabel(reference) {
+  const user = customerOwnerAccountUsers().find(item => reference === `user:${item.id}`);
+  return user ? `${user.name}（${user.username}）` : reference;
+}
+
 function customerAssignmentOwnerTreeView(node, selectedOwners, isRoot = false) {
   const hasChildren = Boolean(node.children?.length);
   if (!hasChildren) {
-    return `<label class="resource-owner-option"><input type="checkbox" data-resource-owner-option value="${escapeHtml(node.owner || node.label)}" ${selectedOwners.includes(node.owner || node.label) ? "checked" : ""}><span>${escapeHtml(node.label)}</span></label>`;
+    return `<label class="resource-owner-option"><input type="checkbox" data-resource-owner-option value="${escapeHtml(node.id)}" ${selectedOwners.includes(node.id) ? "checked" : ""}><span>${escapeHtml(node.label)}</span></label>`;
   }
   return `<div class="resource-owner-tree-node"><div class="resource-owner-tree-row ${isRoot ? "root" : "branch"}"><span class="resource-owner-tree-marker" aria-hidden="true"></span><strong>${escapeHtml(node.label)}</strong></div><div class="resource-owner-tree-children">${node.children.map(child => customerAssignmentOwnerTreeView(child, selectedOwners)).join("")}</div></div>`;
 }
 
 function customerAssignmentOwnerControl(selected = "") {
   const selectedOwners = String(selected || "").split(/[、,，]/).map(value => value.trim()).filter(Boolean);
-  const chips = selectedOwners.map(owner => `<span class="resource-owner-chip">${escapeHtml(owner)}<span role="button" tabindex="0" data-resource-owner-remove="${escapeHtml(owner)}" aria-label="移除${escapeHtml(owner)}">×</span></span>`).join("");
+  const chips = selectedOwners.map(owner => `<span class="resource-owner-chip">${escapeHtml(customerUserReferenceLabel(owner))}<span role="button" tabindex="0" data-resource-owner-remove="${escapeHtml(owner)}" aria-label="移除${escapeHtml(owner)}">×</span></span>`).join("");
   const tree = customerOwnerTree(false);
   return `<div class="resource-owner-select" data-resource-owner-select>
     <input type="hidden" name="owner" value="${escapeHtml(selectedOwners.join("、"))}">
@@ -1280,7 +1252,7 @@ function syncCustomerAssignmentOwnerControl(control) {
   if (hidden) hidden.value = owners.join("、");
   const chips = control.querySelector(".resource-owner-chips");
   if (chips) chips.innerHTML = owners.length
-    ? owners.map(owner => `<span class="resource-owner-chip">${escapeHtml(owner)}<span role="button" tabindex="0" data-resource-owner-remove="${escapeHtml(owner)}" aria-label="移除${escapeHtml(owner)}">×</span></span>`).join("")
+    ? owners.map(owner => `<span class="resource-owner-chip">${escapeHtml(customerUserReferenceLabel(owner))}<span role="button" tabindex="0" data-resource-owner-remove="${escapeHtml(owner)}" aria-label="移除${escapeHtml(owner)}">×</span></span>`).join("")
     : '<span class="resource-owner-placeholder">请选择接受对象</span>';
 }
 
@@ -2218,7 +2190,7 @@ function filteredCustomers(options = {}) {
     const poolEntryTypeMatch = !state.customerPoolEntryType || customer.poolEntryType === state.customerPoolEntryType;
     const quickMatch = state.quickFilter === "全部客户" || (state.quickFilter === "重点客户" && customer.level === "重点客户") || (state.quickFilter === "今日待跟进" && customer.nextFollow.includes("今天")) || (state.quickFilter === "即将成交" && ["方案报价", "商务谈判"].includes(customer.stage));
     const sceneMatch = customerMatchesScene(customer, state.customerScene);
-    const scopeMatch = state.customerScope === "all" || (state.customerScope === "mine" && customer.owner === currentOwner());
+    const scopeMatch = state.customerScope === "all" || (state.customerScope === "mine" && isCurrentCustomerOwner(customer));
     const ownerScopeMatch = includeWhiteboard ? customer.owner !== "公海" : !["公海", "白板"].includes(customer.owner);
     return ownerScopeMatch && queryMatch && nameMatch && stageMatch && levelMatch && statusMatch && ownerMatch && ownerHierarchyMatch && advancedOwnerMatch && advancedCollaboratorMatch && avatarMatch && genderMatch && maritalStatusMatch && educationMatch && ageMatch && heightMatch && registrationDateMatch && lastLoginDateMatch && firstAllocationDateMatch && lastFollowUpDateMatch && startDateMatch && endDateMatch && uncontactedDaysMatch && poolEntryTypeMatch && quickMatch && sceneMatch && scopeMatch;
   });
@@ -2817,7 +2789,7 @@ function customerImportView() {
 }
 
 function customerTagView() {
-  const records = [...customers, ...state.poolCustomers].filter((item, index, all) => all.findIndex(candidate => candidate.id === item.id) === index && (isAdmin() || item.owner === currentOwner()));
+  const records = [...customers, ...state.poolCustomers].filter((item, index, all) => all.findIndex(candidate => candidate.id === item.id) === index && (isAdmin() || isCurrentCustomerOwner(item)));
   const tagMap = new Map();
   records.forEach(customer => (customer.tags || []).forEach(tag => tagMap.set(tag, (tagMap.get(tag) || 0) + 1)));
   const tags = [...tagMap.entries()].sort((a, b) => a[0].localeCompare(b[0], "zh-CN"));
@@ -2837,8 +2809,8 @@ function sincereResourceView() {
     const matchesQuery = !query || [customer.id, customer.name, customer.phone, customer.company].join(" ").toLowerCase().includes(query);
     const matchesOwner = state.customerOwner === "全部负责人" || customer.owner === state.customerOwner;
     const matchesScope = state.sincereScope === "all"
-      || (state.sincereScope === "mine" && customer.owner === currentOwner())
-      || (state.sincereScope === "subordinates" && customer.owner !== currentOwner());
+      || (state.sincereScope === "mine" && isCurrentCustomerOwner(customer))
+      || (state.sincereScope === "subordinates" && !isCurrentCustomerOwner(customer));
     return customer.owner !== "公海" && matchesQuery && matchesOwner && matchesScope;
   });
   const card = (customer, index) => {
@@ -3023,8 +2995,8 @@ function serviceLibraryView() {
   const sourceRows = customers.filter(customer => {
     const matchesQuery = !query || [customer.id, customer.phone, customer.name, customer.company, customer.note].join(" ").toLowerCase().includes(query);
     const matchesScope = state.serviceScope === "all"
-      || (state.serviceScope === "mine" && customer.owner === currentOwner())
-      || (state.serviceScope === "subordinates" && customer.owner !== currentOwner());
+      || (state.serviceScope === "mine" && isCurrentCustomerOwner(customer))
+      || (state.serviceScope === "subordinates" && !isCurrentCustomerOwner(customer));
     return matchesQuery && matchesScope;
   });
   const scenarios = ["全部", "今日关怀会员", "逾期会员", "待开启会员", "今日断分", "即将到期", "过期未关单", "服务期内", "已过期"];
@@ -3114,8 +3086,8 @@ function customerDetailView(id) {
   }
   const value = item => escapeHtml(String(item ?? ""));
   const isWhiteboardCustomer = state.customerSection === "白板列表";
-  const contactVisible = customer.contactVisible ?? (isAdmin() || customer.owner === currentOwner());
-  const isCustomerOwner = String(customer.owner || "").trim().toLowerCase() === String(currentOwner() || "").trim().toLowerCase();
+  const contactVisible = customer.contactVisible ?? (isAdmin() || isCurrentCustomerOwner(customer));
+  const isCustomerOwner = isCurrentCustomerOwner(customer);
   const canRevealContact = contactVisible && (isAdmin() || isCustomerOwner);
   const isContactRevealable = label => canRevealContact && ["电话号码", "微信号"].includes(label);
   const isContactRevealed = label => isContactRevealable(label) && Boolean(state.customerContactReveals[`${customer.id}:${label}`]);
@@ -4263,17 +4235,25 @@ function openModal(customer = null) {
   const form = document.querySelector("#customerForm");
   const field = name => form.querySelector(`[name="${name}"]`);
   form.reset();
+  const ownerReference = customer?.ownerId ? `user:${customer.ownerId}` : customer?.owner || "";
+  const employeeOptions = customerOwnerAccountUsers().filter(user => !customerOwnerIsAdminUser(user))
+    .map(user => [`user:${user.id}`, `${user.name}（${user.username}）`]);
+  if (ownerReference && !employeeOptions.some(([reference]) => reference === ownerReference)) {
+    employeeOptions.unshift([ownerReference, customer.owner]);
+  }
+  field("owner").innerHTML = employeeOptions.map(([reference, label]) => `<option value="${escapeHtml(reference)}">${escapeHtml(label)}</option>`).join("");
   field("birthday").type = /^\d{4}$/.test(String(customer?.birthday || "")) ? "text" : "date";
   field("customerId").value = customer?.id || "";
   document.querySelector("#modalTitle").textContent = customer ? "编辑客户" : "创建客户";
   if (customer) {
     const profileFields = ["name", "company", "source", "level", "owner", "stage", "amount", "city", "gender", "birthday", "age", "height", "maritalStatus", "education", "monthlyIncome", "annualIncome", "occupation", "housing", "car", "vehicleHousing", "nativePlace", "workLocation", "wechat", "idCard", "certificationStatus", "familyStatus", "childrenStatus", "matchAgeRange", "matchMaritalStatus", "matchHeightRange", "matchEducation", "matchMonthlyIncome", "matchMostImportant", "matchPersonality", "matchChildren", "matchDealbreakers", "note", "remark"];
     profileFields.forEach(name => { field(name).value = customer[name] ?? ""; });
+    field("owner").value = ownerReference;
     field("phone").value = String(customer.phone || "").replace(/\D/g, "");
     field("nextFollowAt").value = toDateTimeLocal(customer.nextFollowAt);
     field("tags").value = (customer.tags || []).join(", ");
   } else {
-    field("owner").value = currentOwner();
+    if (!isAdmin()) field("owner").value = `user:${state.auth.user.id}`;
   }
   field("owner").disabled = !isAdmin();
   backdrop.classList.toggle("customer-editor-with-tabs", !document.querySelector("#workspaceTabs")?.hidden);
@@ -4305,7 +4285,7 @@ function collaborationOwnerTreeView(node, query = "") {
   const hasChildren = Boolean(node.children?.length);
   const expanded = hasChildren && (Boolean(normalizedQuery) || collaborationOwnerExpandedNodes.includes(node.id));
   const label = node.owner
-    ? `<button class="collaboration-owner-option" type="button" data-collaboration-owner-option="${escapeHtml(node.owner)}">${escapeHtml(node.label)}</button>`
+    ? `<button class="collaboration-owner-option" type="button" data-collaboration-owner-option="${escapeHtml(node.id)}">${escapeHtml(node.label)}</button>`
     : `<span class="collaboration-owner-folder">${escapeHtml(node.label)}</span>`;
   return `<div class="collaboration-owner-tree-node"><div class="collaboration-owner-tree-row">${hasChildren ? `<button class="collaboration-owner-expand" type="button" data-collaboration-owner-expand="${escapeHtml(node.id)}" aria-expanded="${expanded ? "true" : "false"}" aria-label="${expanded ? '收起' : '展开'}${escapeHtml(node.label)}"></button>` : `<span class="collaboration-owner-indent" aria-hidden="true"></span>`}${label}</div>${expanded ? `<div class="collaboration-owner-tree-children">${(node.children || []).map(child => collaborationOwnerTreeView(child, normalizedQuery)).join("")}</div>` : ""}</div>`;
 }
@@ -4344,7 +4324,7 @@ function renderCollaborationOwnerPopover(row, query = collaborationOwnerQuery) {
       const hidden = collaborationOwnerActiveRow.querySelector('input[name="collaborators"]');
       const search = collaborationOwnerActiveRow.querySelector("[data-collaboration-owner-search]");
       if (hidden) hidden.value = option.dataset.collaborationOwnerOption || "";
-      if (search) search.value = option.dataset.collaborationOwnerOption || "";
+      if (search) search.value = option.textContent.trim();
       closeCollaborationOwnerPopover();
     });
     document.body.append(collaborationOwnerPopover);
@@ -4367,7 +4347,7 @@ function openCollaborationOwnerPopover(row) {
 }
 
 function collaborationOwnerField(selected = "") {
-  return `<div class="collaboration-owner-field"><input type="hidden" name="collaborators" value="${escapeHtml(selected)}"><input class="collaboration-owner-search" type="search" data-collaboration-owner-search value="${escapeHtml(selected)}" placeholder="请选择协作人" autocomplete="off" aria-label="请选择协作人"><button class="collaboration-owner-toggle" type="button" data-collaboration-owner-toggle aria-label="展开协作人选项" aria-expanded="false"><span aria-hidden="true"></span></button></div>`;
+  return `<div class="collaboration-owner-field"><input type="hidden" name="collaborators" value="${escapeHtml(selected)}"><input class="collaboration-owner-search" type="search" data-collaboration-owner-search value="${escapeHtml(customerUserReferenceLabel(selected))}" placeholder="请选择协作人" autocomplete="off" aria-label="请选择协作人"><button class="collaboration-owner-toggle" type="button" data-collaboration-owner-toggle aria-label="展开协作人选项" aria-expanded="false"><span aria-hidden="true"></span></button></div>`;
 }
 
 function collaborationOrdinal(index) {
@@ -4795,7 +4775,7 @@ function openSystemUserInheritance(user) {
   const targetInput = form.querySelector('input[name="targetOwner"]');
   const targetLabel = form.querySelector("[data-inheritance-owner-label]");
   const employees = () => customerOwnerAccountUsers()
-    .filter(item => String(item.name).trim() !== String(user.name).trim())
+    .filter(item => String(item.id) !== String(user.id) && !customerOwnerIsAdminUser(item))
     .sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-CN"));
   const renderOwners = (query = "") => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -4806,7 +4786,7 @@ function openSystemUserInheritance(user) {
       (result[department] ||= []).push(item);
       return result;
     }, {});
-    const groups = Object.entries(grouped).map(([department, items]) => `<div class="inheritance-owner-group"><strong>${escapeHtml(department)}</strong>${items.map(item => `<button type="button" data-inheritance-owner="${escapeHtml(item.name)}"><span class="inheritance-owner-dot"></span>${escapeHtml(item.name)}</button>`).join("")}</div>`).join("");
+    const groups = Object.entries(grouped).map(([department, items]) => `<div class="inheritance-owner-group"><strong>${escapeHtml(department)}</strong>${items.map(item => `<button type="button" data-inheritance-owner="user:${escapeHtml(String(item.id))}"><span class="inheritance-owner-dot"></span>${escapeHtml(item.name)}（${escapeHtml(item.username)}）</button>`).join("")}</div>`).join("");
     menu.innerHTML = groups || `<span class="inheritance-owner-empty">暂无可接收的员工</span>`;
   };
   renderOwners();
@@ -4819,7 +4799,7 @@ function openSystemUserInheritance(user) {
     const option = event.target.closest("[data-inheritance-owner]");
     if (!option) return;
     targetInput.value = option.dataset.inheritanceOwner;
-    targetLabel.textContent = option.dataset.inheritanceOwner;
+    targetLabel.textContent = option.textContent.trim();
     menu.hidden = true;
     trigger.setAttribute("aria-expanded", "false");
   });
@@ -5211,7 +5191,7 @@ function customerPayload(customer, overrides = {}) {
     phone: String(customer.phone || "").replace(/\D/g, ""),
     company: customer.company,
     source: customer.source || "线上咨询",
-    owner: overrides.owner ?? customer.owner ?? currentOwner(),
+    owner: overrides.owner ?? (customer.ownerId ? `user:${customer.ownerId}` : customer.owner) ?? currentOwner(),
     stage: customer.stage || "初步沟通",
     level: customer.level || "普通客户",
     amount: Number(customer.amount || 0),
@@ -5247,7 +5227,7 @@ function customerPayload(customer, overrides = {}) {
     matchPersonality: customer.matchPersonality || "",
     matchChildren: customer.matchChildren || "",
     matchDealbreakers: customer.matchDealbreakers || "",
-    collaborator: overrides.collaborator ?? customer.collaborator ?? "",
+    collaborator: overrides.collaborator ?? (Array.isArray(customer.collaboratorIds) ? customer.collaboratorIds.map(id => `user:${id}`).join("、") : customer.collaborator) ?? "",
     tags: overrides.tags ?? customer.tags ?? []
   };
 }
@@ -5543,7 +5523,7 @@ async function renameCustomerTag(tag) {
   const next = window.prompt("请输入新的标签名称", tag)?.trim();
   if (!next || next === tag) return;
   try {
-    const records = [...customers, ...state.poolCustomers].filter((item, index, all) => all.findIndex(candidate => candidate.id === item.id) === index && (isAdmin() || item.owner === currentOwner()) && (item.tags || []).includes(tag));
+    const records = [...customers, ...state.poolCustomers].filter((item, index, all) => all.findIndex(candidate => candidate.id === item.id) === index && (isAdmin() || isCurrentCustomerOwner(item)) && (item.tags || []).includes(tag));
     for (const customer of records) await persistCustomerTags(customer, customer.tags.map(item => item === tag ? next : item));
     render(); toast(`标签“${tag}”已重命名`);
   } catch (error) { toast(`标签重命名失败：${error.message}`); }
@@ -5552,7 +5532,7 @@ async function renameCustomerTag(tag) {
 async function deleteCustomerTag(tag) {
   if (!window.confirm(`确定删除标签“${tag}”吗？客户资料中的该标签也会被移除。`)) return;
   try {
-    const records = [...customers, ...state.poolCustomers].filter((item, index, all) => all.findIndex(candidate => candidate.id === item.id) === index && (isAdmin() || item.owner === currentOwner()) && (item.tags || []).includes(tag));
+    const records = [...customers, ...state.poolCustomers].filter((item, index, all) => all.findIndex(candidate => candidate.id === item.id) === index && (isAdmin() || isCurrentCustomerOwner(item)) && (item.tags || []).includes(tag));
     for (const customer of records) await persistCustomerTags(customer, customer.tags.filter(item => item !== tag));
     render(); toast(`标签“${tag}”已删除`);
   } catch (error) { toast(`标签删除失败：${error.message}`); }
@@ -5749,7 +5729,7 @@ async function submitBusinessForm(event) {
       state.selectedCustomerIds = [];
       closeBusinessModal();
       render();
-      toast(`已将 ${selected.length} 位客户分配给 ${data.owner}`);
+      toast(`已将 ${selected.length} 位客户分配给 ${customerUserReferenceLabel(data.owner)}`);
     } else if (type === "collaboration") {
       const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(data.customerId));
       const collaborators = [...form.querySelectorAll('input[name="collaborators"]')]
@@ -5761,8 +5741,8 @@ async function submitBusinessForm(event) {
         body: JSON.stringify(customerPayload(customer, { collaborator: collaborators.join("、") }))
       });
       const saved = mergeCustomerRecord(result);
-      saved.collaborators = collaborators;
-      state.customerCollaborators[customer.id] = collaborators;
+      saved.collaborators = String(saved.collaborator || "").split("、").filter(Boolean);
+      state.customerCollaborators[customer.id] = saved.collaborators;
       localStorage.setItem("youai.crm.customerCollaborators", JSON.stringify(state.customerCollaborators));
       closeBusinessModal();
       render();
@@ -6958,7 +6938,7 @@ function bindViewEvents() {
   document.querySelector("[data-allocate-profile-customer]")?.addEventListener("click", async event => {
     const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(event.currentTarget.dataset.allocateProfileCustomer));
     if (!customer) return;
-    openBusinessModal("customer-assignment", { customers: [customer], owner: customer.owner === "白板" ? "" : customer.owner });
+    openBusinessModal("customer-assignment", { customers: [customer], owner: customer.ownerId ? `user:${customer.ownerId}` : "" });
   });
   document.querySelectorAll("[data-customer-more-toggle]").forEach(button => button.addEventListener("click", event => {
     event.stopPropagation();
@@ -6976,7 +6956,7 @@ function bindViewEvents() {
     if (!customer) return;
     const action = Number(button.dataset.customerMoreAction);
     if (action === 0) {
-      openBusinessModal("collaboration", { customer: customer.name, customerId: customer.id, collaborator: customer.collaborator || "" });
+      openBusinessModal("collaboration", { customer: customer.name, customerId: customer.id, collaborator: (customer.collaboratorIds || []).map(id => `user:${id}`).join("、") });
       return;
     }
     if (action === 1) { toast("转为库存功能暂未接入"); return; }
@@ -6987,7 +6967,7 @@ function bindViewEvents() {
     }
     if (action === 3) { toast("发邀请券功能暂未接入"); return; }
     if (action === 4) {
-      const contactVisible = customer.contactVisible ?? (isAdmin() || customer.owner === currentOwner());
+      const contactVisible = customer.contactVisible ?? (isAdmin() || isCurrentCustomerOwner(customer));
       if (!isAdmin() && !contactVisible) { toast("只有管理员或负责人可以修改客户等级"); return; }
       const libraryLabel = button.dataset.customerMoreLabel || "重点客户";
       if (customer.level === "重点客户") { toast(`该客户已是${libraryLabel}`); return; }
@@ -7464,7 +7444,7 @@ document.querySelector("#customerForm").addEventListener("submit", async event =
     phone: data.phone.replace(/\D/g, ""),
     company: data.company,
     source: data.source,
-    owner: data.owner || existing?.owner || currentOwner(),
+    owner: data.owner || (existing?.ownerId ? `user:${existing.ownerId}` : existing?.owner) || currentOwner(),
     stage: data.stage,
     level: data.level,
     note: data.note,
@@ -7480,7 +7460,7 @@ document.querySelector("#customerForm").addEventListener("submit", async event =
     vehicleHousing: data.vehicleHousing, matchAgeRange: data.matchAgeRange, matchMaritalStatus: data.matchMaritalStatus,
     matchHeightRange: data.matchHeightRange, matchEducation: data.matchEducation, matchMonthlyIncome: data.matchMonthlyIncome,
     matchMostImportant: data.matchMostImportant, matchPersonality: data.matchPersonality, matchChildren: data.matchChildren,
-    matchDealbreakers: data.matchDealbreakers, collaborator: existing?.collaborator || ""
+    matchDealbreakers: data.matchDealbreakers, collaborator: existing?.collaboratorIds?.map(id => `user:${id}`).join("、") ?? existing?.collaborator ?? ""
   };
   try {
     requireBackend();

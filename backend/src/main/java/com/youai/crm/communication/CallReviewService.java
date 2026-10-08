@@ -18,18 +18,20 @@ public class CallReviewService {
     private final CallRecordRepository callRepository;
     private final CallReviewRepository reviewRepository;
     private final AccessPolicy accessPolicy;
+    private final com.youai.crm.customer.CustomerAccessPolicy customerAccess;
 
-    public CallReviewService(CallRecordRepository callRepository, CallReviewRepository reviewRepository, AccessPolicy accessPolicy) {
+    public CallReviewService(CallRecordRepository callRepository, CallReviewRepository reviewRepository, AccessPolicy accessPolicy, com.youai.crm.customer.CustomerAccessPolicy customerAccess) {
         this.callRepository = callRepository;
         this.reviewRepository = reviewRepository;
         this.accessPolicy = accessPolicy;
+        this.customerAccess = customerAccess;
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
     public Map<Long, Boolean> list(Authentication authentication) {
         accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
         List<Long> callIds = callRepository.findAllByOrderByStartedAtDesc().stream()
-                .filter(call -> accessPolicy.canAccessOwner(call.getOwner(), authentication))
+                .filter(call -> customerAccess.canAccess(call.getCustomerNo(), authentication))
                 .map(CallRecord::getId).toList();
         Map<Long, Boolean> result = new LinkedHashMap<>();
         if (!callIds.isEmpty()) reviewRepository.findAllByCallIdIn(callIds).forEach(review -> result.put(review.getCallId(), review.isReviewed()));
@@ -38,7 +40,7 @@ public class CallReviewService {
 
     public boolean update(Long callId, CallReviewRequest request, Authentication authentication) {
         CallRecord call = callRepository.findById(callId).orElseThrow(() -> new NotFoundException("未找到通话记录：" + callId));
-        accessPolicy.requireOwner(call.getOwner(), authentication);
+        customerAccess.requireAccess(call.getCustomerNo(), authentication);
         CallReview review = reviewRepository.findById(callId).orElseGet(CallReview::new);
         review.setCallId(callId);
         review.setReviewerUsername(authentication == null ? "system" : authentication.getName());

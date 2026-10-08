@@ -28,6 +28,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 
+@org.springframework.context.annotation.Profile("dev & !prod")
 @Configuration
 public class DemoDataSeeder {
 

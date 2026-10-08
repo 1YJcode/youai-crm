@@ -46,6 +46,14 @@ public class Customer {
     @Column(nullable = false, length = 32)
     private String owner;
 
+    @Column(name = "owner_id")
+    private Long ownerId;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "crm_customer_collaborator", joinColumns = @JoinColumn(name = "customer_id"))
+    @Column(name = "user_id", nullable = false)
+    private java.util.Set<Long> collaboratorIds = new java.util.HashSet<>();
+
     @Column(nullable = false, length = 32)
     private String stage;
 
@@ -152,6 +160,10 @@ public class Customer {
     public void setCompany(String company) { this.company = company; }
     public String getSource() { return source; }
     public void setSource(String source) { this.source = source; }
+    public Long getOwnerId() { return ownerId; }
+    public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
+    public java.util.Set<Long> getCollaboratorIds() { return collaboratorIds; }
+    public void setCollaboratorIds(java.util.Set<Long> ids) { collaboratorIds = new java.util.HashSet<>(ids); }
     public String getOwner() { return owner; }
     public void setOwner(String owner) { this.owner = owner; }
     public String getStage() { return stage; }

@@ -2,7 +2,6 @@ package com.youai.crm.customer;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 import com.youai.crm.account.AccessPolicy;
 
@@ -20,9 +19,7 @@ public class CustomerResponseMapper {
     }
 
     public CustomerResponse toResponse(Customer customer, Authentication authentication, int deepTalkDurationSeconds) {
-        boolean contactVisible = accessPolicy.isAdmin(authentication)
-                || (StringUtils.hasText(customer.getOwner())
-                    && accessPolicy.canAccessOwner(customer.getOwner(), authentication));
+        boolean contactVisible = accessPolicy.canAccessUserId(customer.getOwnerId(), authentication);
         return CustomerResponse.from(customer, contactVisible, deepTalkDurationSeconds);
     }
 }

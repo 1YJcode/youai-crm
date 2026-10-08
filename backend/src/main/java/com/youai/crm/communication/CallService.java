@@ -22,13 +22,15 @@ public class CallService {
     private final CustomerService customerService;
     private final CustomerRepository customerRepository;
     private final AccessPolicy accessPolicy;
+    private final com.youai.crm.customer.CustomerAccessPolicy customerAccess;
 
     public CallService(CallRecordRepository repository, CustomerService customerService,
-            CustomerRepository customerRepository, AccessPolicy accessPolicy) {
+            CustomerRepository customerRepository, AccessPolicy accessPolicy, com.youai.crm.customer.CustomerAccessPolicy customerAccess) {
         this.repository = repository;
         this.customerService = customerService;
         this.customerRepository = customerRepository;
         this.accessPolicy = accessPolicy;
+        this.customerAccess = customerAccess;
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
@@ -38,7 +40,7 @@ public class CallService {
         boolean admin = accessPolicy.isAdmin(authentication);
         var spec = (org.springframework.data.jpa.domain.Specification<CallRecord>) (root, query, builder) -> {
             var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
-            if (!admin) predicates.add(builder.equal(root.get("owner"), accessPolicy.currentOwner(authentication)));
+            predicates.add(customerAccess.visibleReference(root.get("customerNo"), query, builder, authentication));
             if (StringUtils.hasText(status)) predicates.add(builder.equal(root.get("status"), status.trim()));
             if (StringUtils.hasText(direction)) predicates.add(builder.equal(root.get("direction"), direction.trim()));
             if (StringUtils.hasText(agent)) predicates.add(builder.equal(root.get("agent"), agent.trim()));

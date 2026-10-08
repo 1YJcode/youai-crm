@@ -12,18 +12,18 @@
 
 `run-frontend.ps1` 会优先使用 Python；如果系统没有 Python，会自动使用项目内置的 PowerShell 静态服务器。
 
-首次进入会显示登录页。演示账号：
+本地启动脚本在未指定 Profile 时启用 `dev`，首次进入会显示登录页。以下演示账号仅在 `dev` 且未启用 `prod` 时初始化：
 
 - 管理员：`admin` / `Admin@123`
 - 销售账号：`linxi` / `Linxi@123`
 
 管理员登录后，点击右上角账号菜单中的“切换账号”即可切换到其他启用账号；销售账号可通过“退出登录”返回登录页，再登录其他账号。
 
-数据权限按角色隔离：管理员可以查看和维护全部业务数据，销售账号只能查看和维护负责人为本人的客户、任务、订单及工作台统计；销售提交其他负责人时，后端会自动归属到当前账号。
+数据权限按角色隔离：管理员可以查看和维护全部业务数据，客户的归属与协作权限使用不可变用户 ID；关联通话、会话、跟进任务按客户当前归属校验。销售提交其他负责人时，后端会自动归属到当前账号。自行注册已关闭，新员工由管理员在员工管理中开通。
 
 默认开发数据库为 `youai_crm`，连接 `127.0.0.1:3306`。数据库账号可通过环境变量 `DB_USERNAME` 和 `DB_PASSWORD` 覆盖。
 
-后端默认运行在 `http://127.0.0.1:8080`。首次启动会自动执行 Flyway 数据库迁移并写入少量演示数据；生产环境请通过环境变量覆盖默认数据库密码。
+后端默认运行在 `http://127.0.0.1:8080`。首次启动会自动执行 Flyway 数据库迁移；只有 `dev` 环境会写入演示数据。
 
 运行后端测试不依赖系统全局安装 Maven，项目会使用 `.tools` 中自带的 Java 和 Maven：
 
@@ -40,6 +40,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\test-backend.ps1
 项目提供了完整的 Docker Compose 配置，会启动 MySQL、Spring Boot 后端和 Nginx 前端。它使用独立的数据卷，默认不会占用现有 `youke-mysql` 的 3307 端口：
 
 ```powershell
+$env:SPRING_PROFILES_ACTIVE = 'dev' # 仅限开发演示；生产配置见下文
 docker compose up -d --build
 docker compose ps
 ```
@@ -93,9 +94,39 @@ $env:DB_URL = 'jdbc:mysql://db-host:3306/youai_crm?useSSL=true'
 $env:DB_USERNAME = 'youke_app'
 $env:DB_PASSWORD = '<strong-database-password>'
 $env:JWT_SECRET = '<at-least-32-random-characters>'
+$env:BOOTSTRAP_ADMIN_USERNAME = '<initial-admin-username>'
+$env:BOOTSTRAP_ADMIN_PASSWORD = '<random-password-at-least-16-characters>'
 ```
 
 不要将 `.env` 提交到 Git，也不要直接向公网开放 `3308` 或 `8080`。
+
+Compose 默认使用 `prod`，会转发上述初始化变量。空账号库首次启动必须显式提供管理员账号（3–32 位，以字母开头）和密码（至少 16 字符、最多 72 个 UTF-8 字节）。初始化只创建一个管理员；已有账号时不补建、不重置账号，初始化后可移除这两个变量。生产环境发现启用账号仍使用已知演示密码时会拒绝启动；从开发库升级前，先通过员工管理更换这些密码或停用演示账号，并保留一个启用的管理员。同时启用 `dev,prod` 也不会创建演示账号或演示业务数据。
+
+### 客户身份与敏感数据升级
+
+V22/V23 迁移新增客户 `owner_id` 和协作人关联表。历史姓名或账号仅在唯一匹配时回填；重名、无法匹配的记录不会自动授权给任何销售，也不会自动流入公海，需由管理员重新分配。迁移不修改客户姓名、手机号、原负责人文本及历史记录。升级前备份数据库，在测试库完成验证后再部署；已有账号的新姓名不会改变客户归属。
+
+人员写入接口推荐提交 `user:<用户ID>`（包括 `owner`、`collaborator` 和继承的 `targetOwner`），响应保留展示姓名并提供 `ownerId`、`collaboratorIds`。兼容旧版的唯一姓名/账号输入，存在歧义时返回错误。姓名仅作为展示快照，不参与授权。
+
+客户详情、列表、公海与协作列表统一通过 `CustomerResponseMapper` 输出：只有管理员及当前负责人可以读取完整资料；其他可见记录的身份证、备注、生日、精确工作地点等私密字段返回 `null`，自由文本标签不返回，手机号及微信脱敏。关联通话、会话及跟进任务需要负责人权限，客户转移后旧负责人不能通过这些接口继续查看。
+
+测试输出目录被占用时可使用独立目录，不必修改或删除原构建产物：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test-backend.ps1 -BuildDirectory D:\youai_project\.tmp_security_tests
+```
+
+## 真实 MySQL 回归验证
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-mysql.ps1
+# 使用其他 MySQL 安装目录或测试端口：
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-mysql.ps1 -MySqlBin 'D:\mysql\bin' -Port 13317
+```
+
+脚本创建独立数据目录和仅监听 `127.0.0.1` 的临时 MySQL 实例，使用随机测试密码及三个独立库，不读取应用数据库连接配置。测试结束自动关闭实例，日志、迁移历史与测试报告保存在项目 `.tmp_mysql_verify_*` 目录。测试启用 Flyway 和 Hibernate `validate`，不会用自动建表替代真实迁移。普通 `test-backend.ps1` 仍默认使用 H2。
+
+2026-10-05 已在 **MySQL Community Server 5.7.26（Windows）** 验证：回归套件 62 项全部通过（0 失败、0 错误、0 跳过），其中 Spring 集成测试使用真实 MySQL；纯单元测试及原 H2 迁移单测保持原环境。覆盖空库 V1–V23 迁移、带历史数据的 V21→V23 升级、中文和 emoji 数据保留、重名归属拒绝猜测、改名后身份稳定、外键与级联约束、重复迁移零执行，以及生产初始化、客户权限、关联接口和敏感字段回归。本次未连接现有业务库，也未验证 MySQL 8.4。
 
 ## 后端接口
 
