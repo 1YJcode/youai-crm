@@ -68,11 +68,15 @@ public class CustomerCommandService {
         if (authentication == null) {
             // Internal demo/bootstrap data keeps its declared owner. HTTP
             // callers always provide authentication and follow the rules below.
+        } else if (imported && PUBLIC_POOL.equals(request.owner().trim())) {
+            customer.setOwner(PUBLIC_POOL);
+            customer.setPoolEntryType("主动放弃");
         } else if (imported || accessPolicy.isAdmin(authentication)) {
             customer.setOwner(WHITEBOARD);
         } else {
             customer.setOwner(accessPolicy.currentOwner(authentication));
         }
+        if (!PUBLIC_POOL.equals(customer.getOwner())) customer.setPoolEnteredAt(null);
         customer.setStage(defaultText(request.stage(), "\u521d\u6b65\u6c9f\u901a"));
         customer.setLastContactAt(LocalDateTime.now());
         customer.setTags(request.tags() == null || request.tags().isEmpty()
@@ -88,12 +92,18 @@ public class CustomerCommandService {
         String previousOwner = customer.getOwner();
         apply(customer, request, authentication, true);
         if (!accessPolicy.isAdmin(authentication)) customer.setOwner(accessPolicy.currentOwner(authentication));
-        if (!PUBLIC_POOL.equals(previousOwner) && PUBLIC_POOL.equals(customer.getOwner())) customer.setPoolEntryType("主动放弃");
+        if (!PUBLIC_POOL.equals(previousOwner) && PUBLIC_POOL.equals(customer.getOwner())) {
+            customer.setPreviousOwner(previousOwner);
+            customer.setPoolEntryType("主动放弃");
+        }
         else if (!PUBLIC_POOL.equals(customer.getOwner())) customer.setPoolEntryType(null);
         if (StringUtils.hasText(request.stage())) customer.setStage(request.stage());
         if (request.tags() != null) customer.setTags(request.tags());
         Customer saved = repository.save(customer);
         eventService.recordAssignmentIfNeeded(saved, previousOwner, saved.getOwner(), authentication);
+        if (!PUBLIC_POOL.equals(previousOwner) && PUBLIC_POOL.equals(saved.getOwner())) {
+            eventService.recordOperation(saved, "移入公海", "编辑归属移入公海", authentication);
+        }
         if (Objects.equals(previousOwner, saved.getOwner())) {
             eventService.recordOperation(saved, "\u7f16\u8f91\u5ba2\u6237\u8d44\u6599",
                     "\u5458\u5de5\u53ca\u7ba1\u7406\u5458\u66f4\u65b0\u4e86\u5ba2\u6237\u8d44\u6599", authentication);

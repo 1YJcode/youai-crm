@@ -1499,8 +1499,10 @@ async function refreshCustomerSearchFromApi() {
     poolEntryType: state.customerPoolEntryType,
     registrationStart: state.customerAdvancedDateRanges.registration?.start,
     registrationEnd: state.customerAdvancedDateRanges.registration?.end,
-    allocationStart: state.customerStartDate,
-    allocationEnd: state.customerEndDate,
+    allocationStart: isPoolPage ? "" : state.customerStartDate,
+    allocationEnd: isPoolPage ? "" : state.customerEndDate,
+    poolEntryStart: isPoolPage ? state.customerStartDate : "",
+    poolEntryEnd: isPoolPage ? state.customerEndDate : "",
     firstAllocationStart: state.customerAdvancedDateRanges.firstAllocation?.start,
     firstAllocationEnd: state.customerAdvancedDateRanges.firstAllocation?.end,
     lastFollowUpStart: state.customerAdvancedDateRanges.lastFollowUp?.start,
@@ -2492,7 +2494,7 @@ function customerDateRangePickerView() {
     viewMonth: state.customerDateRangeViewMonth,
     picking: state.customerDateRangePicking,
     id: "dateRangePopover",
-    ariaLabel: "选择分配时间范围"
+    ariaLabel: state.customerSection === "公海列表" ? "选择入海时间范围" : "选择分配时间范围"
   });
 }
 
@@ -2587,6 +2589,7 @@ function customerSortValue(customer, key) {
   if (key === "firstAllocationAt") return { type: "number", value: customerSortDate(customer.firstAllocationAt || customer.firstAssignedAt || customer.assignedAt || customer.lastAllocationAt) };
   if (key === "lastFollowUpAt") return { type: "number", value: customerSortDate(customer.lastContactAt || customer.lastContact || customer.updatedAt) };
   if (key === "lastLoginAt") return { type: "number", value: customerSortDate(customer.lastLoginAt || customer.lastLogin) };
+  if (key === "poolEnteredAt") return { type: "number", value: customerSortDate(customer.poolEnteredAt) };
   if (key === "education") {
     const text = String(customer.education ?? "").trim();
     const rank = customerEducationSortOrder.findIndex(item => text.includes(item));
@@ -2717,7 +2720,7 @@ function customerListView({ isPool = false } = {}) {
           <label class="field"><span>筛选条件</span><input id="customerSearch" type="search" value="${state.customerSearch}" placeholder="ID/手机号"></label>
           <label class="field"><span>&nbsp;</span><input id="customerNameSearch" type="search" value="${escapeHtml(state.customerNameSearch)}" placeholder="姓名/昵称/备注"></label>
           <label class="field"><span>&nbsp;</span>${isPool ? `<select id="poolDeepTalkDuration" aria-label="深沟时长"><option value="">深沟时长</option><option value="0-3" ${state.poolDeepTalkDuration === "0-3" ? "selected" : ""}>0-3分钟</option><option value="3-5" ${state.poolDeepTalkDuration === "3-5" ? "selected" : ""}>3-5分钟</option><option value="5-10" ${state.poolDeepTalkDuration === "5-10" ? "selected" : ""}>5-10分钟</option><option value="10+" ${state.poolDeepTalkDuration === "10+" ? "selected" : ""}>10分钟以上</option></select>` : `<div class="status-filter stage-filter"><button id="stageFilter" class="filter-trigger" type="button">${escapeHtml(state.customerStage === "全部阶段" ? "全部" : state.customerStage)}</button></div>`}</label>
-          ${isPool ? `<label class="field pool-follow-range"><span>&nbsp;</span><div><input type="search" placeholder="最小跟进次数"><input type="search" placeholder="最大跟进次数"></div></label>` : `<label class="field status-filter-field"><span>&nbsp;</span><div class="status-filter"><div id="levelFilter" class="status-filter-control" role="combobox" tabindex="0" aria-label="客户状态筛选" aria-haspopup="listbox" aria-controls="customerStatusOptions" aria-expanded="false"><div class="status-filter-tags">${selectedStatuses.map(status => `<span class="status-filter-tag"><span>${escapeHtml(status)}</span><button type="button" data-customer-status-remove="${escapeHtml(status)}" aria-label="移除${escapeHtml(status)}">×</button></span>`).join("")}</div>${selectedStatuses.length ? "" : `<span class="status-filter-placeholder">请选择客户状态</span>`}</div><div id="customerStatusOptions" class="status-filter-menu" role="listbox" aria-multiselectable="true">${customerStatusOptions.map(option => `<button class="${selectedStatuses.includes(option) ? "active" : ""}" type="button" role="option" data-customer-status="${escapeHtml(option)}" aria-selected="${selectedStatuses.includes(option) ? "true" : "false"}" aria-pressed="${selectedStatuses.includes(option) ? "true" : "false"}">${escapeHtml(option)}</button>`).join("")}</div></div></label><label class="field"><span>&nbsp;</span>${customerOwnerCascadeControl("main", state.customerOwnerSelection, state.customerOwnerCascadeOpen)}</label>`}<label class="field customer-date-range"><span>&nbsp;</span><div class="date-range-picker-wrap"><div class="date-range-display"><span>${isPool ? "入海开始时间" : state.customerStartDate || "分配开始时间"}</span><b>→</b><span>${isPool ? "入海结束时间" : state.customerEndDate || "分配结束时间"}</span><button class="date-range-picker" id="openDateRangePicker" type="button" aria-label="选择分配时间范围">${icon("calendar")}</button></div>${isPool ? "" : (state.customerDateRangePickerOpen ? customerDateRangePickerView() : "")}</div></label><div class="inline-actions customer-filter-actions"><button class="button primary" id="applyCustomerFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCustomerFilters" type="button">重置</button><button class="text-button" type="button">高级筛选</button></div>
+          ${isPool ? `<label class="field pool-follow-range"><span>&nbsp;</span><div><input type="search" placeholder="最小跟进次数"><input type="search" placeholder="最大跟进次数"></div></label>` : `<label class="field status-filter-field"><span>&nbsp;</span><div class="status-filter"><div id="levelFilter" class="status-filter-control" role="combobox" tabindex="0" aria-label="客户状态筛选" aria-haspopup="listbox" aria-controls="customerStatusOptions" aria-expanded="false"><div class="status-filter-tags">${selectedStatuses.map(status => `<span class="status-filter-tag"><span>${escapeHtml(status)}</span><button type="button" data-customer-status-remove="${escapeHtml(status)}" aria-label="移除${escapeHtml(status)}">×</button></span>`).join("")}</div>${selectedStatuses.length ? "" : `<span class="status-filter-placeholder">请选择客户状态</span>`}</div><div id="customerStatusOptions" class="status-filter-menu" role="listbox" aria-multiselectable="true">${customerStatusOptions.map(option => `<button class="${selectedStatuses.includes(option) ? "active" : ""}" type="button" role="option" data-customer-status="${escapeHtml(option)}" aria-selected="${selectedStatuses.includes(option) ? "true" : "false"}" aria-pressed="${selectedStatuses.includes(option) ? "true" : "false"}">${escapeHtml(option)}</button>`).join("")}</div></div></label><label class="field"><span>&nbsp;</span>${customerOwnerCascadeControl("main", state.customerOwnerSelection, state.customerOwnerCascadeOpen)}</label>`}<label class="field customer-date-range"><span>&nbsp;</span><div class="date-range-picker-wrap"><div class="date-range-display"><span>${state.customerStartDate || (isPool ? "入海开始时间" : "分配开始时间")}</span><b>→</b><span>${state.customerEndDate || (isPool ? "入海结束时间" : "分配结束时间")}</span><button class="date-range-picker" id="openDateRangePicker" type="button" aria-label="${isPool ? "选择入海时间范围" : "选择分配时间范围"}">${icon("calendar")}</button></div>${state.customerDateRangePickerOpen ? customerDateRangePickerView() : ""}</div></label><div class="inline-actions customer-filter-actions"><button class="button primary" id="applyCustomerFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCustomerFilters" type="button">重置</button><button class="text-button" type="button">高级筛选</button></div>
         </div>
         <div class="filter-footer"><div class="filter-tags">${["全部客户","重点客户","今日待跟进","即将成交"].map(item => `<button class="quick-filter ${state.quickFilter === item ? "active" : ""}" type="button" data-quick-filter="${item}">${item}</button>`).join("")}</div></div>
       </section>
@@ -4291,7 +4294,7 @@ function renderImportedCustomerFields() {
       { label: "性别", key: "gender" }, { label: "婚况", key: "maritalStatus" }, { label: "年龄", key: "age" }, { label: "学历", key: "education" },
       { label: "收入", key: "income" }, { label: "等级", key: "level" }, { label: "城市", key: "city" }, { label: "跟进次数", key: "followUpCount" },
       { label: "未联系天数", key: "uncontactedDays" }, { label: "前归属人", key: "owner" }, { label: "深沟时长" }, { label: "最后跟进", key: "lastFollowUpAt" },
-      { label: "最后登录", key: "lastLoginAt" }, { label: "标签", key: "tags" }, { label: "来源", key: "source", className: "pool-source-column" }, { label: "操作", className: "operation-column" }
+      { label: "最后登录", key: "lastLoginAt" }, { label: "进入公海时间", key: "poolEnteredAt" }, { label: "标签", key: "tags" }, { label: "来源", key: "source", className: "pool-source-column" }, { label: "操作", className: "operation-column" }
     ]
     : [
       { label: "", className: "select-column" }, { label: "标注", key: "tag" }, { label: "ID", key: "id" }, { label: "客户姓名/昵称", key: "customer" },
@@ -4315,7 +4318,7 @@ function renderImportedCustomerFields() {
       ? `<button class="button ghost" type="button" data-claim-customer="${escapeHtml(customer.id)}">领取</button>`
       : operation.innerHTML;
     const values = isPool
-      ? [customer.gender, customer.maritalStatus, customer.age, customer.education, customer.monthlyIncome || customer.annualIncome || customer.amount, customer.level, customer.city, customer.followUpCount || 0, customer.uncontactedDays, customer.previousOwner, formatDuration(customerDeepTalkDurationSeconds(customer)), customer.lastContact, customer.lastLogin, (customer.tags || []).join("、") || "+ 增加标签", customer.source || customer.origin || customer.channel || customer.sourceName || "—"]
+      ? [customer.gender, customer.maritalStatus, customer.age, customer.education, customer.monthlyIncome || customer.annualIncome || customer.amount, customer.level, customer.city, customer.followUpCount || 0, customer.uncontactedDays, customer.previousOwner, formatDuration(customerDeepTalkDurationSeconds(customer)), customer.lastContact, customer.lastLogin, customer.poolEnteredAt ? formatDateTime(customer.poolEnteredAt) : "未知", (customer.tags || []).join("、") || "+ 增加标签", customer.source || customer.origin || customer.channel || customer.sourceName || "—"]
       : [customer.gender, customer.maritalStatus, customer.age, customer.education, customer.monthlyIncome || customer.annualIncome || customer.amount, customer.level, customer.city, customer.followUpCount || 0, customer.uncontactedDays, customer.owner, customer.inviter, customer.collaborator, customer.serviceOwner];
     const identity = `<td class="select-column"><input type="checkbox" data-select-customer="${escapeHtml(customer.id)}" aria-label="选择${escapeHtml(customer.name)}" ${state.selectedCustomerIds.includes(customer.id) ? "checked" : ""} onclick="event.stopPropagation()"></td><td>⚑</td><td><a class="table-link" onclick="event.stopPropagation()">${escapeHtml(customer.id)}</a></td><td><div class="customer-cell"><span class="person-avatar">${escapeHtml(customer.name[0])}</span><span><strong>${escapeHtml(customer.name)}</strong></span></div></td>`;
     row.innerHTML = identity + values.map((value, index) => `<td${isPool && index === values.length - 1 ? ' class="pool-source-column"' : ""}>${escapeHtml(String(value || "—"))}</td>`).join("") + `<td class="operation-column"><div class="table-actions" onclick="event.stopPropagation()">${operationHtml}</div></td>`;
@@ -6895,7 +6898,7 @@ function bindViewEvents() {
       render();
     }
   });
-  const dateRangeDisplay = document.querySelector(".customer-list-page:not(.pool-page) .date-range-display");
+  const dateRangeDisplay = document.querySelector(".customer-list-page .date-range-display");
   dateRangeDisplay?.addEventListener("click", event => {
     event.preventDefault();
     const opening = !state.customerDateRangePickerOpen;
@@ -6940,6 +6943,7 @@ function bindViewEvents() {
     state.customerDateRangePicking = "start";
     state.customerDateRangePickerOpen = false;
     state.customerPage = 1;
+    state.poolCustomerPage = 1;
     render();
   }));
   document.querySelector("[data-clear-customer-date-range]")?.addEventListener("click", event => {

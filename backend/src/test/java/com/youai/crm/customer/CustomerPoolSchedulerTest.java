@@ -61,12 +61,15 @@ class CustomerPoolSchedulerTest {
         setLastContact(staleNo, now.minusDays(7));
         setLastContact(freshNo, now.minusDays(6));
         setLastContact(whiteboardNo, now.minusDays(30));
+        LocalDateTime allocationBefore = customers.findByCustomerNo(staleNo).orElseThrow().getLastAllocationAt();
 
         assertThat(scheduler.releaseStaleCustomers(now, 7)).isEqualTo(1);
         assertThat(customers.findByCustomerNo(staleNo).orElseThrow().getOwner()).isEqualTo("公海");
         assertThat(customers.findByCustomerNo(staleNo).orElseThrow().getPoolEntryType())
                 .isEqualTo("未及时跟进，系统推进");
         assertThat(customers.findByCustomerNo(staleNo).orElseThrow().getPreviousOwner()).isEqualTo("林夕");
+        assertThat(customers.findByCustomerNo(staleNo).orElseThrow().getPoolEnteredAt()).isEqualTo(now);
+        assertThat(customers.findByCustomerNo(staleNo).orElseThrow().getLastAllocationAt()).isEqualTo(allocationBefore);
         assertThat(customers.findByCustomerNo(freshNo).orElseThrow().getOwner()).isEqualTo("林夕");
         assertThat(customers.findByCustomerNo(whiteboardNo).orElseThrow().getOwner()).isEqualTo("白板");
         assertThat(scheduler.releaseStaleCustomers(now, 7)).isZero();

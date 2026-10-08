@@ -123,6 +123,9 @@ public class Customer {
     @Column(name = "pool_entry_type", length = 64)
     private String poolEntryType;
 
+    @Column(name = "pool_entered_at")
+    private LocalDateTime poolEnteredAt;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "crm_customer_tag", joinColumns = @JoinColumn(name = "customer_id"))
     @OrderColumn(name = "sort_order")
@@ -162,7 +165,12 @@ public class Customer {
     public String getSource() { return source; }
     public void setSource(String source) { this.source = source; }
     public String getOwner() { return owner; }
-    public void setOwner(String owner) { this.owner = owner; }
+    public void setOwner(String owner) {
+        if ("公海".equals(owner) && !"公海".equals(this.owner)) {
+            poolEnteredAt = LocalDateTime.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        }
+        this.owner = owner;
+    }
     public String getStage() { return stage; }
     public void setStage(String stage) { this.stage = stage; }
     public String getLevel() { return level; }
@@ -252,6 +260,8 @@ public class Customer {
     public String getPreviousOwner() { return previousOwner; }
     public void setPreviousOwner(String previousOwner) { this.previousOwner = previousOwner; }
     public String getPoolEntryType() { return poolEntryType; }
+    public LocalDateTime getPoolEnteredAt() { return poolEnteredAt; }
+    public void setPoolEnteredAt(LocalDateTime value) { poolEnteredAt = value; }
     public void setPoolEntryType(String poolEntryType) { this.poolEntryType = poolEntryType; }
     public List<String> getTags() { return tags; }
     public void setTags(List<String> tags) { this.tags = new ArrayList<>(tags); }

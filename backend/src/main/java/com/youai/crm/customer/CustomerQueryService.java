@@ -151,6 +151,7 @@ public class CustomerQueryService {
         addDateRange(builder, root, predicates, values, "registrationStart", "registrationEnd", "createdAt");
         addDateRange(builder, root, predicates, values, "lastLoginStart", "lastLoginEnd", "lastLoginAt");
         addDateRange(builder, root, predicates, values, "firstAllocationStart", "firstAllocationEnd", "firstAllocationAt");
+        addDateRange(builder, root, predicates, values, "poolEntryStart", "poolEntryEnd", "poolEnteredAt");
         addDateRange(builder, root, predicates, values, "lastFollowUpStart", "lastFollowUpEnd", "lastContactAt");
         addDateRange(builder, root, predicates, values, "nextFollowStart", "nextFollowEnd", "nextFollowAt");
         if (StringUtils.hasText(values.get("poolEntryType"))) {

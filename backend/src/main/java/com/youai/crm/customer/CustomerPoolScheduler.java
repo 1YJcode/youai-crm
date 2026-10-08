@@ -49,7 +49,7 @@ public class CustomerPoolScheduler {
             // values remain untouched.
             CrmUser salesOwner = employeeOwner(previousOwner);
             if (salesOwner == null || isAdministrator(previousOwner)) continue;
-            customer.setPreviousOwner(previousOwner); customer.setOwner(POOL); customer.setLastAllocationAt(now);
+            customer.setPreviousOwner(previousOwner); customer.setOwner(POOL); customer.setPoolEnteredAt(now);
             customer.setPoolEntryType("未及时跟进，系统推进");
             customers.save(customer);
             CustomerAssignmentEvent assignment = new CustomerAssignmentEvent();
