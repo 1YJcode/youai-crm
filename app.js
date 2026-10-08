@@ -550,27 +550,39 @@ function followupTemplateContent(templateName) {
   return template.prompts.map(([label]) => label).join("\n");
 }
 
-function followupContentEditorHtml(content, templateName = "") {
+function followupContentEditorHtml(content, templateName = "", editable = false) {
   const prompts = followupPromptTemplates.find(item => item.name === templateName)?.prompts || [];
-  return String(content || "").split(/\r?\n/).map((line, index) => {
+  return String(content || "").split(/\r?\n/).map(line => {
     if (!line) return '<div class="followup-content-line"><br></div>';
-    const [label, hint] = prompts[index] || [];
-    if (hint && line.startsWith(label)) {
+    const [label, hint] = prompts.find(([label]) => line.startsWith(label)) || [];
+    if (label) {
       const value = line.slice(label.length);
-      return `<div class="followup-content-line"><span class="followup-content-label">${escapeHtml(label)}</span><span class="followup-content-text" data-hint="${escapeHtml(hint)}">${escapeHtml(value)}</span></div>`;
+      return `<div class="followup-content-line"><span class="followup-content-label"${editable ? ' contenteditable="false"' : ""}>${escapeHtml(label)}</span><span class="followup-content-text"${editable ? ' contenteditable="true" role="textbox" aria-multiline="true"' : ""} aria-label="${escapeHtml(label)}" data-hint="${escapeHtml(hint || "")}">${escapeHtml(value)}</span></div>`;
     }
     const separator = line.search(/[：:]/);
-    if (separator < 0) return `<div class="followup-content-line"><span class="followup-content-text">${escapeHtml(line)}</span></div>`;
+    if (separator < 0) return `<div class="followup-content-line"><span class="followup-content-text"${editable ? ' contenteditable="true"' : ""}>${escapeHtml(line)}</span></div>`;
     const splitAt = separator + 1;
-    return `<div class="followup-content-line"><span class="followup-content-label">${escapeHtml(line.slice(0, splitAt))}</span><span class="followup-content-text">${escapeHtml(line.slice(splitAt))}</span></div>`;
+    return `<div class="followup-content-line"><span class="followup-content-label">${escapeHtml(line.slice(0, splitAt))}</span><span class="followup-content-text"${editable ? ' contenteditable="true"' : ""}>${escapeHtml(line.slice(splitAt))}</span></div>`;
   }).join("");
 }
 
 function followupContentEditorText(editor) {
+  if (editor?.getAttribute("contenteditable") === "false") {
+    return Array.from(editor.children).map(line => {
+      const label = line.querySelector(".followup-content-label")?.textContent || "";
+      const value = line.querySelector(".followup-content-text");
+      return label + String(value?.innerText || "").replace(/\r\n?/g, "\n").replace(/\n$/, "");
+    }).join("\n");
+  }
   return String(editor?.innerText || "").replace(/\r\n?/g, "\n").replace(/\n$/, "");
 }
 
 function focusFollowupContentEnd(editor) {
+  const firstField = editor?.querySelector('[contenteditable="true"]');
+  if (editor?.getAttribute("contenteditable") === "false" && firstField) {
+    firstField.focus();
+    return;
+  }
   editor?.focus();
   if (!editor) return;
   const range = document.createRange();
@@ -4616,17 +4628,45 @@ function openBusinessModal(type, record = null) {
     const contentCount = form.querySelector(".followup-content-count");
     const syncFollowupContent = () => {
       if (!content || !contentEditor) return;
+      contentEditor.querySelectorAll('[contenteditable="true"]').forEach(field => {
+        if (!field.textContent && field.innerHTML) field.replaceChildren();
+      });
       let text = followupContentEditorText(contentEditor);
       if (text.length > 2000) {
-        text = text.slice(0, 2000);
-        contentEditor.innerHTML = followupContentEditorHtml(text);
-        focusFollowupContentEnd(contentEditor);
+        const field = document.activeElement;
+        if (contentEditor.getAttribute("contenteditable") === "false" && contentEditor.contains(field)) {
+          field.textContent = field.innerText.slice(0, Math.max(0, field.innerText.length - (text.length - 2000)));
+          focusFollowupContentEnd(field);
+          text = followupContentEditorText(contentEditor);
+        } else {
+          text = text.slice(0, 2000);
+          contentEditor.innerHTML = followupContentEditorHtml(text);
+          focusFollowupContentEnd(contentEditor);
+        }
       }
       content.value = text;
       contentEditor.classList.toggle("is-empty", !text);
       contentCount.textContent = `已输入 ${text.length}/2000`;
     };
     contentEditor?.addEventListener("input", syncFollowupContent);
+    contentEditor?.addEventListener("click", event => {
+      if (contentEditor.getAttribute("contenteditable") !== "false") return;
+      const line = event.target.closest(".followup-content-line");
+      const field = line?.querySelector('[contenteditable="true"]');
+      if (field && !field.contains(event.target)) focusFollowupContentEnd(field);
+    });
+    contentEditor?.addEventListener("paste", event => {
+      event.preventDefault();
+      document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
+      syncFollowupContent();
+    });
+    contentEditor?.addEventListener("beforeinput", event => {
+      if (contentEditor.getAttribute("contenteditable") === "false" && event.inputType === "insertParagraph") {
+        event.preventDefault();
+        document.execCommand("insertLineBreak");
+        syncFollowupContent();
+      }
+    });
     const templateControl = form.querySelector("[data-followup-template-ui]");
     const templateOptions = templateControl?.querySelector("[data-followup-template-options]");
     const templateToggle = templateControl?.querySelector("[data-followup-template-toggle]");
@@ -4652,12 +4692,19 @@ function openBusinessModal(type, record = null) {
       templateOptions.hidden = Boolean(selected);
       templateToggle.textContent = selected ? "更换模板" : "收起模板";
       templateToggle.setAttribute("aria-expanded", String(!selected));
+      contentEditor.setAttribute("contenteditable", String(!selected));
       if (selected) {
-        contentEditor.innerHTML = followupContentEditorHtml(followupTemplateContent(selected), selected);
+        contentEditor.innerHTML = followupContentEditorHtml(followupTemplateContent(selected), selected, true);
         syncFollowupContent();
         focusFollowupContentEnd(contentEditor);
+      } else {
+        contentEditor.innerHTML = followupContentEditorHtml(content.value);
       }
     };
+    if (selectedTemplateInput?.value) {
+      contentEditor.setAttribute("contenteditable", "false");
+      contentEditor.innerHTML = followupContentEditorHtml(content.value, selectedTemplateInput.value, true);
+    }
     templateControl?.addEventListener("click", event => {
       const option = event.target.closest("[data-followup-template]");
       if (option) {

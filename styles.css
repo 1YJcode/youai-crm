@@ -1493,7 +1493,11 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 .followup-content-rich.is-empty::before { color: #98a2b3; content: attr(data-placeholder); pointer-events: none; }
 .followup-content-line { min-height: 21px; }
 .followup-content-label { color: #344054; font-weight: 650; }
-.followup-content-text { color: #9aa4b1; font-weight: 400; }
+.followup-content-text { color: #344054; font-weight: 400; }
+.followup-content-text[contenteditable="true"] { display: inline-block; min-width: 1ch; max-width: 100%; min-height: 21px; vertical-align: top; outline: none; }
+.followup-content-rich[contenteditable="false"] .followup-content-line { display: flex; align-items: baseline; cursor: text; }
+.followup-content-rich[contenteditable="false"] .followup-content-label { flex: 0 1 auto; }
+.followup-content-rich[contenteditable="false"] .followup-content-text[contenteditable="true"] { flex: 1 1 0; min-width: 4ch; cursor: text; }
 .followup-content-text[data-hint]:empty::before { content: attr(data-hint); color: #9aa4b1; pointer-events: none; }
 .followup-content-text[data-hint]:not(:empty) { color: #344054; }
 .followup-corner-backdrop .followup-content-count { margin: 0; padding: 3px 8px 5px; background: #fff; }
