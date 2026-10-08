@@ -8,8 +8,6 @@ import com.youai.crm.customer.CustomerRequest;
 import com.youai.crm.customer.Customer;
 import com.youai.crm.customer.CustomerRepository;
 import com.youai.crm.customer.CustomerService;
-import com.youai.crm.account.CrmPrincipal;
-import com.youai.crm.account.CrmUserRepository;
 import com.youai.crm.communication.CallRecord;
 import com.youai.crm.communication.CallRecordRepository;
 import com.youai.crm.communication.Conversation;
@@ -25,8 +23,6 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
 
 @org.springframework.context.annotation.Profile("dev & !prod")
 @Configuration
@@ -42,17 +38,11 @@ public class DemoDataSeeder {
             ConversationRepository conversationRepository,
             MessageRepository messageRepository,
             CallRecordRepository callRecordRepository,
-            CrmUserRepository userRepository,
             MessageTemplateService messageTemplateService) {
         return args -> {
             messageTemplateService.seedDefaults();
-            CrmPrincipal admin = userRepository.findByUsernameIgnoreCase("admin")
-                    .map(CrmPrincipal::new)
-                    .orElseThrow(() -> new IllegalStateException("管理员账号尚未初始化"));
-            Authentication systemAuthentication = new UsernamePasswordAuthenticationToken(
-                    admin, null, admin.getAuthorities());
             if (customerRepository.count() == 0) {
-                seedCustomers(customerService, systemAuthentication);
+                seedCustomers(customerService);
             }
             if (taskRepository.count() == 0) {
                 seedTasks(taskRepository);
@@ -66,12 +56,12 @@ public class DemoDataSeeder {
         };
     }
 
-    private void seedCustomers(CustomerService service, Authentication authentication) {
-        service.create(customer("周雨桐", "13821678821", "天津澄途科技", "线上咨询", "林夕", "需求确认", "重点客户", 128000, "天津", List.of("高意向", "企业版")), authentication);
-        service.create(customer("陈嘉宇", "18610283706", "北京云杉商贸", "老客转介绍", "陈晨", "方案报价", "重点客户", 86000, "北京", List.of("连锁零售")), authentication);
-        service.create(customer("宋晓婉", "15900625938", "上海栖木设计", "市场活动", "周倩", "初步沟通", "普通客户", 32000, "上海", List.of("设计服务")), authentication);
-        service.create(customer("王泽", "13920881649", "津南餐饮管理", "主动开发", "赵磊", "商务谈判", "重点客户", 176000, "天津", List.of("多门店", "高价值")), authentication);
-        service.create(customer("刘思远", "13752190042", "星海教育咨询", "线上咨询", "林夕", "已成交", "重点客户", 98000, "天津", List.of("已签约")), authentication);
+    private void seedCustomers(CustomerService service) {
+        service.create(customer("周雨桐", "13821678821", "天津澄途科技", "线上咨询", "林夕", "需求确认", "重点客户", 128000, "天津", List.of("高意向", "企业版")));
+        service.create(customer("陈嘉宇", "18610283706", "北京云杉商贸", "老客转介绍", "陈晨", "方案报价", "重点客户", 86000, "北京", List.of("连锁零售")));
+        service.create(customer("宋晓婉", "15900625938", "上海栖木设计", "市场活动", "周倩", "初步沟通", "普通客户", 32000, "上海", List.of("设计服务")));
+        service.create(customer("王泽", "13920881649", "津南餐饮管理", "主动开发", "赵磊", "商务谈判", "重点客户", 176000, "天津", List.of("多门店", "高价值")));
+        service.create(customer("刘思远", "13752190042", "星海教育咨询", "线上咨询", "林夕", "已成交", "重点客户", 98000, "天津", List.of("已签约")));
     }
 
     private CustomerRequest customer(
@@ -85,6 +75,7 @@ public class DemoDataSeeder {
                 null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null,
+                null, null, null,
                 tags);
     }
 

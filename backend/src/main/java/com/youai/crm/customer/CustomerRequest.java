@@ -57,5 +57,7 @@ public record CustomerRequest(
         Integer registrationCount, String matchAgeRange, String matchMaritalStatus, String matchHeightRange,
         String matchEducation, String matchMonthlyIncome, String matchMostImportant, String matchPersonality,
         String matchChildren, String matchDealbreakers, String collaborator,
+        String customerType, LocalDateTime lastLoginAt,
+        @Size(max = 200000, message = "头像图片过大，请重新选择") String avatarUrl,
         List<String> tags) {
 }

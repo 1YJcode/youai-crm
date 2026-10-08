@@ -38,9 +38,13 @@ class CustomerSecurityTest {
                 .put("idCard", "120000199405060000").put("wechat", "private_wechat")
                 .put("note", "私密备注13800991234").put("remark", "私密补充")
                 .put("birthday", "1994-05-06").put("workLocation", "精确工作地址").toString();
-        return json.readTree(mvc.perform(post("/api/customers").with(user("admin").roles("ADMIN"))
+        JsonNode created = json.readTree(mvc.perform(post("/api/customers").with(user("admin").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString());
+        assertEquals("白板", created.get("owner").asText());
+        return json.readTree(mvc.perform(put("/api/customers/" + created.get("id").asText())
+                .with(user("admin").roles("ADMIN")).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
     }
 
     @Test
@@ -158,7 +162,7 @@ class CustomerSecurityTest {
                 .contentType(MediaType.APPLICATION_JSON).content("{\"owner\":\"user:" + second + "\"}"))
                 .andExpect(status().isOk());
         mvc.perform(get("/api/customers/" + id + "/assignment-events").with(user("admin").roles("ADMIN")))
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(jsonPath("$.length()").value(2));
         mvc.perform(get("/api/calls").param("keyword", id).with(user("related_one").roles("SALES")))
                 .andExpect(jsonPath("$.totalElements").value(0));
         mvc.perform(get("/api/calls").param("keyword", id).with(user("related_two").roles("SALES")))

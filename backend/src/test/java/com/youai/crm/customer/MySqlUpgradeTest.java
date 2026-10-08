@@ -22,7 +22,7 @@ class MySqlUpgradeTest {
             assertEquals("MySQL", connection.getMetaData().getDatabaseProductName());
             assertEquals("youai_verify_migration", connection.getCatalog());
             assertEquals(0, scalar(connection, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()"), "Verification requires an empty database");
-            assertEquals(21, Flyway.configure().dataSource(url, username, password).target("21").load().migrate().migrationsExecuted);
+            assertEquals(24, Flyway.configure().dataSource(url, username, password).target("24").load().migrate().migrationsExecuted);
             try (var sql = connection.createStatement()) {
                 sql.executeUpdate("INSERT INTO crm_department(id,code,name,created_at) VALUES (1,'SALES','测试部门',NOW(6))");
                 sql.executeUpdate("INSERT INTO crm_user(id,username,display_name,password_hash,department_id,enabled,created_at,updated_at) VALUES "
@@ -69,7 +69,7 @@ class MySqlUpgradeTest {
             }
             assertEquals(0, current.migrate().migrationsExecuted, "Restart must not repeat identity resolution");
             assertEquals(before, snapshot(connection));
-            assertEquals(23, scalar(connection, "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1"));
+            assertEquals(26, scalar(connection, "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1"));
         }
     }
 

@@ -10,7 +10,7 @@ import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
 
 /** One-time resolution. Ambiguous or unknown legacy names never gain access later. */
-public class V23__Backfill_customer_identity extends BaseJavaMigration {
+public class V26__Backfill_customer_identity extends BaseJavaMigration {
     @Override
     public void migrate(Context context) throws Exception {
         Connection connection = context.getConnection();

@@ -51,8 +51,8 @@ public class CustomerPoolScheduler {
             // Unresolved legacy records need explicit administrator assignment.
             if (previousUser == null) continue;
             if (previousUser != null && previousUser.getRoles().stream().anyMatch(role -> "ADMIN".equals(role.getCode()))) continue;
-            customer.setPreviousOwner(previousOwner); customer.setOwner(POOL); customer.setOwnerId(null);
-            customer.setCollaborator(""); customer.setCollaboratorIds(java.util.Set.of()); customer.setLastAllocationAt(now);
+            customer.setPreviousOwner(previousOwner); customer.setOwner(POOL); customer.setPoolEnteredAt(now); customer.setOwnerId(null);
+            customer.setCollaborator(""); customer.setCollaboratorIds(java.util.Set.of());
             customer.setPoolEntryType("未及时跟进，系统推进");
             customers.save(customer);
             CustomerAssignmentEvent assignment = new CustomerAssignmentEvent();

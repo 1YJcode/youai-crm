@@ -16,6 +16,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -56,11 +57,19 @@ public class CustomerQueryService {
             throw new AccessDeniedException("Only administrators can view unassigned whiteboard customers");
         }
         Pageable safePageable = safePageable(pageable, Sort.by(Sort.Direction.DESC, "id"));
-        org.springframework.data.jpa.domain.Specification<Customer> specification = (root, query, builder) -> {
+        Specification<Customer> specification = (root, query, builder) -> {
             List<Predicate> predicates = new java.util.ArrayList<>();
-            predicates.add(whiteboardOnly
-                    ? builder.equal(root.get("owner"), WHITEBOARD)
-                    : builder.notEqual(root.get("owner"), WHITEBOARD));
+            if (whiteboardOnly) {
+                predicates.add(builder.equal(root.get("owner"), WHITEBOARD));
+            } else if (Boolean.TRUE.equals(inPool)) {
+                predicates.add(builder.equal(root.get("owner"), PUBLIC_POOL));
+            } else {
+                // The normal customer endpoint represents assigned sales-library
+                // resources. Public-pool and unassigned whiteboard records have
+                // dedicated list views and must never leak into this result.
+                predicates.add(builder.notEqual(root.get("owner"), WHITEBOARD));
+                predicates.add(builder.notEqual(root.get("owner"), PUBLIC_POOL));
+            }
             if (StringUtils.hasText(keyword)) {
                 String like = "%" + keyword.trim() + "%";
                 predicates.add(builder.or(builder.like(root.get("name"), like),
@@ -80,11 +89,7 @@ public class CustomerQueryService {
             if (!admin && !Boolean.TRUE.equals(inPool) && !collaborationScope) {
                 predicates.add(builder.equal(root.get("ownerId"), accessPolicy.currentUserId(authentication)));
             } else if (StringUtils.hasText(owner)) {
-                addAnyEquals(builder, root, predicates, owner, "owner");
-            }
-            if (inPool != null) {
-                predicates.add(inPool ? builder.equal(root.get("owner"), PUBLIC_POOL)
-                        : builder.notEqual(root.get("owner"), PUBLIC_POOL));
+                addAnyEquals(builder, root, predicates, owner, Boolean.TRUE.equals(inPool) ? "previousOwner" : "owner");
             }
             addAdvancedPredicates(root, query, builder, predicates, queryValues, tag, authentication);
             return builder.and(predicates.toArray(Predicate[]::new));
@@ -109,6 +114,12 @@ public class CustomerQueryService {
         Map<String, String> values = advanced == null ? Map.of() : advanced;
         addEquals(builder, root, predicates, values, "gender", "gender");
         addEquals(builder, root, predicates, values, "maritalStatus", "maritalStatus");
+        if ("__unknown__".equals(values.get("customerType"))) {
+            predicates.add(builder.or(builder.isNull(root.get("customerType")),
+                    builder.equal(builder.trim(root.get("customerType")), "")));
+        } else {
+            addEquals(builder, root, predicates, values, "customerType", "customerType");
+        }
         // Customer status labels contain a Chinese comma (for example
         // "1类：未接通，待跟进"), so only the ASCII comma separates selections.
         addAnyEquals(builder, root, predicates, values.get("customerStatus"), "stage", ",");
@@ -121,7 +132,6 @@ public class CustomerQueryService {
         addLike(builder, root, predicates, values, "workLocation", "workLocation");
         addLike(builder, root, predicates, values, "personality", "matchPersonality");
         addLike(builder, root, predicates, values, "interest", "matchMostImportant");
-        addLike(builder, root, predicates, values, "owner", "owner");
         addAnyLike(builder, root, predicates, values.get("collaborator"), "collaborator", "、,，");
         if (has(values, "note")) {
             String like = "%" + values.get("note").trim().toLowerCase() + "%";
@@ -139,11 +149,20 @@ public class CustomerQueryService {
         // request key for forwards compatibility, but do not infer a type
         // from the unrelated level text.
         addDateRange(builder, root, predicates, values, "registrationStart", "registrationEnd", "createdAt");
+        addDateRange(builder, root, predicates, values, "lastLoginStart", "lastLoginEnd", "lastLoginAt");
         addDateRange(builder, root, predicates, values, "firstAllocationStart", "firstAllocationEnd", "firstAllocationAt");
+        addDateRange(builder, root, predicates, values, "poolEntryStart", "poolEntryEnd", "poolEnteredAt");
         addDateRange(builder, root, predicates, values, "lastFollowUpStart", "lastFollowUpEnd", "lastContactAt");
         addDateRange(builder, root, predicates, values, "nextFollowStart", "nextFollowEnd", "nextFollowAt");
         if (StringUtils.hasText(values.get("poolEntryType"))) {
             predicates.add(builder.equal(root.get("poolEntryType"), values.get("poolEntryType").trim()));
+        }
+        if ("has".equalsIgnoreCase(values.get("avatar"))) {
+            predicates.add(builder.and(builder.isNotNull(root.get("avatarUrl")),
+                    builder.notEqual(builder.trim(root.get("avatarUrl")), "")));
+        } else if ("none".equalsIgnoreCase(values.get("avatar"))) {
+            predicates.add(builder.or(builder.isNull(root.get("avatarUrl")),
+                    builder.equal(builder.trim(root.get("avatarUrl")), "")));
         }
         addAllocationDateRange(builder, root, predicates, values);
         addQuickFilter(builder, root, predicates, values);
@@ -343,15 +362,41 @@ public class CustomerQueryService {
         }
     }
 
-    public Page<CustomerResponse> pool(Pageable pageable, String deepTalkDuration, String poolEntryType, Authentication authentication) {
+    public Page<CustomerResponse> pool(Pageable pageable, String deepTalkDuration, Map<String, String> advanced, Authentication authentication) {
         accessPolicy.scopedOwner(authentication);
         Pageable safePageable = safePageable(pageable, Sort.by(Sort.Direction.DESC, "id"));
-        List<Customer> poolCustomers = repository.findAll(
-                (root, query, builder) -> builder.equal(root.get("owner"), PUBLIC_POOL), safePageable.getSort());
+        Map<String, String> queryValues = advanced == null ? Map.of() : advanced;
+        String keyword = queryValues.get("keyword");
+        String stage = queryValues.get("stage");
+        String level = queryValues.get("level");
+        String previousOwner = queryValues.get("owner");
+        String tag = queryValues.get("tag");
+        Specification<Customer> specification = (root, query, builder) -> {
+            List<Predicate> predicates = new java.util.ArrayList<>();
+            predicates.add(builder.equal(root.get("owner"), PUBLIC_POOL));
+            if (StringUtils.hasText(keyword)) {
+                String like = "%" + keyword.trim() + "%";
+                predicates.add(builder.or(builder.like(root.get("name"), like), builder.like(root.get("phone"), like),
+                        builder.like(root.get("company"), like), builder.like(root.get("customerNo"), like)));
+            }
+            if (StringUtils.hasText(queryValues.get("nameKeyword"))) {
+                String like = "%" + queryValues.get("nameKeyword").trim().toLowerCase() + "%";
+                predicates.add(builder.or(builder.like(builder.lower(root.get("name")), like),
+                        builder.like(builder.lower(root.get("company")), like),
+                        builder.like(builder.lower(root.get("note")), like),
+                        builder.like(builder.lower(root.get("remark")), like)));
+            }
+            addAnyEquals(builder, root, predicates, stage, "stage", ",");
+            addAnyEquals(builder, root, predicates, level, "level");
+            addAnyEquals(builder, root, predicates, previousOwner, "previousOwner");
+            addAdvancedPredicates(root, query, builder, predicates, queryValues, tag, authentication);
+            return builder.and(predicates.toArray(Predicate[]::new));
+        };
+        List<Customer> poolCustomers = repository.findAll(specification, safePageable.getSort()).stream()
+                .filter(customer -> !hasNumericRange(queryValues) || numericFiltersMatch(customer, queryValues))
+                .toList();
         Map<String, Integer> durations = deepTalkDurationSeconds(poolCustomers);
         List<Customer> filtered = poolCustomers.stream()
-                .filter(customer -> !org.springframework.util.StringUtils.hasText(poolEntryType)
-                        || poolEntryType.equals(customer.getPoolEntryType()))
                 .filter(customer -> matchesDeepTalkDuration(durations.getOrDefault(customer.getCustomerNo(), 0), deepTalkDuration))
                 .toList();
         int from = (int) Math.min((long) safePageable.getOffset(), filtered.size());

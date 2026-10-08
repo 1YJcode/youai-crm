@@ -81,6 +81,9 @@ public class CustomerAssignmentService {
         Long previousOwnerId = customer.getOwnerId();
         ownership.assign(customer, employee);
         customer.setPoolEntryType(null);
+        // Assignment starts a fresh seven-day follow-up window. A customer may
+        // have remained on the whiteboard for an arbitrary amount of time.
+        customer.setLastContactAt(LocalDateTime.now());
         Customer saved = repository.save(customer);
         eventService.recordAssignmentIfNeeded(saved, previousOwner, owner, request, authentication,
                 !Objects.equals(previousOwnerId, saved.getOwnerId()));

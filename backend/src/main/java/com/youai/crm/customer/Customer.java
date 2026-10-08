@@ -104,6 +104,15 @@ public class Customer {
     @Column(length = 255)
     private String collaborator;
 
+    @Column(name = "customer_type", length = 32)
+    private String customerType;
+
+    @Column(name = "last_login_at")
+    private LocalDateTime lastLoginAt;
+
+    @Column(name = "avatar_url", columnDefinition = "MEDIUMTEXT")
+    private String avatarUrl;
+
     @Column(name = "last_contact_at")
     private LocalDateTime lastContactAt;
 
@@ -121,6 +130,9 @@ public class Customer {
 
     @Column(name = "pool_entry_type", length = 64)
     private String poolEntryType;
+
+    @Column(name = "pool_entered_at")
+    private LocalDateTime poolEnteredAt;
 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "crm_customer_tag", joinColumns = @JoinColumn(name = "customer_id"))
@@ -165,7 +177,12 @@ public class Customer {
     public java.util.Set<Long> getCollaboratorIds() { return collaboratorIds; }
     public void setCollaboratorIds(java.util.Set<Long> ids) { collaboratorIds = new java.util.HashSet<>(ids); }
     public String getOwner() { return owner; }
-    public void setOwner(String owner) { this.owner = owner; }
+    public void setOwner(String owner) {
+        if ("公海".equals(owner) && !"公海".equals(this.owner)) {
+            poolEnteredAt = LocalDateTime.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        }
+        this.owner = owner;
+    }
     public String getStage() { return stage; }
     public void setStage(String stage) { this.stage = stage; }
     public String getLevel() { return level; }
@@ -238,6 +255,12 @@ public class Customer {
     public void setMatchDealbreakers(String value) { matchDealbreakers = value; }
     public String getCollaborator() { return collaborator; }
     public void setCollaborator(String value) { collaborator = value; }
+    public String getCustomerType() { return customerType; }
+    public void setCustomerType(String value) { customerType = value; }
+    public LocalDateTime getLastLoginAt() { return lastLoginAt; }
+    public void setLastLoginAt(LocalDateTime value) { lastLoginAt = value; }
+    public String getAvatarUrl() { return avatarUrl; }
+    public void setAvatarUrl(String value) { avatarUrl = value; }
     public LocalDateTime getLastContactAt() { return lastContactAt; }
     public void setLastContactAt(LocalDateTime lastContactAt) { this.lastContactAt = lastContactAt; }
     public LocalDateTime getNextFollowAt() { return nextFollowAt; }
@@ -249,6 +272,8 @@ public class Customer {
     public String getPreviousOwner() { return previousOwner; }
     public void setPreviousOwner(String previousOwner) { this.previousOwner = previousOwner; }
     public String getPoolEntryType() { return poolEntryType; }
+    public LocalDateTime getPoolEnteredAt() { return poolEnteredAt; }
+    public void setPoolEnteredAt(LocalDateTime value) { poolEnteredAt = value; }
     public void setPoolEntryType(String poolEntryType) { this.poolEntryType = poolEntryType; }
     public List<String> getTags() { return tags; }
     public void setTags(List<String> tags) { this.tags = new ArrayList<>(tags); }

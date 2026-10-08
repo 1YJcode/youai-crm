@@ -62,8 +62,17 @@ public class CustomerCommandService {
 
         Customer customer = new Customer();
         customer.setCustomerNo(nextCustomerNo());
-        apply(customer, request, authentication);
+        apply(customer, request, authentication, false);
 
+        boolean imported = "\u6279\u91cf\u5bfc\u5165".equals(registrationSource);
+        if (authentication != null) {
+            if (imported && PUBLIC_POOL.equals(request.owner().trim())) {
+                ownership.assign(customer, PUBLIC_POOL);
+                customer.setPoolEntryType("主动放弃");
+                customer.setPoolEnteredAt(LocalDateTime.now());
+            } else if (imported || accessPolicy.isAdmin(authentication)) ownership.assign(customer, WHITEBOARD);
+        }
+        if (!PUBLIC_POOL.equals(customer.getOwner())) customer.setPoolEnteredAt(null);
         customer.setStage(defaultText(request.stage(), "\u521d\u6b65\u6c9f\u901a"));
         customer.setLastContactAt(LocalDateTime.now());
         customer.setTags(request.tags() == null || request.tags().isEmpty()
@@ -78,15 +87,21 @@ public class CustomerCommandService {
         Customer customer = queryService.get(customerNo, authentication);
         String previousOwner = customer.getOwner();
         Long previousOwnerId = customer.getOwnerId();
-        apply(customer, request, authentication);
+        apply(customer, request, authentication, true);
 
-        if (!PUBLIC_POOL.equals(previousOwner) && PUBLIC_POOL.equals(customer.getOwner())) customer.setPoolEntryType("主动放弃");
-        else if (!PUBLIC_POOL.equals(customer.getOwner())) customer.setPoolEntryType(null);
+        if (!PUBLIC_POOL.equals(previousOwner) && PUBLIC_POOL.equals(customer.getOwner())) {
+            customer.setPreviousOwner(previousOwner);
+            customer.setPoolEntryType("主动放弃");
+            customer.setPoolEnteredAt(LocalDateTime.now());
+        } else if (!PUBLIC_POOL.equals(customer.getOwner())) customer.setPoolEntryType(null);
         if (StringUtils.hasText(request.stage())) customer.setStage(request.stage());
         if (request.tags() != null) customer.setTags(request.tags());
         Customer saved = repository.save(customer);
         eventService.recordAssignmentIfNeeded(saved, previousOwner, saved.getOwner(), null, authentication,
                 !Objects.equals(previousOwnerId, saved.getOwnerId()));
+        if (!PUBLIC_POOL.equals(previousOwner) && PUBLIC_POOL.equals(saved.getOwner())) {
+            eventService.recordOperation(saved, "移入公海", "编辑归属移入公海", authentication);
+        }
         if (Objects.equals(previousOwner, saved.getOwner())) {
             eventService.recordOperation(saved, "\u7f16\u8f91\u5ba2\u6237\u8d44\u6599",
                     "\u5458\u5de5\u53ca\u7ba1\u7406\u5458\u66f4\u65b0\u4e86\u5ba2\u6237\u8d44\u6599", authentication);
@@ -108,14 +123,17 @@ public class CustomerCommandService {
         return responseMapper.toResponse(saved, authentication);
     }
 
-    private void apply(Customer customer, CustomerRequest request, Authentication authentication) {
+    private void apply(Customer customer, CustomerRequest request, Authentication authentication, boolean resolveRequestedOwner) {
         customer.setName(request.name().trim());
         customer.setPhone(request.phone().trim());
         customer.setCompany(defaultText(request.company(), "\u4e2a\u4eba\u5ba2\u6237"));
         customer.setSource(request.source().trim());
         String requestedOwner = request.owner().trim();
-        if (accessPolicy.isAdmin(authentication)) {
-            if (customer.getOwnerId() == null || !requestedOwner.equals(customer.getOwner())) {
+        if (authentication == null) {
+            ownership.assign(customer, requestedOwner);
+        } else if (accessPolicy.isAdmin(authentication)) {
+            if (!resolveRequestedOwner) ownership.assign(customer, WHITEBOARD);
+            else if (customer.getOwnerId() == null || !requestedOwner.equals(customer.getOwner())) {
                 ownership.assign(customer, requestedOwner);
             }
         } else ownership.assignCurrent(customer, authentication);
@@ -154,6 +172,9 @@ public class CustomerCommandService {
         if (request.matchChildren() != null) customer.setMatchChildren(request.matchChildren());
         if (request.matchDealbreakers() != null) customer.setMatchDealbreakers(request.matchDealbreakers());
         if (request.collaborator() != null && customer.getOwnerId() != null) ownership.collaborators(customer, request.collaborator());
+        if (request.customerType() != null) customer.setCustomerType(request.customerType());
+        if (request.lastLoginAt() != null) customer.setLastLoginAt(request.lastLoginAt());
+        if (request.avatarUrl() != null) customer.setAvatarUrl(request.avatarUrl());
     }
 
     private long nextNumber() {

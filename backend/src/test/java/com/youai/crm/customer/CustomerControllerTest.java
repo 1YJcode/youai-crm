@@ -10,6 +10,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 
+import java.util.Set;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -21,6 +24,10 @@ import org.springframework.security.test.context.support.WithMockUser;
 
 import com.youai.crm.communication.CallRecord;
 import com.youai.crm.communication.CallRecordRepository;
+import com.youai.crm.account.CrmUser;
+import com.youai.crm.account.CrmUserRepository;
+import com.youai.crm.account.DepartmentRepository;
+import com.youai.crm.account.RoleRepository;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -31,6 +38,49 @@ class CustomerControllerTest {
 
     @Autowired
     private CallRecordRepository callRecordRepository;
+
+    @Autowired private CrmUserRepository userRepository;
+    @Autowired private DepartmentRepository departmentRepository;
+    @Autowired private RoleRepository roleRepository;
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void savesUploadedAvatarAndAllowsRemoval() throws Exception {
+        String suffix = String.format("%08d", Math.abs(System.nanoTime() % 100_000_000L));
+        String avatar = "data:image/jpeg;base64," + "A".repeat(2048);
+        String body = "{\"name\":\"头像上传测试\",\"phone\":\"139" + suffix
+                + "\",\"source\":\"测试\",\"owner\":\"白板\",\"avatarUrl\":\"" + avatar + "\"}";
+        String response = mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.avatarUrl").value(avatar))
+                .andReturn().getResponse().getContentAsString();
+        String customerNo = new com.fasterxml.jackson.databind.ObjectMapper().readTree(response).get("id").asText();
+        mockMvc.perform(get("/api/customers/" + customerNo))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.avatarUrl").value(avatar));
+        mockMvc.perform(put("/api/customers/" + customerNo).contentType(MediaType.APPLICATION_JSON)
+                        .content(body.replace(avatar, "")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.avatarUrl").value(""));
+        mockMvc.perform(get("/api/customers/" + customerNo))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.avatarUrl").value(""));
+    }
+
+    @BeforeEach
+    void ensureSalesUsers() {
+        createSalesUser("linxi", "林夕", "13810000001");
+        createSalesUser("chenchen", "陈晨", "13810000002");
+    }
+
+    private void createSalesUser(String username, String displayName, String phone) {
+        if (userRepository.findByUsernameIgnoreCase(username).isPresent()) return;
+        CrmUser user = new CrmUser();
+        user.setUsername(username);
+        user.setPasswordHash("test-only-password-hash");
+        user.setDisplayName(displayName);
+        user.setPhone(phone);
+        user.setEnabled(true);
+        user.setDepartment(departmentRepository.findByCode("SALES").orElseThrow());
+        user.setRoles(Set.of(roleRepository.findByCode("SALES").orElseThrow()));
+        userRepository.save(user);
+    }
 
     @Test
     @WithMockUser(username = "admin", roles = "ADMIN")
@@ -86,6 +136,51 @@ class CustomerControllerTest {
         mockMvc.perform(get("/api/customers/pool").param("poolEntryType", "主动放弃"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[*].poolEntryType").value(org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.equalTo("主动放弃"))));
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void appliesCombinedAdvancedFiltersToPublicPoolBeforePagination() throws Exception {
+        String suffix = String.format("%08d", Math.abs(System.nanoTime() % 100_000_000L));
+        String body = """
+                {
+                  "name":"公海高级筛选目标","phone":"139%s","company":"筛选测试","source":"高级筛选来源","owner":"林夕",
+                  "stage":"需求确认","level":"4心","gender":"女","age":"31","height":"168cm","maritalStatus":"未婚",
+                  "education":"本科","monthlyIncome":"20000","occupation":"设计师","housing":"已购房","car":"已购车",
+                  "nativePlace":"天津","workLocation":"北京","remark":"重点筛选备注","matchPersonality":"开朗",
+                  "matchMostImportant":"旅行","collaborator":"陈晨","customerType":"会员",
+                  "lastLoginAt":"2026-09-20T10:30:00","avatarUrl":"https://example.test/avatar.png"
+                }
+                """.formatted(suffix);
+        String created = mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String customerNo = new com.fasterxml.jackson.databind.ObjectMapper().readTree(created).get("id").asText();
+
+        mockMvc.perform(patch("/api/customers/{customerNo}/assignment", customerNo)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"owner\":\"林夕\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/api/customers/{customerNo}/pool", customerNo)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"inPool\":true}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/customers/pool")
+                        .param("owner", "林夕").param("customerType", "会员").param("customerStatus", "需求确认")
+                        .param("levels", "4心").param("gender", "女").param("ageMin", "30").param("ageMax", "32")
+                        .param("source", "高级筛选").param("note", "重点筛选")
+                        .param("lastLoginStart", "2026-09-20").param("lastLoginEnd", "2026-09-20")
+                        .param("avatar", "has").param("page", "0").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(customerNo))
+                .andExpect(jsonPath("$.content[0].customerType").value("会员"))
+                .andExpect(jsonPath("$.content[0].avatarUrl").value("https://example.test/avatar.png"));
+
+        // Moving to the pool clears the previous collaborators and their grants.
+        mockMvc.perform(get("/api/customers/pool").param("collaborator", "陈晨").param("keyword", "公海高级筛选目标"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(0));
+
+        mockMvc.perform(get("/api/customers/pool").param("customerType", "非会员").param("keyword", "公海高级筛选目标"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(0));
     }
 
     @Test
@@ -169,7 +264,8 @@ class CustomerControllerTest {
                 """.formatted(marker, suffix);
 
         for (String body : new String[] { firstBody, secondBody, excludedBody }) {
-            mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(body))
+            mockMvc.perform(post("/api/customers").with(user("linxi").roles("SALES"))
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
                     .andExpect(status().isCreated());
         }
 
@@ -191,7 +287,8 @@ class CustomerControllerTest {
                 + "\",\"company\":\"测试\",\"source\":\"测试\",\"owner\":\"林夕\",\"stage\":\""
                 + status + "\"}";
 
-        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(body))
+        mockMvc.perform(post("/api/customers").with(user("linxi").roles("SALES"))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get("/api/customers").param("customerStatus", status))
@@ -209,7 +306,8 @@ class CustomerControllerTest {
         String whiteboardBody = "{\"name\":\"" + marker + "-白板\",\"phone\":\"139" + phoneSuffix
                 + "\",\"source\":\"测试\",\"owner\":\"白板\"}";
 
-        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(assignedBody))
+        mockMvc.perform(post("/api/customers").with(user("linxi").roles("SALES"))
+                        .contentType(MediaType.APPLICATION_JSON).content(assignedBody))
                 .andExpect(status().isCreated());
         mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(whiteboardBody))
                 .andExpect(status().isCreated());
@@ -222,6 +320,24 @@ class CustomerControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].owner").value("白板"));
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void administratorCreatesToWhiteboardWhileSalesCreatesToOwnLibrary() throws Exception {
+        String suffix = String.format("%08d", Math.abs(System.nanoTime() % 100_000_000L));
+        String adminBody = "{\"name\":\"管理员新建白板\",\"phone\":\"138" + suffix
+                + "\",\"source\":\"测试\",\"owner\":\"林夕\"}";
+        String salesBody = "{\"name\":\"销售新建归属\",\"phone\":\"139" + suffix
+                + "\",\"source\":\"测试\",\"owner\":\"陈晨\"}";
+
+        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(adminBody))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.owner").value("白板"));
+        mockMvc.perform(post("/api/customers").with(user("linxi").roles("SALES"))
+                        .contentType(MediaType.APPLICATION_JSON).content(salesBody))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.owner").value("林夕"));
     }
 
     @Test
@@ -330,6 +446,13 @@ class CustomerControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.owner").value("公海"));
 
+        mockMvc.perform(get("/api/customers").param("keyword", "公海领取测试客户"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
+        mockMvc.perform(get("/api/customers/pool").with(user("chenchen").roles("SALES")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id == '%s')]".formatted(customerNo)).isNotEmpty());
+
         mockMvc.perform(patch("/api/customers/{customerNo}/pool", customerNo)
                         .with(user("linxi").roles("SALES"))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"inPool\":false}"))
@@ -356,6 +479,10 @@ class CustomerControllerTest {
                                 .content(body))
                         .andExpect(status().isCreated())
                         .andReturn().getResponse().getContentAsString()).get("id").asText();
+
+        mockMvc.perform(patch("/api/customers/{customerNo}/pool", customerNo)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"inPool\":true}"))
+                .andExpect(status().isOk());
 
         CallRecord call = new CallRecord();
         call.setCustomerNo(customerNo);
@@ -396,6 +523,10 @@ class CustomerControllerTest {
                         .andExpect(jsonPath("$.contactVisible").value(true))
                         .andReturn().getResponse().getContentAsString()).get("id").asText();
 
+        mockMvc.perform(patch("/api/customers/{customerNo}/pool", customerNo)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"inPool\":true}"))
+                .andExpect(status().isOk());
+
         mockMvc.perform(get("/api/customers/pool").with(user("chenchen").roles("SALES")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[?(@.id == '%s')].phone".formatted(customerNo)).value("138****5555"))
@@ -413,4 +544,25 @@ class CustomerControllerTest {
                 .andExpect(jsonPath("$.wechat").value("contact_test_55"))
                 .andExpect(jsonPath("$.contactVisible").value(true));
     }
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void updatingWithoutLastLoginPreservesExistingLoginAndAvatar() throws Exception {
+        String suffix = String.format("%08d", Math.abs(System.nanoTime() % 100_000_000L));
+        String body = """
+                {"name":"登录时间回归","phone":"136%s","source":"测试","owner":"白板",
+                 "customerType":"会员","lastLoginAt":"2026-09-20T10:30:00","avatarUrl":"https://example.test/avatar.png"}
+                """.formatted(suffix);
+        String created = mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        String customerNo = mapper.readTree(created).get("id").asText();
+        var update = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(body);
+        update.remove(java.util.List.of("lastLoginAt", "avatarUrl", "customerType"));
+        update.put("name", "修改姓名保留登录时间");
+        mockMvc.perform(put("/api/customers/{customerNo}", customerNo).contentType(MediaType.APPLICATION_JSON).content(update.toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.lastLoginAt").value("2026-09-20T10:30:00"))
+                .andExpect(jsonPath("$.avatarUrl").value("https://example.test/avatar.png"))
+                .andExpect(jsonPath("$.customerType").value("会员"));
+    }
+
 }

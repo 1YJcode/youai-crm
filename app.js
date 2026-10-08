@@ -260,6 +260,7 @@ const state = {
   whiteboardStatus: "全部",
   whiteboardAdvancedOpen: false,
   customerAdvancedOpen: false,
+  customerType: "",
   customerAdvancedDraftCustomerType: "",
   customerAdvancedDraftStatus: "",
   customerAdvancedDraftStatusSelection: [],
@@ -458,9 +459,18 @@ const followupPromptTemplates = [
   {
     name: "一通",
     prompts: [
-      ["开场白：", "此电话主要在建立信任感和资产（15分钟）"], ["重温旧梦："], ["家庭成员："],
-      ["兴趣爱好："], ["约会方式："], ["感情经历："], ["需求：", "扩大需求动机"],
-      ["转身下次来店时间："], ["转身的利益点："], ["短信："]
+      ["核实资料：", "（婚况、资产、收入）建立信任感、赞美、开心的笑"],
+      ["工作圈：", "和你沟通感觉你是一个特别不错的XX，呢（故作惊讶）为什么现在还是单身呢?"],
+      ["生活圈："], ["社交圈："],
+      ["急迫动机：", "是什么原因触动现在想找？内因、外因"],
+      ["如果遇到合适的，想什么时间结束单身啊？："],
+      ["注册渠道：", "你是怎么知道并且注册爱乐空间的啊"],
+      ["炫品牌：", "通过这种方式找对象，有没有什么担心和顾虑的地方?"],
+      ["择偶要求：", "你对于另一半有什么要的要求啊（专业引导语：还有吗？还有吗？）"],
+      ["最看重对方："], ["最忌讳对方："], ["人选介绍："],
+      ["缔结：", "到店利益点"],
+      ["布置作业（就是转身动作）：", "你（会员）需要做什么，我会为你做什么（卖人情）"],
+      ["加微信："]
     ]
   },
   {
@@ -537,24 +547,42 @@ const followupPromptTemplates = [
 function followupTemplateContent(templateName) {
   const template = followupPromptTemplates.find(item => item.name === templateName);
   if (!template) return "";
-  return template.prompts.map(([label, hint]) => `${label}${hint ? ` ${hint}` : ""}`).join("\n");
+  return template.prompts.map(([label]) => label).join("\n");
 }
 
-function followupContentEditorHtml(content) {
+function followupContentEditorHtml(content, templateName = "", editable = false) {
+  const prompts = followupPromptTemplates.find(item => item.name === templateName)?.prompts || [];
   return String(content || "").split(/\r?\n/).map(line => {
     if (!line) return '<div class="followup-content-line"><br></div>';
+    const [label, hint] = prompts.find(([label]) => line.startsWith(label)) || [];
+    if (label) {
+      const value = line.slice(label.length);
+      return `<div class="followup-content-line"><span class="followup-content-label"${editable ? ' contenteditable="false"' : ""}>${escapeHtml(label)}</span><span class="followup-content-text"${editable ? ' contenteditable="true" role="textbox" aria-multiline="true"' : ""} aria-label="${escapeHtml(label)}" data-hint="${escapeHtml(hint || "")}">${escapeHtml(value)}</span></div>`;
+    }
     const separator = line.search(/[：:]/);
-    if (separator < 0) return `<div class="followup-content-line"><span class="followup-content-text">${escapeHtml(line)}</span></div>`;
+    if (separator < 0) return `<div class="followup-content-line"><span class="followup-content-text"${editable ? ' contenteditable="true"' : ""}>${escapeHtml(line)}</span></div>`;
     const splitAt = separator + 1;
-    return `<div class="followup-content-line"><span class="followup-content-label">${escapeHtml(line.slice(0, splitAt))}</span><span class="followup-content-text">${escapeHtml(line.slice(splitAt))}</span></div>`;
+    return `<div class="followup-content-line"><span class="followup-content-label">${escapeHtml(line.slice(0, splitAt))}</span><span class="followup-content-text"${editable ? ' contenteditable="true"' : ""}>${escapeHtml(line.slice(splitAt))}</span></div>`;
   }).join("");
 }
 
 function followupContentEditorText(editor) {
+  if (editor?.getAttribute("contenteditable") === "false") {
+    return Array.from(editor.children).map(line => {
+      const label = line.querySelector(".followup-content-label")?.textContent || "";
+      const value = line.querySelector(".followup-content-text");
+      return label + String(value?.innerText || "").replace(/\r\n?/g, "\n").replace(/\n$/, "");
+    }).join("\n");
+  }
   return String(editor?.innerText || "").replace(/\r\n?/g, "\n").replace(/\n$/, "");
 }
 
 function focusFollowupContentEnd(editor) {
+  const firstField = editor?.querySelector('[contenteditable="true"]');
+  if (editor?.getAttribute("contenteditable") === "false" && firstField) {
+    firstField.focus();
+    return;
+  }
   editor?.focus();
   if (!editor) return;
   const range = document.createRange();
@@ -988,6 +1016,16 @@ function createCaptcha() {
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
+function refreshLoginCaptcha() {
+  const captchaCode = document.querySelector("#refreshCaptcha");
+  const captchaInput = document.querySelector('#loginForm input[name="captcha"]');
+  if (captchaCode) captchaCode.textContent = createCaptcha();
+  if (captchaInput) {
+    captchaInput.value = "";
+    captchaInput.focus();
+  }
+}
+
 function showLogin(message = "", mode = "account") {
   document.body.classList.remove("app-booting");
   const captcha = createCaptcha();
@@ -997,7 +1035,7 @@ function showLogin(message = "", mode = "account") {
   document.querySelector("#followupAlertRegion")?.setAttribute("hidden", "");
   document.querySelector("#app").innerHTML = `<main class="login-screen"><section class="login-panel reference-login"><div class="reference-logo"><img src="logo-youai.png" alt="优爱 YOUAI"></div><div class="reference-name"><strong>客户经营管理平台</strong><span>让每一次客户沟通都有记录、有结果</span></div><div class="login-tabs"><button class="${mode === "account" ? "active" : ""}" type="button" data-login-mode="account">账号密码登录</button><button class="${mode === "phone" ? "active" : ""}" type="button" data-login-mode="phone">手机号登录</button></div><form class="login-form" id="loginForm" data-login-mode="${mode}"><label><span id="loginIdentityLabel">${mode === "phone" ? "手机号码" : "登录账号"}</span><input name="${mode === "phone" ? "phone" : "username"}" type="${mode === "phone" ? "tel" : "text"}" inputmode="${mode === "phone" ? "numeric" : "text"}" autocomplete="${mode === "phone" ? "tel" : "username"}" pattern="${mode === "phone" ? "1[3-9][0-9]{9}" : "[A-Za-z][A-Za-z0-9_.-]*"}" required placeholder="${mode === "phone" ? "请输入 11 位手机号" : "请输入账号名，例如 admin"}"></label><label><span>登录密码</span><input name="password" type="password" autocomplete="current-password" required placeholder="请输入登录密码"></label><div class="captcha-row"><label><span>验证码</span><input name="captcha" required maxlength="4" autocomplete="off" placeholder="请输入验证码"></label><button type="button" class="captcha-code" id="refreshCaptcha" aria-label="刷新验证码" title="点击刷新验证码">${captcha}</button></div><label class="auto-login"><input type="checkbox" checked> <span>记住登录状态</span></label><p class="login-error" id="loginError" ${message ? "" : "hidden"}>${escapeHtml(message)}</p><button class="button primary" type="submit" id="loginSubmit">登录系统</button></form><p class="demo-account">没有账号？请联系管理员开通。手机号登录使用员工绑定的手机号和密码。</p><footer class="reference-footer">Copyright © 2026<br><span>优爱 YOUAI</span> 出品</footer></section></main>`;
   document.querySelector("#loginForm").addEventListener("submit", submitLogin);
-  document.querySelector("#refreshCaptcha").addEventListener("click", () => showLogin("", document.querySelector("#loginForm")?.dataset.loginMode || "account"));
+  document.querySelector("#refreshCaptcha").addEventListener("click", refreshLoginCaptcha);
   document.querySelectorAll("[data-login-mode]").forEach(button => button.addEventListener("click", () => switchLoginMode(button.dataset.loginMode)));
   document.querySelector("#loginForm input").focus();
 }
@@ -1042,9 +1080,12 @@ async function submitLogin(event) {
   error.hidden = true;
   try {
     const data = Object.fromEntries(new FormData(form));
-    if (data.captcha !== document.querySelector("#refreshCaptcha")?.textContent.trim()) {
+    const enteredCaptcha = String(data.captcha || "").trim().toUpperCase();
+    const displayedCaptcha = document.querySelector("#refreshCaptcha")?.textContent.trim().toUpperCase();
+    if (enteredCaptcha !== displayedCaptcha) {
       error.textContent = "验证码不正确";
       error.hidden = false;
+      refreshLoginCaptcha();
       submit.disabled = false;
       return;
     }
@@ -1069,6 +1110,7 @@ async function submitLogin(event) {
             ? "账号或密码不正确"
             : message;
     error.hidden = false;
+    refreshLoginCaptcha();
   } finally {
     submit.disabled = false;
   }
@@ -1403,7 +1445,7 @@ async function refreshCustomerSearchFromApi() {
   if (ownerNames.length) params.set("owner", ownerNames.join(","));
   const collaboratorNames = customerOwnerSelectionNames(state.customerAdvancedCollaboratorSelection);
   const advanced = {
-    customerType: state.customerAdvancedDraftCustomerType,
+    customerType: state.customerType,
     customerStatus: selectedCustomerStatuses().join(","),
     levels: state.customerAdvancedLevels.join(","),
     gender: state.customerGender !== "all" ? state.customerGender : "",
@@ -1429,14 +1471,19 @@ async function refreshCustomerSearchFromApi() {
     poolEntryType: state.customerPoolEntryType,
     registrationStart: state.customerAdvancedDateRanges.registration?.start,
     registrationEnd: state.customerAdvancedDateRanges.registration?.end,
-    allocationStart: state.customerStartDate,
-    allocationEnd: state.customerEndDate,
+    allocationStart: isPoolPage ? "" : state.customerStartDate,
+    allocationEnd: isPoolPage ? "" : state.customerEndDate,
+    poolEntryStart: isPoolPage ? state.customerStartDate : "",
+    poolEntryEnd: isPoolPage ? state.customerEndDate : "",
     firstAllocationStart: state.customerAdvancedDateRanges.firstAllocation?.start,
     firstAllocationEnd: state.customerAdvancedDateRanges.firstAllocation?.end,
     lastFollowUpStart: state.customerAdvancedDateRanges.lastFollowUp?.start,
     lastFollowUpEnd: state.customerAdvancedDateRanges.lastFollowUp?.end,
+    lastLoginStart: state.customerAdvancedDateRanges.lastLogin?.start,
+    lastLoginEnd: state.customerAdvancedDateRanges.lastLogin?.end,
     nextFollowStart: state.customerAdvancedDateRanges.nextFollow?.start,
     nextFollowEnd: state.customerAdvancedDateRanges.nextFollow?.end,
+    avatar: state.customerAvatarFilter !== "all" ? state.customerAvatarFilter : "",
     quickFilter: state.quickFilter !== "全部客户" ? state.quickFilter : "",
     scene: state.customerScene !== "all" ? state.customerScene : "",
     scope: !isWhiteboardPage && state.customerScope !== "all" ? state.customerScope : ""
@@ -2329,12 +2376,33 @@ function customerDateRangeShiftMonth(value, offset) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function customerDateRangeSetViewMonth(target, year, month, calendarIndex = 0) {
+  const selectedMonth = `${year}-${String(month).padStart(2, "0")}`;
+  const viewMonth = Number(calendarIndex) === 1
+    ? customerDateRangeShiftMonth(selectedMonth, -1)
+    : selectedMonth;
+  if (target === "followup") state.customerFollowUpDateViewMonth = viewMonth;
+  else if (target === "advanced") state.customerAdvancedDatePickerViewMonth = viewMonth;
+  else state.customerDateRangeViewMonth = viewMonth;
+}
+
 function customerDateRangeMonthLabel(value) {
   const date = customerDateRangeMonthDate(value);
   return `${date.getFullYear()}年 ${date.getMonth() + 1}月`;
 }
 
-function customerDateRangeCalendar(monthValue, start, end, dateAttribute = "data-customer-date") {
+function customerDateRangeYearOptions(monthValue, start = "", end = "") {
+  const selectedYear = customerDateRangeMonthDate(monthValue).getFullYear();
+  const currentYear = new Date().getFullYear();
+  const boundaryYears = [start, end]
+    .map(value => parseInt(String(value || "").slice(0, 4), 10))
+    .filter(year => Number.isInteger(year) && year >= 1000 && year <= 9999);
+  const minimumYear = Math.min(currentYear - 10, selectedYear - 5, ...boundaryYears);
+  const maximumYear = Math.max(currentYear + 10, selectedYear + 5, ...boundaryYears);
+  return Array.from({ length: maximumYear - minimumYear + 1 }, (_, index) => minimumYear + index);
+}
+
+function customerDateRangeCalendar(monthValue, start, end, dateAttribute = "data-customer-date", viewTarget = "customer", calendarIndex = 0) {
   const cursor = customerDateRangeMonthDate(monthValue);
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -2351,7 +2419,13 @@ function customerDateRangeCalendar(monthValue, start, end, dateAttribute = "data
     const isEnd = key === end;
     return `<button class="customer-date-range-day ${inMonth ? "" : "outside"} ${inRange ? "in-range" : ""} ${isStart ? "range-start" : ""} ${isEnd ? "range-end" : ""}" type="button" ${dateAttribute}="${key}" aria-label="${key}">${date.getDate()}</button>`;
   }).join("");
-  return `<div class="customer-date-range-month"><strong>${customerDateRangeMonthLabel(monthValue)}</strong><div class="customer-date-range-weekdays">${weekdays.map(day => `<span>${day}</span>`).join("")}</div><div class="customer-date-range-days">${cells}</div></div>`;
+  const yearOptions = customerDateRangeYearOptions(monthValue, start, end)
+    .map(option => `<option value="${option}" ${option === year ? "selected" : ""}>${option}年</option>`)
+    .join("");
+  const monthOptions = Array.from({ length: 12 }, (_, index) => index + 1)
+    .map(option => `<option value="${option}" ${option === month + 1 ? "selected" : ""}>${option}月</option>`)
+    .join("");
+  return `<div class="customer-date-range-month" data-date-range-calendar-index="${calendarIndex}"><div class="customer-date-range-month-controls"><select data-date-range-view-year="${viewTarget}" aria-label="选择年份">${yearOptions}</select><select data-date-range-view-month="${viewTarget}" aria-label="选择月份">${monthOptions}</select></div><div class="customer-date-range-weekdays">${weekdays.map(day => `<span>${day}</span>`).join("")}</div><div class="customer-date-range-days">${cells}</div></div>`;
 }
 
 function sharedCustomerDateRangePickerView({
@@ -2364,7 +2438,9 @@ function sharedCustomerDateRangePickerView({
   clearAttribute = "data-clear-customer-date-range",
   className = "",
   id = "",
-  ariaLabel = "选择时间范围"
+  ariaLabel = "选择时间范围",
+  title = "选择时间范围",
+  viewTarget = "customer"
 } = {}) {
   start = String(start || "");
   end = String(end || "");
@@ -2376,9 +2452,9 @@ function sharedCustomerDateRangePickerView({
       ? `${start} 至 请选择结束日期`
       : "请选择开始日期和结束日期";
   return `<div class="date-range-popover open ${className}" ${id ? `id="${id}"` : ""} role="dialog" aria-label="${ariaLabel}">
-    <div class="date-range-popover-header"><strong>选择时间范围</strong><div class="date-range-popover-nav"><button type="button" ${shiftAttribute}="-1" aria-label="上两个月">${icon("chevron-left")}</button><button type="button" ${shiftAttribute}="1" aria-label="下两个月">${icon("chevron-right")}</button></div></div>
+    <div class="date-range-popover-header"><strong>${title}</strong><div class="date-range-popover-nav"><button type="button" ${shiftAttribute}="-1" aria-label="上个月">${icon("chevron-left")}</button><button type="button" ${shiftAttribute}="1" aria-label="下个月">${icon("chevron-right")}</button></div></div>
     <div class="customer-date-range-summary"><div class="${picking === "start" ? "active" : ""}"><small>开始日期</small><strong>${start || "请选择"}</strong></div><span>→</span><div class="${picking === "end" ? "active" : ""}"><small>结束日期</small><strong>${end || "请选择"}</strong></div></div>
-    <div class="customer-date-range-calendars">${customerDateRangeCalendar(viewMonth, start, end, dateAttribute)}${customerDateRangeCalendar(nextMonth, start, end, dateAttribute)}</div>
+    <div class="customer-date-range-calendars">${customerDateRangeCalendar(viewMonth, start, end, dateAttribute, viewTarget, 0)}${customerDateRangeCalendar(nextMonth, start, end, dateAttribute, viewTarget, 1)}</div>
     <div class="customer-date-range-footer"><span>${selectedLabel}</span><button type="button" ${clearAttribute}>清空</button></div>
   </div>`;
 }
@@ -2390,7 +2466,7 @@ function customerDateRangePickerView() {
     viewMonth: state.customerDateRangeViewMonth,
     picking: state.customerDateRangePicking,
     id: "dateRangePopover",
-    ariaLabel: "选择分配时间范围"
+    ariaLabel: state.customerSection === "公海列表" ? "选择入海时间范围" : "选择分配时间范围"
   });
 }
 
@@ -2404,27 +2480,29 @@ function customerFollowUpDateRangePickerView() {
     shiftAttribute: "data-followup-date-shift",
     clearAttribute: "data-clear-followup-date-range",
     className: "customer-followup-date-popover",
-    ariaLabel: "选择跟进记录时间范围"
+    ariaLabel: "选择跟进记录时间范围",
+    title: "选择跟进记录时间范围",
+    viewTarget: "followup"
   });
 }
 
 function customerAdvancedDateRangePickerView(field) {
-  const start = String(state.customerAdvancedDatePickerDraftStart || "");
-  const end = String(state.customerAdvancedDatePickerDraftEnd || "");
-  const viewMonth = customerDateRangeMonthValue(state.customerAdvancedDatePickerViewMonth || start);
-  const nextMonth = customerDateRangeShiftMonth(viewMonth, 1);
-  const fieldLabels = { registration: "客户注册时间", lastLogin: "最近登录时间", firstAllocation: "首次分配时间", lastFollowUp: "最后跟进时间" };
-  const selectedLabel = start && end
-    ? `${start} 至 ${end}`
-    : start
-      ? `${start} 至 请选择结束日期`
-      : "请选择开始日期和结束日期";
-  return `<div class="date-range-popover open advanced-date-range-popover" id="customerAdvancedDateRangePicker" role="dialog" aria-label="选择${fieldLabels[field] || "时间范围"}">
-    <div class="date-range-popover-header"><strong>选择${fieldLabels[field] || "时间范围"}</strong><div class="date-range-popover-nav"><button type="button" data-customer-advanced-date-shift="-1" aria-label="上两个月">${icon("chevron-left")}</button><button type="button" data-customer-advanced-date-shift="1" aria-label="下两个月">${icon("chevron-right")}</button></div></div>
-    <div class="customer-date-range-summary"><div class="${state.customerAdvancedDatePickerPicking === "start" ? "active" : ""}"><small>开始日期</small><strong>${start || "请选择"}</strong></div><span>→</span><div class="${state.customerAdvancedDatePickerPicking === "end" ? "active" : ""}"><small>结束日期</small><strong>${end || "请选择"}</strong></div></div>
-    <div class="customer-date-range-calendars">${customerDateRangeCalendar(viewMonth, start, end, "data-customer-advanced-date")}${customerDateRangeCalendar(nextMonth, start, end, "data-customer-advanced-date")}</div>
-    <div class="customer-date-range-footer"><span>${selectedLabel}</span><button type="button" data-clear-customer-advanced-date-range>清空</button></div>
-  </div>`;
+  const fieldLabels = { registration: "客户注册时间", lastLogin: "最近登录时间", firstAllocation: "首次分配时间", lastFollowUp: "最后跟进时间", nextFollow: "下次跟进时间" };
+  const title = `选择${fieldLabels[field] || "时间范围"}`;
+  return sharedCustomerDateRangePickerView({
+    start: state.customerAdvancedDatePickerDraftStart,
+    end: state.customerAdvancedDatePickerDraftEnd,
+    viewMonth: state.customerAdvancedDatePickerViewMonth,
+    picking: state.customerAdvancedDatePickerPicking,
+    dateAttribute: "data-customer-advanced-date",
+    shiftAttribute: "data-customer-advanced-date-shift",
+    clearAttribute: "data-clear-customer-advanced-date-range",
+    className: "advanced-date-range-popover",
+    id: "customerAdvancedDateRangePicker",
+    ariaLabel: title,
+    title,
+    viewTarget: "advanced"
+  });
 }
 
 function customerMatchesScene(customer, scene) {
@@ -2483,6 +2561,7 @@ function customerSortValue(customer, key) {
   if (key === "firstAllocationAt") return { type: "number", value: customerSortDate(customer.firstAllocationAt || customer.firstAssignedAt || customer.assignedAt || customer.lastAllocationAt) };
   if (key === "lastFollowUpAt") return { type: "number", value: customerSortDate(customer.lastContactAt || customer.lastContact || customer.updatedAt) };
   if (key === "lastLoginAt") return { type: "number", value: customerSortDate(customer.lastLoginAt || customer.lastLogin) };
+  if (key === "poolEnteredAt") return { type: "number", value: customerSortDate(customer.poolEnteredAt) };
   if (key === "education") {
     const text = String(customer.education ?? "").trim();
     const rank = customerEducationSortOrder.findIndex(item => text.includes(item));
@@ -2584,7 +2663,7 @@ function customerHeaderModalView() {
 function customerListView({ isPool = false } = {}) {
   const selectedStatuses = selectedCustomerStatuses();
   const meta = (isPool ? state.poolCustomerPageMeta : state.customerPageMeta) || { page: 0, size: state.customerPageSize, totalElements: 0, totalPages: 1 };
-  const sourceRows = isPool ? state.poolCustomers : customers.filter(customer => customer.owner !== "白板");
+  const sourceRows = isPool ? state.poolCustomers : customers.filter(customer => !["白板", "公海"].includes(customer.owner));
   const rows = sortedCustomerRows(sourceRows.filter(customer => {
     if (!isPool && !customerStatusMatches(customer, selectedStatuses)) return false;
     if (isPool && !customerMatchesDeepTalkDuration(customer, state.poolDeepTalkDuration)) return false;
@@ -2613,7 +2692,7 @@ function customerListView({ isPool = false } = {}) {
           <label class="field"><span>筛选条件</span><input id="customerSearch" type="search" value="${state.customerSearch}" placeholder="ID/手机号"></label>
           <label class="field"><span>&nbsp;</span><input id="customerNameSearch" type="search" value="${escapeHtml(state.customerNameSearch)}" placeholder="姓名/昵称/备注"></label>
           <label class="field"><span>&nbsp;</span>${isPool ? `<select id="poolDeepTalkDuration" aria-label="深沟时长"><option value="">深沟时长</option><option value="0-3" ${state.poolDeepTalkDuration === "0-3" ? "selected" : ""}>0-3分钟</option><option value="3-5" ${state.poolDeepTalkDuration === "3-5" ? "selected" : ""}>3-5分钟</option><option value="5-10" ${state.poolDeepTalkDuration === "5-10" ? "selected" : ""}>5-10分钟</option><option value="10+" ${state.poolDeepTalkDuration === "10+" ? "selected" : ""}>10分钟以上</option></select>` : `<div class="status-filter stage-filter"><button id="stageFilter" class="filter-trigger" type="button">${escapeHtml(state.customerStage === "全部阶段" ? "全部" : state.customerStage)}</button></div>`}</label>
-          ${isPool ? `<label class="field pool-follow-range"><span>&nbsp;</span><div><input type="search" placeholder="最小跟进次数"><input type="search" placeholder="最大跟进次数"></div></label>` : `<label class="field status-filter-field"><span>&nbsp;</span><div class="status-filter"><div id="levelFilter" class="status-filter-control" role="combobox" tabindex="0" aria-label="客户状态筛选" aria-haspopup="listbox" aria-controls="customerStatusOptions" aria-expanded="false"><div class="status-filter-tags">${selectedStatuses.map(status => `<span class="status-filter-tag"><span>${escapeHtml(status)}</span><button type="button" data-customer-status-remove="${escapeHtml(status)}" aria-label="移除${escapeHtml(status)}">×</button></span>`).join("")}</div>${selectedStatuses.length ? "" : `<span class="status-filter-placeholder">请选择客户状态</span>`}</div><div id="customerStatusOptions" class="status-filter-menu" role="listbox" aria-multiselectable="true">${customerStatusOptions.map(option => `<button class="${selectedStatuses.includes(option) ? "active" : ""}" type="button" role="option" data-customer-status="${escapeHtml(option)}" aria-selected="${selectedStatuses.includes(option) ? "true" : "false"}" aria-pressed="${selectedStatuses.includes(option) ? "true" : "false"}">${escapeHtml(option)}</button>`).join("")}</div></div></label><label class="field"><span>&nbsp;</span>${customerOwnerCascadeControl("main", state.customerOwnerSelection, state.customerOwnerCascadeOpen)}</label>`}<label class="field customer-date-range"><span>&nbsp;</span><div class="date-range-picker-wrap"><div class="date-range-display"><span>${isPool ? "入海开始时间" : state.customerStartDate || "分配开始时间"}</span><b>→</b><span>${isPool ? "入海结束时间" : state.customerEndDate || "分配结束时间"}</span><button class="date-range-picker" id="openDateRangePicker" type="button" aria-label="选择分配时间范围">${icon("calendar")}</button></div>${isPool ? "" : (state.customerDateRangePickerOpen ? customerDateRangePickerView() : "")}</div></label><div class="inline-actions customer-filter-actions"><button class="button primary" id="applyCustomerFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCustomerFilters" type="button">重置</button><button class="text-button" type="button">高级筛选</button></div>
+          ${isPool ? `<label class="field pool-follow-range"><span>&nbsp;</span><div><input type="search" placeholder="最小跟进次数"><input type="search" placeholder="最大跟进次数"></div></label>` : `<label class="field status-filter-field"><span>&nbsp;</span><div class="status-filter"><div id="levelFilter" class="status-filter-control" role="combobox" tabindex="0" aria-label="客户状态筛选" aria-haspopup="listbox" aria-controls="customerStatusOptions" aria-expanded="false"><div class="status-filter-tags">${selectedStatuses.map(status => `<span class="status-filter-tag"><span>${escapeHtml(status)}</span><button type="button" data-customer-status-remove="${escapeHtml(status)}" aria-label="移除${escapeHtml(status)}">×</button></span>`).join("")}</div>${selectedStatuses.length ? "" : `<span class="status-filter-placeholder">请选择客户状态</span>`}</div><div id="customerStatusOptions" class="status-filter-menu" role="listbox" aria-multiselectable="true">${customerStatusOptions.map(option => `<button class="${selectedStatuses.includes(option) ? "active" : ""}" type="button" role="option" data-customer-status="${escapeHtml(option)}" aria-selected="${selectedStatuses.includes(option) ? "true" : "false"}" aria-pressed="${selectedStatuses.includes(option) ? "true" : "false"}">${escapeHtml(option)}</button>`).join("")}</div></div></label><label class="field"><span>&nbsp;</span>${customerOwnerCascadeControl("main", state.customerOwnerSelection, state.customerOwnerCascadeOpen)}</label>`}<label class="field customer-date-range"><span>&nbsp;</span><div class="date-range-picker-wrap"><div class="date-range-display"><span>${state.customerStartDate || (isPool ? "入海开始时间" : "分配开始时间")}</span><b>→</b><span>${state.customerEndDate || (isPool ? "入海结束时间" : "分配结束时间")}</span><button class="date-range-picker" id="openDateRangePicker" type="button" aria-label="${isPool ? "选择入海时间范围" : "选择分配时间范围"}">${icon("calendar")}</button></div>${state.customerDateRangePickerOpen ? customerDateRangePickerView() : ""}</div></label><div class="inline-actions customer-filter-actions"><button class="button primary" id="applyCustomerFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCustomerFilters" type="button">重置</button><button class="text-button" type="button">高级筛选</button></div>
         </div>
         <div class="filter-footer"><div class="filter-tags">${["全部客户","重点客户","今日待跟进","即将成交"].map(item => `<button class="quick-filter ${state.quickFilter === item ? "active" : ""}" type="button" data-quick-filter="${item}">${item}</button>`).join("")}</div></div>
       </section>
@@ -2656,7 +2735,10 @@ const customerImportDetailColumns = [
   { key: "housing", label: "住房" },
   { key: "car", label: "购车" },
   { key: "nativePlace", label: "籍贯" },
-  { key: "workLocation", label: "工作地" }
+  { key: "workLocation", label: "工作地" },
+  { key: "customerType", label: "客户类型" },
+  { key: "lastLoginAt", label: "最近登录时间" },
+  { key: "avatarUrl", label: "头像地址" }
 ];
 
 function importHistoryRecord(id) {
@@ -2955,7 +3037,7 @@ function whiteboardAdvancedFilterView({ isPool = false } = {}) {
     <header><h2>高级筛选</h2><button type="button" id="closeWhiteboardAdvanced" aria-label="关闭">×</button></header>
     <div class="whiteboard-advanced-body">
       <div class="advanced-wide-row"><strong>客户等级：</strong><div class="advanced-checks">${levelChecks}</div></div>
-      <label class="advanced-full"><strong>客户类型：</strong><span class="advanced-unavailable">暂无独立客户类型字段</span></label>
+      <label class="advanced-full"><strong>客户类型：</strong><select id="customerTypeFilter"><option value="" ${!state.customerAdvancedDraftCustomerType ? "selected" : ""}>全部</option><option value="会员" ${state.customerAdvancedDraftCustomerType === "会员" ? "selected" : ""}>会员</option><option value="非会员" ${state.customerAdvancedDraftCustomerType === "非会员" ? "selected" : ""}>非会员</option><option value="__unknown__" ${state.customerAdvancedDraftCustomerType === "__unknown__" ? "selected" : ""}>未知</option></select></label>
       <label class="advanced-full"><strong>客户状态：</strong><select id="customerAdvancedStatusFilter"><option value="" ${!state.customerAdvancedDraftStatus ? "selected" : ""}>全部</option>${customerStatusOptions.map(option => `<option value="${escapeHtml(option)}" ${state.customerAdvancedDraftStatus === option ? "selected" : ""}>${option}</option>`).join("")}</select></label>
       <div class="advanced-wide-row${isPool ? " advanced-next-follow-row" : ""}"><strong>下次跟进时间：</strong><div class="advanced-checks">${["今天", "明天", "本周", "下周", "本月", "下月"].map(item => `<label><input type="checkbox" data-customer-next-follow-preset="${escapeHtml(item)}" ${state.customerAdvancedDraftNextFollowPreset === item ? "checked" : ""}>${item}</label>`).join("")}</div>${dates("nextFollow", { customDate: isPool })}</div>
       <div class="advanced-two-column"><label><strong>未联系天数：</strong><div class="uncontacted-days-control">${uncontactedDaysSelect}${customUncontactedDays}</div></label><label><strong>会员来源：</strong><input id="customerSourceFilter" value="${escapeHtml(state.customerAdvancedDraftSource)}" placeholder="请输入会员来源"></label></div>
@@ -2965,7 +3047,7 @@ function whiteboardAdvancedFilterView({ isPool = false } = {}) {
         <label><span>职业：</span><input id="customerOccupationFilter" value="${escapeHtml(state.customerAdvancedDraftOccupation)}" placeholder="请输入"></label><label><span>购车：</span><input id="customerCarFilter" value="${escapeHtml(state.customerAdvancedDraftCar)}" placeholder="请输入"></label><label><span>购房：</span><input id="customerHousingFilter" value="${escapeHtml(state.customerAdvancedDraftHousing)}" placeholder="请输入"></label><label><span>性格：</span><input id="customerPersonalityFilter" value="${escapeHtml(state.customerAdvancedDraftPersonality)}" placeholder="请输入"></label>
         <label><span>兴趣爱好：</span><input id="customerInterestFilter" value="${escapeHtml(state.customerAdvancedDraftInterest)}" placeholder="请输入"></label>
       </div></section>
-      <div class="advanced-time-grid"><label><strong>客户注册时间：</strong>${dates("registration")}</label><label><strong>最近登录时间：</strong><span class="advanced-unavailable">暂无登录时间字段</span></label><label><strong>首次分配时间：</strong>${dates("firstAllocation")}</label><label><strong>${ownerLabel}：</strong>${ownerCascade}</label><label><strong>协作人：</strong>${collaboratorCascade}</label><label><strong>最后跟进时间：</strong>${dates("lastFollowUp")}</label><label class="advanced-note"><strong>备注信息：</strong><input id="customerNoteFilter" value="${escapeHtml(state.customerAdvancedDraftNote)}" placeholder="请输入"></label><label><strong>有无头像：</strong><span class="advanced-unavailable">暂无头像字段</span></label><label><strong>入海类型：</strong>${poolEntryTypeSelect}</label></div>
+      <div class="advanced-time-grid"><label><strong>客户注册时间：</strong>${dates("registration")}</label><label><strong>最近登录时间：</strong>${dates("lastLogin")}</label><label><strong>首次分配时间：</strong>${dates("firstAllocation")}</label><label><strong>${ownerLabel}：</strong>${ownerCascade}</label><label><strong>协作人：</strong>${collaboratorCascade}</label><label><strong>最后跟进时间：</strong>${dates("lastFollowUp")}</label><label class="advanced-note"><strong>备注信息：</strong><input id="customerNoteFilter" value="${escapeHtml(state.customerAdvancedDraftNote)}" placeholder="请输入"></label><label><strong>有无头像：</strong>${avatarSelect}</label><label><strong>入海类型：</strong>${poolEntryTypeSelect}</label></div>
     </div>
     <footer><button class="button secondary" id="cancelWhiteboardAdvanced" type="button">取消</button><button class="button primary" id="queryWhiteboardAdvanced" type="button">查询</button></footer>
   </section></div>`;
@@ -3104,7 +3186,9 @@ function customerDetailView(id) {
     const displayClass = revealed ? "profile-private-value revealed" : "profile-private-value profile-private-mask";
     const actionSubject = label === "电话号码" ? "号码" : "微信号";
     const privateAction = revealable ? `<span class="profile-private-action">${revealed ? "隐藏" : "查看"}${actionSubject}</span>` : "";
-    const content = `${value(displayValue)}${privateAction}`;
+    const content = revealed && label === "电话号码"
+      ? `<span data-copy-private-phone title="双击复制号码">${value(displayValue)}</span>${privateAction}`
+      : `${value(displayValue)}${privateAction}`;
     const display = revealable
       ? `<button class="${displayClass}" type="button" data-toggle-private-contact="${value(customer.id)}" data-private-field="${value(label)}" aria-label="${revealed ? "隐藏" : "查看"}${actionSubject}">${content}</button>`
       : `<span class="${displayClass}">${content}</span>`;
@@ -3156,7 +3240,7 @@ function customerDetailView(id) {
     ? (state.customerFollowUpRecords[customer.id] || [])
     : fallbackRecords).map(customerFollowUpRecordViewModel);
   const annotations = state.customerFollowUpAnnotations[customer.id] || {};
-  const portrait = `<div class="profile-reference-portrait"><div class="profile-reference-placeholder" role="img" aria-label="客户默认头像">${icon("users")}</div><span class="profile-reference-caption">${value(customer.name)}</span></div>`;
+  const portrait = `<div class="profile-reference-portrait">${customer.avatarUrl ? `<img class="profile-reference-avatar" src="${escapeHtml(customer.avatarUrl)}" alt="客户头像">` : `<div class="profile-reference-placeholder" role="img" aria-label="客户默认头像">${icon("users")}</div>`}<span class="profile-reference-caption">${value(customer.name)}</span></div>`;
   const noteText = [customer.note, customer.remark].filter(Boolean).join("\n");
   const noteTime = customer.updatedAt || customer.createdAt;
   const profile = `<div class="profile-reference-overview">${portrait}<section class="profile-reference-basic"><h3>基本信息</h3><dl class="profile-reference-basic-grid">${basicRows.flat().join("")}</dl></section><section class="profile-reference-mating"><h3>择偶信息</h3><dl>${matingInfo.map(([label, item]) => cell(label, item)).join("")}</dl></section></div><section class="profile-reference-notes"><h3>备注</h3><dl><div><dt>备注信息</dt><dd><span>${value(noteText)}</span>${noteTime ? `<time>${value(formatDateTime(noteTime))}</time>` : ""}</dd></div></dl></section><section class="profile-reference-photos"><h3>图片</h3><p>暂无照片</p></section>`;
@@ -3233,7 +3317,7 @@ function callRecordsView() {
     <label><b>ID/手机号：</b><input id="callKeyword" value="${escapeHtml(state.callKeyword)}" placeholder="请输入用户Id或者手机号"></label><label><b>昵称/姓名：</b><input id="callNameKeyword" value="${escapeHtml(state.callNameKeyword)}" placeholder="请输入用户昵称或姓名"></label><label><b>呼出时间：</b><span class="call-date-range"><input type="date" aria-label="开始日期"><i>→</i><input type="date" aria-label="结束日期"></span></label>
     <label><b>处理人：</b><select id="callAgentFilter"><option value="全部坐席">请选择</option>${agents.map(agent => `<option ${agent === state.callAgentFilter ? "selected" : ""}>${escapeHtml(agent)}</option>`).join("")}</select></label><label><b>呼叫类型：</b><select id="callDirectionFilter"><option>全部</option><option ${state.callDirectionFilter === "呼出" ? "selected" : ""}>呼出</option><option ${state.callDirectionFilter === "呼入" ? "selected" : ""}>呼入</option></select></label><label><b>通话状态：</b><select id="callStatusFilter"><option>全部</option><option ${state.callStatusFilter === "已接通" ? "selected" : ""}>已接通</option><option ${state.callStatusFilter === "未接通" ? "selected" : ""}>未接通</option><option ${state.callStatusFilter === "待回拨" ? "selected" : ""}>待回拨</option></select></label>
     <label><b>呼叫时长：</b><select><option>请选择</option></select></label><label><b>通话时长：</b><select><option>请选择</option></select></label><div class="call-filter-actions"><button class="button primary" id="applyCallFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCallFilters" type="button">${icon("repeat")}重置</button></div>
-  </section><section class="call-record-panel"><div class="call-record-tools"><label>AI分析展开预览 <input id="callAiPreview" type="checkbox" ${state.callAiPreview ? "checked" : ""}><span></span></label><button class="button primary" type="button">通话相关数据</button></div><div class="table-wrap"><table class="call-record-table"><thead><tr><th>用户ID</th><th>真实姓名</th><th>呼出时间</th><th>呼叫类型</th><th>处理人</th><th>中间号码</th><th>通话状态</th><th>呼叫时长</th><th>通话时长 ↕</th><th>AI分析状态 ◉</th><th>操作</th></tr></thead><tbody>${records.map(call => `<tr><td><button class="call-id-link">${escapeHtml((call.customerId || String(call.id)).replace(/\D/g, "").slice(-10) || String(call.id))}</button></td><td>${escapeHtml(call.customer || "-")}</td><td>${escapeHtml(call.started || "-")}</td><td>${escapeHtml(call.direction || "-")}</td><td>${escapeHtml(call.agent || call.owner || "-")}</td><td>99915400${String(call.id).slice(-1)}</td><td>${call.status === "未接通" ? "客户未接听" : escapeHtml(call.status || "-")}</td><td>${formatDuration(call.durationSeconds || 0)}</td><td>${call.status === "已接通" ? formatDuration(call.durationSeconds || 0) : "00:00"}</td><td>• ${state.callAiPreview ? "分析完成" : "不分析"}</td><td>${call.recording ? "查看录音" : "无录音"}</td></tr>`).join("") || `<tr><td colspan="11" class="call-empty">暂无通话记录</td></tr>`}</tbody></table></div><footer class="call-pagination"><span>${pageStart}-${pageEnd} 共${totalElements}条</span><button data-call-page="${currentPage - 1}" ${currentPage <= 1 ? "disabled" : ""}>‹</button>${visiblePages.map(page => `<button data-call-page="${page}" class="${page === currentPage ? "active" : ""}">${page}</button>`).join("")}<button data-call-page="${currentPage + 1}" ${currentPage >= totalPages ? "disabled" : ""}>›</button><select id="callPageSize"><option value="10" ${state.callPageSize===10?"selected":""}>10 条/页</option><option value="20" ${state.callPageSize===20?"selected":""}>20 条/页</option><option value="50" ${state.callPageSize===50?"selected":""}>50 条/页</option><option value="100" ${state.callPageSize===100?"selected":""}>100 条/页</option></select></footer></section><footer class="call-copyright">版权所有：爱乐云科技有限公司 京ICP备2021032120号</footer>
+  </section><section class="call-record-panel"><div class="call-record-tools"><label>AI分析展开预览 <input id="callAiPreview" type="checkbox" ${state.callAiPreview ? "checked" : ""}><span></span></label><button class="button primary" type="button">通话相关数据</button></div><div class="table-wrap"><table class="call-record-table"><thead><tr><th>用户ID</th><th>真实姓名</th><th>呼出时间</th><th>呼叫类型</th><th>处理人</th><th>中间号码</th><th>通话状态</th><th>呼叫时长</th><th>通话时长 ↕</th><th>AI分析状态 ◉</th><th>操作</th></tr></thead><tbody>${records.map(call => `<tr><td><button class="call-id-link">${escapeHtml((call.customerId || String(call.id)).replace(/\D/g, "").slice(-10) || String(call.id))}</button></td><td>${escapeHtml(call.customer || "-")}</td><td>${escapeHtml(call.started || "-")}</td><td>${escapeHtml(call.direction || "-")}</td><td>${escapeHtml(call.agent || call.owner || "-")}</td><td>99915400${String(call.id).slice(-1)}</td><td>${call.status === "未接通" ? "客户未接听" : escapeHtml(call.status || "-")}</td><td>${formatDuration(call.durationSeconds || 0)}</td><td>${call.status === "已接通" ? formatDuration(call.durationSeconds || 0) : "00:00"}</td><td>• ${state.callAiPreview ? "分析完成" : "不分析"}</td><td>${call.recording ? "查看录音" : "无录音"}</td></tr>`).join("") || `<tr><td colspan="11" class="call-empty">暂无通话记录</td></tr>`}</tbody></table></div><footer class="call-pagination"><span>${pageStart}-${pageEnd} 共${totalElements}条</span><button data-call-page="${currentPage - 1}" ${currentPage <= 1 ? "disabled" : ""}>‹</button>${visiblePages.map(page => `<button data-call-page="${page}" class="${page === currentPage ? "active" : ""}">${page}</button>`).join("")}<button data-call-page="${currentPage + 1}" ${currentPage >= totalPages ? "disabled" : ""}>›</button><select id="callPageSize"><option value="10" ${state.callPageSize===10?"selected":""}>10 条/页</option><option value="20" ${state.callPageSize===20?"selected":""}>20 条/页</option><option value="50" ${state.callPageSize===50?"selected":""}>50 条/页</option><option value="100" ${state.callPageSize===100?"selected":""}>100 条/页</option></select></footer></section>
   </div></section>`;
 }
 
@@ -3513,7 +3597,8 @@ function updateNotificationChrome() {
     badge.textContent = String(unreadCount);
     badge.hidden = unreadCount === 0;
   }
-  popover.innerHTML = `<div class="popover-title"><span>最新通知${unread.length ? ` · ${unread.length} 条未读` : ""}</span><button type="button" id="readNotifications" ${unread.length ? "" : "disabled"}>全部已读</button></div>${rows.slice(0, 4).map(row => `<button class="notification-item ${state.notificationRead[row.id] ? "read" : ""}" type="button" data-popover-notification="${escapeHtml(row.id)}"><span class="notification-icon">${icon(row.taskId ? "task" : row.conversationId ? "message" : row.customerId ? "phone" : "users")}</span><div><p>${escapeHtml(row.title)}</p><time>${escapeHtml(row.detail)} · ${escapeHtml(formatRelativeDate(row.at))}</time></div></button>`).join("") || `<div class="notification-empty">暂无待处理通知</div>`}<button class="popover-more" type="button" data-open-notification-center>查看全部通知</button>`;
+  const notificationItems = rows.slice(0, 3).map(row => `<button class="notification-item ${state.notificationRead[row.id] ? "read" : ""}" type="button" data-popover-notification="${escapeHtml(row.id)}"><span class="notification-icon">${icon(row.taskId ? "task" : row.conversationId ? "message" : row.customerId ? "phone" : "users")}</span><div><p>${escapeHtml(row.title)}</p><time>${escapeHtml(row.detail)} · ${escapeHtml(formatRelativeDate(row.at))}</time></div></button>`).join("");
+  popover.innerHTML = `<div class="popover-title"><span>最新通知${unread.length ? ` · ${unread.length} 条未读` : ""}</span><button type="button" id="readNotifications" ${unread.length ? "" : "disabled"}>全部已读</button></div>${notificationItems || `<div class="notification-empty">暂无待处理通知</div>`}<button class="popover-more" type="button" data-open-notification-center>查看全部通知</button>`;
 }
 
 async function persistNotificationRead(ids, read) {
@@ -4181,7 +4266,7 @@ function renderImportedCustomerFields() {
       { label: "性别", key: "gender" }, { label: "婚况", key: "maritalStatus" }, { label: "年龄", key: "age" }, { label: "学历", key: "education" },
       { label: "收入", key: "income" }, { label: "等级", key: "level" }, { label: "城市", key: "city" }, { label: "跟进次数", key: "followUpCount" },
       { label: "未联系天数", key: "uncontactedDays" }, { label: "前归属人", key: "owner" }, { label: "深沟时长" }, { label: "最后跟进", key: "lastFollowUpAt" },
-      { label: "最后登录", key: "lastLoginAt" }, { label: "标签", key: "tags" }, { label: "来源", key: "source", className: "pool-source-column" }, { label: "操作", className: "operation-column" }
+      { label: "最后登录", key: "lastLoginAt" }, { label: "进入公海时间", key: "poolEnteredAt" }, { label: "标签", key: "tags" }, { label: "来源", key: "source", className: "pool-source-column" }, { label: "操作", className: "operation-column" }
     ]
     : [
       { label: "", className: "select-column" }, { label: "标注", key: "tag" }, { label: "ID", key: "id" }, { label: "客户姓名/昵称", key: "customer" },
@@ -4205,7 +4290,7 @@ function renderImportedCustomerFields() {
       ? `<button class="button ghost" type="button" data-claim-customer="${escapeHtml(customer.id)}">领取</button>`
       : operation.innerHTML;
     const values = isPool
-      ? [customer.gender, customer.maritalStatus, customer.age, customer.education, customer.monthlyIncome || customer.annualIncome || customer.amount, customer.level, customer.city, customer.followUpCount || 0, customer.uncontactedDays, customer.previousOwner, formatDuration(customerDeepTalkDurationSeconds(customer)), customer.lastContact, customer.lastLogin, (customer.tags || []).join("、") || "+ 增加标签", customer.source || customer.origin || customer.channel || customer.sourceName || "—"]
+      ? [customer.gender, customer.maritalStatus, customer.age, customer.education, customer.monthlyIncome || customer.annualIncome || customer.amount, customer.level, customer.city, customer.followUpCount || 0, customer.uncontactedDays, customer.previousOwner, formatDuration(customerDeepTalkDurationSeconds(customer)), customer.lastContact, customer.lastLogin, customer.poolEnteredAt ? formatDateTime(customer.poolEnteredAt) : "未知", (customer.tags || []).join("、") || "+ 增加标签", customer.source || customer.origin || customer.channel || customer.sourceName || "—"]
       : [customer.gender, customer.maritalStatus, customer.age, customer.education, customer.monthlyIncome || customer.annualIncome || customer.amount, customer.level, customer.city, customer.followUpCount || 0, customer.uncontactedDays, customer.owner, customer.inviter, customer.collaborator, customer.serviceOwner];
     const identity = `<td class="select-column"><input type="checkbox" data-select-customer="${escapeHtml(customer.id)}" aria-label="选择${escapeHtml(customer.name)}" ${state.selectedCustomerIds.includes(customer.id) ? "checked" : ""} onclick="event.stopPropagation()"></td><td>⚑</td><td><a class="table-link" onclick="event.stopPropagation()">${escapeHtml(customer.id)}</a></td><td><div class="customer-cell"><span class="person-avatar">${escapeHtml(customer.name[0])}</span><span><strong>${escapeHtml(customer.name)}</strong></span></div></td>`;
     row.innerHTML = identity + values.map((value, index) => `<td${isPool && index === values.length - 1 ? ' class="pool-source-column"' : ""}>${escapeHtml(String(value || "—"))}</td>`).join("") + `<td class="operation-column"><div class="table-actions" onclick="event.stopPropagation()">${operationHtml}</div></td>`;
@@ -4230,10 +4315,73 @@ function navigate(view) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+let customerAvatarSelection = 0;
+
+function updateCustomerAvatarPreview() {
+  const value = document.querySelector('#customerForm [name="avatarUrl"]').value;
+  const preview = document.querySelector("#customerAvatarPreview");
+  if (value) preview.src = value;
+  else preview.removeAttribute("src");
+  preview.hidden = !value;
+  document.querySelectorAll("[data-avatar-placeholder]").forEach(node => { node.hidden = Boolean(value); });
+  document.querySelector("#removeCustomerAvatar").hidden = !value;
+}
+
+document.querySelector("#customerAvatarFile").addEventListener("change", async event => {
+  const input = event.currentTarget;
+  const file = input.files[0];
+  const selection = ++customerAvatarSelection;
+  if (!file) return;
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
+    input.value = "";
+    input.setCustomValidity("");
+    toast("请选择 5MB 以内的 JPG、PNG 或 WebP 图片");
+    return;
+  }
+  input.setCustomValidity("头像正在处理，请稍候");
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = objectUrl;
+    await image.decode();
+    const scale = Math.min(1, 320 / Math.max(image.width, image.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const value = canvas.toDataURL("image/jpeg", 0.85);
+    if (value.length > 200000) throw new Error("图片过大，请选择较小的图片");
+    if (selection !== customerAvatarSelection) return;
+    document.querySelector('#customerForm [name="avatarUrl"]').value = value;
+    updateCustomerAvatarPreview();
+  } catch (error) {
+    if (selection === customerAvatarSelection) toast(`头像处理失败：${error.message}`);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+    if (selection === customerAvatarSelection) {
+      input.setCustomValidity("");
+      input.value = "";
+    }
+  }
+});
+
+document.querySelector("#removeCustomerAvatar").addEventListener("click", () => {
+  ++customerAvatarSelection;
+  const input = document.querySelector("#customerAvatarFile");
+  input.value = "";
+  input.setCustomValidity("");
+  document.querySelector('#customerForm [name="avatarUrl"]').value = "";
+  updateCustomerAvatarPreview();
+});
+
 function openModal(customer = null) {
   const backdrop = document.querySelector("#modalBackdrop");
   const form = document.querySelector("#customerForm");
   const field = name => form.querySelector(`[name="${name}"]`);
+  ++customerAvatarSelection;
   form.reset();
   const ownerReference = customer?.ownerId ? `user:${customer.ownerId}` : customer?.owner || "";
   const employeeOptions = customerOwnerAccountUsers().filter(user => !customerOwnerIsAdminUser(user))
@@ -4242,19 +4390,22 @@ function openModal(customer = null) {
     employeeOptions.unshift([ownerReference, customer.owner]);
   }
   field("owner").innerHTML = employeeOptions.map(([reference, label]) => `<option value="${escapeHtml(reference)}">${escapeHtml(label)}</option>`).join("");
+  document.querySelector("#customerAvatarFile").setCustomValidity("");
   field("birthday").type = /^\d{4}$/.test(String(customer?.birthday || "")) ? "text" : "date";
   field("customerId").value = customer?.id || "";
   document.querySelector("#modalTitle").textContent = customer ? "编辑客户" : "创建客户";
   if (customer) {
-    const profileFields = ["name", "company", "source", "level", "owner", "stage", "amount", "city", "gender", "birthday", "age", "height", "maritalStatus", "education", "monthlyIncome", "annualIncome", "occupation", "housing", "car", "vehicleHousing", "nativePlace", "workLocation", "wechat", "idCard", "certificationStatus", "familyStatus", "childrenStatus", "matchAgeRange", "matchMaritalStatus", "matchHeightRange", "matchEducation", "matchMonthlyIncome", "matchMostImportant", "matchPersonality", "matchChildren", "matchDealbreakers", "note", "remark"];
+    const profileFields = ["name", "company", "source", "level", "owner", "stage", "amount", "city", "gender", "birthday", "age", "height", "maritalStatus", "education", "monthlyIncome", "annualIncome", "occupation", "housing", "car", "vehicleHousing", "nativePlace", "workLocation", "wechat", "idCard", "certificationStatus", "familyStatus", "childrenStatus", "matchAgeRange", "matchMaritalStatus", "matchHeightRange", "matchEducation", "matchMonthlyIncome", "matchMostImportant", "matchPersonality", "matchChildren", "matchDealbreakers", "customerType", "avatarUrl", "note", "remark"];
     profileFields.forEach(name => { field(name).value = customer[name] ?? ""; });
     field("owner").value = ownerReference;
     field("phone").value = String(customer.phone || "").replace(/\D/g, "");
     field("nextFollowAt").value = toDateTimeLocal(customer.nextFollowAt);
+    field("lastLoginAt").value = toDateTimeLocal(customer.lastLoginAt);
     field("tags").value = (customer.tags || []).join(", ");
   } else {
     if (!isAdmin()) field("owner").value = `user:${state.auth.user.id}`;
   }
+  updateCustomerAvatarPreview();
   field("owner").disabled = !isAdmin();
   backdrop.classList.toggle("customer-editor-with-tabs", !document.querySelector("#workspaceTabs")?.hidden);
   backdrop.hidden = false;
@@ -4263,6 +4414,8 @@ function openModal(customer = null) {
 }
 
 function closeModal() {
+  ++customerAvatarSelection;
+  document.querySelector("#customerAvatarFile").setCustomValidity("");
   document.querySelector("#modalBackdrop").hidden = true;
   document.body.style.overflow = "";
   const form = document.querySelector("#customerForm");
@@ -4399,7 +4552,7 @@ function businessModalFields(type, record) {
         <label><span>类型 *</span><select name="type" required><option value="" selected>请选择</option>${customerFollowUpTypes.map(value => `<option value="${value}">${value}</option>`).join("")}</select></label>
         <label><span>时间 *</span><input name="dueAt" type="datetime-local" required value="${dueAt}"></label>
         ${followupTemplateFieldView(record?.template || "")}
-        <label class="form-span-2 followup-content-field"><span>内容 *</span><div class="followup-content-editor"><input type="hidden" name="title" value="${escapeHtml(followupContent)}"><div class="followup-content-rich${followupContent ? "" : " is-empty"}" data-followup-rich-content contenteditable="true" role="textbox" aria-multiline="true" aria-label="跟进内容" data-placeholder="选择模板后自动填入内容，也可直接编辑">${followupContentEditorHtml(followupContent)}</div><small class="followup-content-count">已输入 ${String(followupContent).length}/2000</small></div></label>
+        <label class="form-span-2 followup-content-field"><span>内容 *</span><div class="followup-content-editor"><input type="hidden" name="title" value="${escapeHtml(followupContent)}"><div class="followup-content-rich${followupContent ? "" : " is-empty"}" data-followup-rich-content contenteditable="true" role="textbox" aria-multiline="true" aria-label="跟进内容" data-placeholder="选择模板后自动填入内容，也可直接编辑">${followupContentEditorHtml(followupContent, record?.template || "")}</div><small class="followup-content-count">已输入 ${String(followupContent).length}/2000</small></div></label>
         <label class="form-span-2 followup-photo-field"><span>照片</span><span class="followup-upload"><input name="photo" type="file" accept="image/*"><strong>＋</strong><small>上传</small></span></label>
         <label class="form-span-2"><span>客户状态</span><div class="followup-status-select"><input type="hidden" name="customerStatus" value=""><button type="button" class="followup-status-trigger">请选择<span class="dropdown-chevron"></span></button><div class="followup-status-options">${customerStatusOptions.map(option => `<button type="button" data-followup-status="${escapeHtml(option)}">${escapeHtml(option)}</button>`).join("")}</div></div></label>
         <label class="checkbox-field form-span-2"><input name="important" type="checkbox"><span>标为重点小计</span></label>
@@ -4558,17 +4711,45 @@ function openBusinessModal(type, record = null) {
     const contentCount = form.querySelector(".followup-content-count");
     const syncFollowupContent = () => {
       if (!content || !contentEditor) return;
+      contentEditor.querySelectorAll('[contenteditable="true"]').forEach(field => {
+        if (!field.textContent && field.innerHTML) field.replaceChildren();
+      });
       let text = followupContentEditorText(contentEditor);
       if (text.length > 2000) {
-        text = text.slice(0, 2000);
-        contentEditor.innerHTML = followupContentEditorHtml(text);
-        focusFollowupContentEnd(contentEditor);
+        const field = document.activeElement;
+        if (contentEditor.getAttribute("contenteditable") === "false" && contentEditor.contains(field)) {
+          field.textContent = field.innerText.slice(0, Math.max(0, field.innerText.length - (text.length - 2000)));
+          focusFollowupContentEnd(field);
+          text = followupContentEditorText(contentEditor);
+        } else {
+          text = text.slice(0, 2000);
+          contentEditor.innerHTML = followupContentEditorHtml(text);
+          focusFollowupContentEnd(contentEditor);
+        }
       }
       content.value = text;
       contentEditor.classList.toggle("is-empty", !text);
       contentCount.textContent = `已输入 ${text.length}/2000`;
     };
     contentEditor?.addEventListener("input", syncFollowupContent);
+    contentEditor?.addEventListener("click", event => {
+      if (contentEditor.getAttribute("contenteditable") !== "false") return;
+      const line = event.target.closest(".followup-content-line");
+      const field = line?.querySelector('[contenteditable="true"]');
+      if (field && !field.contains(event.target)) focusFollowupContentEnd(field);
+    });
+    contentEditor?.addEventListener("paste", event => {
+      event.preventDefault();
+      document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
+      syncFollowupContent();
+    });
+    contentEditor?.addEventListener("beforeinput", event => {
+      if (contentEditor.getAttribute("contenteditable") === "false" && event.inputType === "insertParagraph") {
+        event.preventDefault();
+        document.execCommand("insertLineBreak");
+        syncFollowupContent();
+      }
+    });
     const templateControl = form.querySelector("[data-followup-template-ui]");
     const templateOptions = templateControl?.querySelector("[data-followup-template-options]");
     const templateToggle = templateControl?.querySelector("[data-followup-template-toggle]");
@@ -4594,12 +4775,19 @@ function openBusinessModal(type, record = null) {
       templateOptions.hidden = Boolean(selected);
       templateToggle.textContent = selected ? "更换模板" : "收起模板";
       templateToggle.setAttribute("aria-expanded", String(!selected));
+      contentEditor.setAttribute("contenteditable", String(!selected));
       if (selected) {
-        contentEditor.innerHTML = followupContentEditorHtml(followupTemplateContent(selected));
+        contentEditor.innerHTML = followupContentEditorHtml(followupTemplateContent(selected), selected, true);
         syncFollowupContent();
         focusFollowupContentEnd(contentEditor);
+      } else {
+        contentEditor.innerHTML = followupContentEditorHtml(content.value);
       }
     };
+    if (selectedTemplateInput?.value) {
+      contentEditor.setAttribute("contenteditable", "false");
+      contentEditor.innerHTML = followupContentEditorHtml(content.value, selectedTemplateInput.value, true);
+    }
     templateControl?.addEventListener("click", event => {
       const option = event.target.closest("[data-followup-template]");
       if (option) {
@@ -5038,7 +5226,7 @@ function openSystemUserCreator() {
   drawer.querySelector('input[name="username"]')?.focus();
 }
 
-async function loadCustomerFollowUps(customerId) {
+async function loadCustomerFollowUps(customerId, renderAfterLoad = true) {
   if (!state.auth.token || !customerId) return;
   const params = new URLSearchParams();
   if (state.customerFollowUpFilterType && state.customerFollowUpFilterType !== "all") params.set("type", state.customerFollowUpFilterType);
@@ -5056,7 +5244,7 @@ async function loadCustomerFollowUps(customerId) {
       annotation
     ]));
     state.customerFollowUpLoaded[customerId] = true;
-    render();
+    if (renderAfterLoad) render();
   } catch (error) {
     toast(`跟进记录加载失败：${error.message}`);
   }
@@ -5247,7 +5435,7 @@ async function setCustomerPool(customer, inPool, details = {}) {
   requireBackend();
   const saved = await apiRequest(`/customers/${encodeURIComponent(customer.id)}/pool`, { method: "PATCH", body: JSON.stringify({ inPool }) });
   const normalized = mergeCustomerRecord(saved);
-  if (inPool && !isAdmin()) customers = customers.filter(item => item.id !== normalized.id);
+  if (inPool) customers = customers.filter(item => item.id !== normalized.id);
   if (!inPool) state.poolCustomers = state.poolCustomers.filter(item => item.id !== normalized.id);
   const poolDetail = inPool
     ? `客户被移入公海${details.reason ? `，原因：${details.reason}` : ""}${details.note ? `，备注：${details.note}` : ""}`
@@ -5310,7 +5498,8 @@ function parseCustomerCsv(text) {
     source: ["客户来源", "来源", "source"], owner: ["负责人", "销售负责人", "归属员工", "owner"], stage: ["跟进阶段", "阶段", "stage"],
     gender: ["性别", "gender"], birthday: ["生日", "出生日期", "birthday"], birthYear: ["出生年份", "出生年", "birthYear"], age: ["年龄", "age"], height: ["身高", "height"], maritalStatus: ["婚况", "婚姻状况", "maritalStatus"], education: ["学历", "education"], monthlyIncome: ["月收入", "monthlyIncome"], annualIncome: ["年收入", "annualIncome"], occupation: ["职业", "occupation"], housing: ["住房", "住房情况", "housing"], car: ["购车", "购车情况", "car"], nativePlace: ["籍贯", "nativePlace"], workLocation: ["工作地", "工作地点", "workLocation"], wechat: ["微信号", "wechat"], idCard: ["身份证号", "身份证号码", "idCard"], remark: ["备注说明", "remark"], certificationStatus: ["认证情况", "认证状态", "certificationStatus"], familyStatus: ["家庭情况", "familyStatus"], childrenStatus: ["子女情况", "childrenStatus"], vehicleHousing: ["房车情况", "vehicleHousing"],
     level: ["客户等级", "等级", "level"], amount: ["预计金额", "金额", "amount"], city: ["所在城市", "城市", "city"],
-    note: ["备注", "客户备注", "note"], tags: ["标签", "客户标签", "tags"], nextFollowAt: ["下次跟进", "下次跟进时间", "nextFollowAt"], collaborator: ["协作人", "collaborator"]
+    note: ["备注", "客户备注", "note"], tags: ["标签", "客户标签", "tags"], nextFollowAt: ["下次跟进", "下次跟进时间", "nextFollowAt"], collaborator: ["协作人", "collaborator"],
+    customerType: ["客户类型", "customerType"], lastLoginAt: ["最近登录", "最近登录时间", "lastLoginAt"], avatarUrl: ["头像", "头像地址", "avatarUrl"]
   };
   const indexes = Object.fromEntries(Object.entries(aliases).map(([key, names]) => [key, headers.findIndex(header => names.some(name => header === name.toLowerCase()))]));
   if (indexes.phone < 0) throw new Error("未找到手机号列，请使用表头：电话号码、手机号或手机号码");
@@ -5415,6 +5604,9 @@ function importPayloadFromRow(row, toPool = false) {
     matchChildren: row.matchChildren || "",
     matchDealbreakers: row.matchDealbreakers || "",
     collaborator: row.collaborator || "",
+    customerType: row.customerType || "",
+    lastLoginAt: row.lastLoginAt || null,
+    avatarUrl: row.avatarUrl || "",
     tags: row.tags ? (Array.isArray(row.tags) ? row.tags : String(row.tags).split(/[，,]/).map(item => item.trim()).filter(Boolean)) : ["新客户"]
   };
 }
@@ -5775,6 +5967,9 @@ async function submitBusinessForm(event) {
         state.notificationRead[`task-${data.reminderTaskId}`] = true;
         localStorage.setItem("youai.crm.notificationRead", JSON.stringify(state.notificationRead));
       }
+      if (normalized.customerId && String(state.customerDetailId) === String(normalized.customerId)) {
+        await loadCustomerFollowUps(normalized.customerId, false);
+      }
       checkUpcomingFollowupAlerts();
       closeBusinessModal();
       render();
@@ -5831,6 +6026,16 @@ async function submitBusinessForm(event) {
 }
 
 function bindViewEvents() {
+  document.querySelectorAll("[data-date-range-view-year], [data-date-range-view-month]").forEach(select => select.addEventListener("change", event => {
+    event.stopPropagation();
+    const calendar = select.closest("[data-date-range-calendar-index]");
+    const yearSelect = calendar?.querySelector("[data-date-range-view-year]");
+    const monthSelect = calendar?.querySelector("[data-date-range-view-month]");
+    if (!calendar || !yearSelect || !monthSelect) return;
+    const target = select.dataset.dateRangeViewYear || select.dataset.dateRangeViewMonth || "customer";
+    customerDateRangeSetViewMonth(target, Number(yearSelect.value), Number(monthSelect.value), Number(calendar.dataset.dateRangeCalendarIndex));
+    render();
+  }));
   document.querySelector("#customerPoolRuleForm")?.addEventListener("submit", async event => {
     event.preventDefault();
     if (!isAdmin()) { toast("仅管理员可以修改业务设置", "error"); return; }
@@ -5894,10 +6099,7 @@ function bindViewEvents() {
       return;
     }
     if (selectedDate < draftStart) {
-      state.customerFollowUpDateDraftFrom = selectedDate;
-      state.customerFollowUpDateDraftTo = "";
-      state.customerFollowUpDatePicking = "end";
-      render();
+      toast("结束日期不能早于开始日期");
       return;
     }
     state.customerFollowUpDateDraftTo = selectedDate;
@@ -5938,12 +6140,45 @@ function bindViewEvents() {
       toast(`保存跟进标注失败：${error.message}`, "error");
     }
   }));
-  document.querySelectorAll("[data-toggle-private-contact]").forEach(button => button.addEventListener("click", event => {
-    event.stopPropagation();
-    const key = `${button.dataset.togglePrivateContact}:${button.dataset.privateField}`;
-    state.customerContactReveals[key] = !state.customerContactReveals[key];
-    render();
-  }));
+  document.querySelectorAll("[data-toggle-private-contact]").forEach(button => {
+    let singleClickTimer = null;
+    const toggleContact = () => {
+      const key = `${button.dataset.togglePrivateContact}:${button.dataset.privateField}`;
+      state.customerContactReveals[key] = !state.customerContactReveals[key];
+      render();
+    };
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      const clickedRevealedPhone = Boolean(event.target.closest("[data-copy-private-phone]"));
+      if (!clickedRevealedPhone) { toggleContact(); return; }
+      clearTimeout(singleClickTimer);
+      if (event.detail === 1) singleClickTimer = setTimeout(toggleContact, 350);
+    });
+    button.querySelector("[data-copy-private-phone]")?.addEventListener("dblclick", async event => {
+      event.preventDefault();
+      event.stopPropagation();
+      clearTimeout(singleClickTimer);
+      const phone = event.currentTarget.textContent.trim();
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(phone);
+        } else {
+          const input = document.createElement("textarea");
+          input.value = phone;
+          input.style.position = "fixed";
+          input.style.opacity = "0";
+          document.body.append(input);
+          input.select();
+          const copied = document.execCommand("copy");
+          input.remove();
+          if (!copied) throw new Error("Clipboard unavailable");
+        }
+        toast("手机号码已复制");
+      } catch (error) {
+        toast("复制失败，请手动复制", "error");
+      }
+    });
+  });
   document.querySelectorAll("[data-dashboard-filter-form]").forEach(form => form.addEventListener("submit", async event => {
     event.preventDefault();
     const from = form.elements.namedItem("from")?.value || "";
@@ -6212,7 +6447,7 @@ function bindViewEvents() {
   document.querySelector("#whiteboardTagSearch")?.addEventListener("input", event => { const query = event.target.value.trim(); document.querySelectorAll("[data-whiteboard-tag]").forEach(button => { button.hidden = !!query && !button.textContent.includes(query); }); });
   const customerAdvancedButton = document.querySelector(".customer-list-page .customer-filter-actions .text-button") || document.querySelector("#openWhiteboardAdvanced");
   customerAdvancedButton?.addEventListener("click", () => {
-    state.customerAdvancedDraftCustomerType = state.customerAdvancedDraftCustomerType || "";
+    state.customerAdvancedDraftCustomerType = state.customerType;
     const selectedStatuses = selectedCustomerStatuses();
     state.customerAdvancedDraftStatusSelection = [...selectedStatuses];
     state.customerAdvancedDraftStatusChanged = false;
@@ -6304,6 +6539,7 @@ function bindViewEvents() {
         ? (state.customerAdvancedDraftStatus ? [state.customerAdvancedDraftStatus] : [])
         : [...(state.customerAdvancedDraftStatusSelection || [])];
       state.customerStatuses = nextStatuses;
+      state.customerType = state.customerAdvancedDraftCustomerType;
       state.customerStatus = nextStatuses.length === 1 ? nextStatuses[0] : "全部状态";
       state.customerAdvancedLevels = [...state.customerAdvancedDraftLevels];
       state.customerGender = state.customerAdvancedDraftGender;
@@ -6336,6 +6572,7 @@ function bindViewEvents() {
       state.customerIncomeMin = state.customerAdvancedDraftIncomeMin;
       state.customerIncomeMax = state.customerAdvancedDraftIncomeMax;
       state.customerPage = 1;
+      state.poolCustomerPage = 1;
       state.customerAdvancedOpen = false;
       state.whiteboardAdvancedOpen = false;
       state.customerEducationMenuOpen = false;
@@ -6518,10 +6755,7 @@ function bindViewEvents() {
       return;
     }
     if (selectedDate < draftStart) {
-      state.customerAdvancedDatePickerDraftStart = selectedDate;
-      state.customerAdvancedDatePickerDraftEnd = "";
-      state.customerAdvancedDatePickerPicking = "end";
-      render();
+      toast("结束日期不能早于开始日期");
       return;
     }
     const field = state.customerAdvancedDatePickerField;
@@ -6644,7 +6878,7 @@ function bindViewEvents() {
       render();
     }
   });
-  const dateRangeDisplay = document.querySelector(".customer-list-page:not(.pool-page) .date-range-display");
+  const dateRangeDisplay = document.querySelector(".customer-list-page .date-range-display");
   dateRangeDisplay?.addEventListener("click", event => {
     event.preventDefault();
     const opening = !state.customerDateRangePickerOpen;
@@ -6679,10 +6913,7 @@ function bindViewEvents() {
       return;
     }
     if (selectedDate < draftStart) {
-      state.customerDateRangeDraftStart = selectedDate;
-      state.customerDateRangeDraftEnd = "";
-      state.customerDateRangePicking = "end";
-      render();
+      toast("结束日期不能早于开始日期");
       return;
     }
     state.customerStartDate = draftStart;
@@ -6692,6 +6923,7 @@ function bindViewEvents() {
     state.customerDateRangePicking = "start";
     state.customerDateRangePickerOpen = false;
     state.customerPage = 1;
+    state.poolCustomerPage = 1;
     render();
   }));
   document.querySelector("[data-clear-customer-date-range]")?.addEventListener("click", event => {
@@ -6787,7 +7019,7 @@ function bindViewEvents() {
     state.customerOwnerSelection = { nodes: [] }; state.customerAdvancedCollaboratorSelection = { nodes: [] }; state.customerAdvancedDraftCollaboratorSelection = { nodes: [] }; state.customerAdvancedCollaboratorCascadeOpen = false; state.customerOwnerCascadeOpen = false; state.customerOwnerSearch = ""; state.customerOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"];
     state.customerStartDate = ""; state.customerEndDate = ""; state.customerDateRangePickerOpen = false; state.customerDateRangeDraftStart = ""; state.customerDateRangeDraftEnd = ""; state.customerDateRangeViewMonth = ""; state.customerDateRangePicking = "start";
     state.customerGender = "all"; state.customerMaritalStatus = "all"; state.customerAgeMin = ""; state.customerAgeMax = ""; state.customerHeightMin = ""; state.customerHeightMax = ""; state.customerEducation = []; state.customerEducationMenuOpen = false; state.customerUncontactedDays = "all"; state.customerUncontactedDaysCustom = "";
-    state.customerAdvancedDraftCustomerType = ""; state.customerAdvancedDraftStatus = ""; state.customerAdvancedDraftStatusSelection = []; state.customerAdvancedDraftStatusChanged = false; state.customerAdvancedDraftGender = "all"; state.customerAdvancedDraftMaritalStatus = "all"; state.customerAdvancedDraftAgeMin = ""; state.customerAdvancedDraftAgeMax = ""; state.customerAdvancedDraftHeightMin = ""; state.customerAdvancedDraftHeightMax = ""; state.customerAdvancedDraftEducation = []; state.customerAdvancedDraftLevels = [];
+    state.customerType = ""; state.customerAdvancedDraftCustomerType = ""; state.customerAdvancedDraftStatus = ""; state.customerAdvancedDraftStatusSelection = []; state.customerAdvancedDraftStatusChanged = false; state.customerAdvancedDraftGender = "all"; state.customerAdvancedDraftMaritalStatus = "all"; state.customerAdvancedDraftAgeMin = ""; state.customerAdvancedDraftAgeMax = ""; state.customerAdvancedDraftHeightMin = ""; state.customerAdvancedDraftHeightMax = ""; state.customerAdvancedDraftEducation = []; state.customerAdvancedDraftLevels = [];
     state.customerAdvancedLevels = []; state.customerAdvancedNextFollowPreset = ""; state.customerAdvancedSource = ""; state.customerAdvancedNativePlace = ""; state.customerAdvancedWorkLocation = ""; state.customerAdvancedOccupation = ""; state.customerAdvancedHousing = ""; state.customerAdvancedCar = ""; state.customerAdvancedPersonality = ""; state.customerAdvancedInterest = ""; state.customerAdvancedNote = ""; state.customerIncomeMin = ""; state.customerIncomeMax = "";
     state.customerAdvancedDraftSource = ""; state.customerAdvancedDraftNativePlace = ""; state.customerAdvancedDraftWorkLocation = ""; state.customerAdvancedDraftOccupation = ""; state.customerAdvancedDraftHousing = ""; state.customerAdvancedDraftCar = ""; state.customerAdvancedDraftPersonality = ""; state.customerAdvancedDraftInterest = ""; state.customerAdvancedDraftNote = ""; state.customerAdvancedDraftIncomeMin = ""; state.customerAdvancedDraftIncomeMax = ""; state.customerAdvancedDraftNextFollowPreset = "";
     state.customerAdvancedOwnerSelection = { nodes: [] }; state.customerAdvancedDraftOwnerSelection = { nodes: [] }; state.customerAdvancedOwnerCascadeOpen = false; state.customerAdvancedOwnerSearch = ""; state.customerAdvancedOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"];
@@ -7460,19 +7692,23 @@ document.querySelector("#customerForm").addEventListener("submit", async event =
     vehicleHousing: data.vehicleHousing, matchAgeRange: data.matchAgeRange, matchMaritalStatus: data.matchMaritalStatus,
     matchHeightRange: data.matchHeightRange, matchEducation: data.matchEducation, matchMonthlyIncome: data.matchMonthlyIncome,
     matchMostImportant: data.matchMostImportant, matchPersonality: data.matchPersonality, matchChildren: data.matchChildren,
-    matchDealbreakers: data.matchDealbreakers, collaborator: existing?.collaboratorIds?.map(id => `user:${id}`).join("、") ?? existing?.collaborator ?? ""
+    matchDealbreakers: data.matchDealbreakers, collaborator: existing?.collaboratorIds?.map(id => `user:${id}`).join("、") ?? existing?.collaborator ?? "",
+    customerType: data.customerType, lastLoginAt: data.lastLoginAt || null, avatarUrl: data.avatarUrl
   };
   try {
     requireBackend();
     const duplicateBefore = !existing ? customers.concat(state.poolCustomers || []).find(customer => String(customer.phone || "").replace(/\D/g, "") === payload.phone) : null;
     const result = await apiRequest(existing ? `/customers/${encodeURIComponent(existing.id)}` : "/customers", { method: existing ? "PUT" : "POST", body: JSON.stringify(payload) });
-    const saved = normalizeCustomer(result);
-    const index = customers.findIndex(customer => customer.id === saved.id);
-    if (index >= 0) customers[index] = saved; else customers.unshift(saved);
+    const saved = mergeCustomerRecord(result);
     state.dashboard = { ...state.dashboard, newCustomers: customers.length, totalCustomers: customers.length };
     closeModal();
     const duplicateRegistration = duplicateBefore && saved.id === duplicateBefore.id && saved.registrationCount > Number(duplicateBefore.registrationCount || 1);
-    toast(duplicateRegistration ? `客户 ${saved.name} 已完成第 ${saved.registrationCount} 次注册` : `客户 ${data.name } 已${existing ? "更新" : "创建"}并写入 MySQL`);
+    if (!existing && !duplicateRegistration && saved.owner === "白板" && isAdmin()) state.customerSection = "白板列表";
+    toast(duplicateRegistration
+      ? `客户 ${saved.name} 已完成第 ${saved.registrationCount} 次注册`
+      : saved.owner === "白板"
+        ? `客户 ${data.name} 已创建并进入白板，等待分配`
+        : `客户 ${data.name} 已${existing ? "更新" : "创建"}并写入 MySQL`);
     render();
   } catch (error) {
     toast(`客户保存失败：${error.message}`);
@@ -7568,6 +7804,7 @@ notificationPopover.addEventListener("click", async event => {
     notificationPopover.hidden = true;
     state.messageSection = "短信记录";
     navigate("messages");
+    return;
   }
 });
 document.addEventListener("click", event => {
@@ -7623,6 +7860,10 @@ async function initialize() {
     if (!state.auth.token) await refreshAuth();
     state.auth.user = await apiRequest("/auth/me");
     loadCustomerTableColumns();
+    // Restore the active workspace before hydration renders. Otherwise the
+    // hydration render creates/activates the default dashboard tab and loses
+    // the page (including customer details) that was open before a refresh.
+    restoreActiveWorkspaceTab();
     await hydrateFromApi();
     showApp();
   } catch (_) {

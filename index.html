@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="优爱客户管理系统">
   <title>优爱 YOUAI</title>
-  <link rel="stylesheet" href="styles.css?v=20260924-pool-advanced-date-v5">
+  <link rel="stylesheet" href="styles.css?v=20261008-date-picker-v2">
 </head>
 <body class="app-booting">
   <svg class="icon-sprite" aria-hidden="true">
@@ -103,7 +103,10 @@
         <div class="customer-editor-body">
           <aside class="customer-avatar-panel">
             <h3>头像上传</h3>
-            <label class="customer-avatar-upload"><input type="file" accept="image/*" aria-label="上传客户头像"><span>＋</span><strong>上传</strong></label>
+            <input name="avatarUrl" type="hidden">
+            <label class="customer-avatar-upload"><input id="customerAvatarFile" type="file" accept="image/jpeg,image/png,image/webp" aria-label="上传客户头像"><img id="customerAvatarPreview" alt="客户头像预览" hidden><span data-avatar-placeholder>＋</span><strong data-avatar-placeholder>选择图片</strong></label>
+            <small class="customer-avatar-help">JPG、PNG、WebP，最大 5MB</small>
+            <button id="removeCustomerAvatar" class="table-link" type="button" hidden>移除头像</button>
           </aside>
           <section class="customer-basic-panel">
             <h3>基本信息</h3>
@@ -129,6 +132,8 @@
               <label class="customer-editor-field"><span>认证情况</span><input name="certificationStatus" placeholder="请输入"></label>
               <label class="customer-editor-field"><span>子女情况</span><input name="childrenStatus" placeholder="请输入"></label>
               <label class="customer-editor-field"><span>客户来源</span><select name="source"><option>线上咨询</option><option>老客转介绍</option><option>市场活动</option><option>主动开发</option></select></label>
+              <label class="customer-editor-field"><span>客户类型</span><select name="customerType"><option value="">未知</option><option>会员</option><option>非会员</option></select></label>
+              <label class="customer-editor-field"><span>最近登录</span><input name="lastLoginAt" type="datetime-local"></label>
               <label class="customer-editor-field"><span>所属公司</span><input name="company" placeholder="公司或机构名称"></label>
               <label class="customer-editor-field"><span>负责人</span><select name="owner"><option>林夕</option><option>陈晨</option><option>周倩</option><option>赵磊</option></select></label>
               <label class="customer-editor-field"><span>客户等级</span><select name="level"><option>重点客户</option><option>普通客户</option><option>潜在客户</option></select></label>
@@ -196,6 +201,6 @@
   <div id="followupAlertRegion" class="followup-alert-region" aria-live="polite" hidden></div>
   <script src="config.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20261005-customer-identity"></script>
+  <script src="app.js?v=20261008-identity-pool-merge"></script>
 </body>
 </html>
