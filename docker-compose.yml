@@ -10,7 +10,7 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-youai_crm}
       TZ: Asia/Shanghai
     ports:
-      - "${MYSQL_HOST_PORT:-3308}:3306"
+      - "127.0.0.1:${MYSQL_HOST_PORT:-3308}:3306"
     volumes:
       # MySQL 8.4 无法读取 5.7 的数据目录，因此使用独立数据卷。
       # 旧卷 youke_mysql_data（5.7 数据）保持不动，作为回滚路径保留。

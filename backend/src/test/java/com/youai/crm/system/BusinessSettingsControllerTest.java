@@ -22,24 +22,35 @@ class BusinessSettingsControllerTest {
 
     @Test
     @WithMockUser(username = "admin", roles = "ADMIN")
-    void customerPoolRuleIsFixedAtSevenDays() throws Exception {
-        mockMvc.perform(get("/api/business-settings/customer-pool"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.enabled").value(true))
-                .andExpect(jsonPath("$.days").value(7));
-
+    void administratorCanSaveCustomerPoolRule() throws Exception {
         mockMvc.perform(put("/api/business-settings/customer-pool")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"enabled\":false,\"days\":12}"))
-                .andExpect(status().isMethodNotAllowed());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(false))
+                .andExpect(jsonPath("$.days").value(12));
+
+        mockMvc.perform(get("/api/business-settings/customer-pool"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(false))
+                .andExpect(jsonPath("$.days").value(12));
     }
 
     @Test
     @WithMockUser(username = "sales", roles = "SALES")
-    void nonAdministratorCannotChangeFixedCustomerPoolRule() throws Exception {
+    void nonAdministratorCannotChangeCustomerPoolRule() throws Exception {
         mockMvc.perform(put("/api/business-settings/customer-pool")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"enabled\":true,\"days\":7}"))
-                .andExpect(status().isMethodNotAllowed());
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void customerPoolDaysMustBePositiveAndBounded() throws Exception {
+        mockMvc.perform(put("/api/business-settings/customer-pool")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":true,\"days\":0}"))
+                .andExpect(status().isBadRequest());
     }
 }

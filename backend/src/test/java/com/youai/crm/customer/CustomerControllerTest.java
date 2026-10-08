@@ -43,6 +43,26 @@ class CustomerControllerTest {
     @Autowired private DepartmentRepository departmentRepository;
     @Autowired private RoleRepository roleRepository;
 
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void savesUploadedAvatarAndAllowsRemoval() throws Exception {
+        String suffix = String.format("%08d", Math.abs(System.nanoTime() % 100_000_000L));
+        String avatar = "data:image/jpeg;base64," + "A".repeat(2048);
+        String body = "{\"name\":\"头像上传测试\",\"phone\":\"139" + suffix
+                + "\",\"source\":\"测试\",\"owner\":\"白板\",\"avatarUrl\":\"" + avatar + "\"}";
+        String response = mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.avatarUrl").value(avatar))
+                .andReturn().getResponse().getContentAsString();
+        String customerNo = new com.fasterxml.jackson.databind.ObjectMapper().readTree(response).get("id").asText();
+        mockMvc.perform(get("/api/customers/" + customerNo))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.avatarUrl").value(avatar));
+        mockMvc.perform(put("/api/customers/" + customerNo).contentType(MediaType.APPLICATION_JSON)
+                        .content(body.replace(avatar, "")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.avatarUrl").value(""));
+        mockMvc.perform(get("/api/customers/" + customerNo))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.avatarUrl").value(""));
+    }
+
     @BeforeEach
     void ensureSalesUsers() {
         createSalesUser("linxi", "林夕", "13810000001");

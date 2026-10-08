@@ -3265,7 +3265,7 @@ function customerDetailView(id) {
     ? (state.customerFollowUpRecords[customer.id] || [])
     : fallbackRecords).map(customerFollowUpRecordViewModel);
   const annotations = state.customerFollowUpAnnotations[customer.id] || {};
-  const portrait = `<div class="profile-reference-portrait"><div class="profile-reference-placeholder" role="img" aria-label="客户默认头像">${icon("users")}</div><span class="profile-reference-caption">${value(customer.name)}</span></div>`;
+  const portrait = `<div class="profile-reference-portrait">${customer.avatarUrl ? `<img class="profile-reference-avatar" src="${escapeHtml(customer.avatarUrl)}" alt="客户头像">` : `<div class="profile-reference-placeholder" role="img" aria-label="客户默认头像">${icon("users")}</div>`}<span class="profile-reference-caption">${value(customer.name)}</span></div>`;
   const noteText = [customer.note, customer.remark].filter(Boolean).join("\n");
   const noteTime = customer.updatedAt || customer.createdAt;
   const profile = `<div class="profile-reference-overview">${portrait}<section class="profile-reference-basic"><h3>基本信息</h3><dl class="profile-reference-basic-grid">${basicRows.flat().join("")}</dl></section><section class="profile-reference-mating"><h3>择偶信息</h3><dl>${matingInfo.map(([label, item]) => cell(label, item)).join("")}</dl></section></div><section class="profile-reference-notes"><h3>备注</h3><dl><div><dt>备注信息</dt><dd><span>${value(noteText)}</span>${noteTime ? `<time>${value(formatDateTime(noteTime))}</time>` : ""}</dd></div></dl></section><section class="profile-reference-photos"><h3>图片</h3><p>暂无照片</p></section>`;
@@ -4062,7 +4062,9 @@ const systemUserRecords = [
 ];
 
 function customerPoolBusinessSettingsView() {
-  return `<section class="data-panel business-settings-panel"><div class="data-toolbar"><div class="panel-title"><h2>客户自动流入公海</h2><span>固定规则 · 按自然日检查</span></div></div><div class="business-settings-form"><div class="business-setting-row"><span>自动流入公海</span><span class="business-setting-control"><input type="checkbox" checked disabled><span>固定启用</span></span></div><div class="business-setting-row"><span>流出天数</span><span class="business-setting-control"><input type="number" value="7" disabled><span>个自然日未跟进后，系统自动流入公海</span></span></div><p class="business-settings-hint">该规则不可关闭或修改。客户进入销售库时开始计算；完成跟进任务、产生通话或发送客户消息后重新计算。白板和公海资源不参与自动归海。</p></div></section>`;
+  const rule = state.customerPoolRule || { enabled: true, days: 7 };
+  const administrator = isAdmin();
+  return `<section class="data-panel business-settings-panel"><div class="data-toolbar"><div class="panel-title"><h2>客户自动流入公海</h2><span>按自然日检查客户最后跟进时间</span></div></div><form class="business-settings-form" id="customerPoolRuleForm"><label class="business-setting-row"><span>自动流入公海</span><span class="business-setting-control"><input type="checkbox" name="enabled" ${rule.enabled ? "checked" : ""} ${administrator ? "" : "disabled"}><span>开启未及时跟进客户自动流入公海</span></span></label><label class="business-setting-row"><span>流出天数</span><span class="business-setting-control"><input type="number" name="days" min="1" max="3650" step="1" value="${escapeHtml(rule.days)}" ${administrator ? "" : "disabled"}><span>个自然日未跟进后，系统自动流入公海</span></span></label><p class="business-settings-hint">新建客户的登记时间作为初始跟进时间；销售记录跟进任务后会重新计算。${administrator ? "" : "此设置仅管理员可修改。"}</p>${administrator ? `<div class="business-settings-actions"><button class="button primary" type="submit">保存设置</button></div>` : ""}</form></section>`;
 }
 
 function systemView() {
@@ -4338,11 +4340,75 @@ function navigate(view) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+let customerAvatarSelection = 0;
+
+function updateCustomerAvatarPreview() {
+  const value = document.querySelector('#customerForm [name="avatarUrl"]').value;
+  const preview = document.querySelector("#customerAvatarPreview");
+  if (value) preview.src = value;
+  else preview.removeAttribute("src");
+  preview.hidden = !value;
+  document.querySelectorAll("[data-avatar-placeholder]").forEach(node => { node.hidden = Boolean(value); });
+  document.querySelector("#removeCustomerAvatar").hidden = !value;
+}
+
+document.querySelector("#customerAvatarFile").addEventListener("change", async event => {
+  const input = event.currentTarget;
+  const file = input.files[0];
+  const selection = ++customerAvatarSelection;
+  if (!file) return;
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
+    input.value = "";
+    input.setCustomValidity("");
+    toast("请选择 5MB 以内的 JPG、PNG 或 WebP 图片");
+    return;
+  }
+  input.setCustomValidity("头像正在处理，请稍候");
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = objectUrl;
+    await image.decode();
+    const scale = Math.min(1, 320 / Math.max(image.width, image.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const value = canvas.toDataURL("image/jpeg", 0.85);
+    if (value.length > 200000) throw new Error("图片过大，请选择较小的图片");
+    if (selection !== customerAvatarSelection) return;
+    document.querySelector('#customerForm [name="avatarUrl"]').value = value;
+    updateCustomerAvatarPreview();
+  } catch (error) {
+    if (selection === customerAvatarSelection) toast(`头像处理失败：${error.message}`);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+    if (selection === customerAvatarSelection) {
+      input.setCustomValidity("");
+      input.value = "";
+    }
+  }
+});
+
+document.querySelector("#removeCustomerAvatar").addEventListener("click", () => {
+  ++customerAvatarSelection;
+  const input = document.querySelector("#customerAvatarFile");
+  input.value = "";
+  input.setCustomValidity("");
+  document.querySelector('#customerForm [name="avatarUrl"]').value = "";
+  updateCustomerAvatarPreview();
+});
+
 function openModal(customer = null) {
   const backdrop = document.querySelector("#modalBackdrop");
   const form = document.querySelector("#customerForm");
   const field = name => form.querySelector(`[name="${name}"]`);
+  ++customerAvatarSelection;
   form.reset();
+  document.querySelector("#customerAvatarFile").setCustomValidity("");
   field("birthday").type = /^\d{4}$/.test(String(customer?.birthday || "")) ? "text" : "date";
   field("customerId").value = customer?.id || "";
   document.querySelector("#modalTitle").textContent = customer ? "编辑客户" : "创建客户";
@@ -4356,6 +4422,7 @@ function openModal(customer = null) {
   } else {
     field("owner").value = currentOwner();
   }
+  updateCustomerAvatarPreview();
   field("owner").disabled = !isAdmin();
   backdrop.classList.toggle("customer-editor-with-tabs", !document.querySelector("#workspaceTabs")?.hidden);
   backdrop.hidden = false;
@@ -4364,6 +4431,8 @@ function openModal(customer = null) {
 }
 
 function closeModal() {
+  ++customerAvatarSelection;
+  document.querySelector("#customerAvatarFile").setCustomValidity("");
   document.querySelector("#modalBackdrop").hidden = true;
   document.body.style.overflow = "";
   const form = document.querySelector("#customerForm");
@@ -5984,6 +6053,29 @@ function bindViewEvents() {
     customerDateRangeSetViewMonth(target, Number(yearSelect.value), Number(monthSelect.value), Number(calendar.dataset.dateRangeCalendarIndex));
     render();
   }));
+  document.querySelector("#customerPoolRuleForm")?.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!isAdmin()) { toast("仅管理员可以修改业务设置", "error"); return; }
+    const form = event.currentTarget;
+    const days = Number(form.elements.namedItem("days")?.value);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) {
+      toast("流出天数须为 1 到 3650 的自然日", "error");
+      return;
+    }
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true;
+    try {
+      state.customerPoolRule = await apiRequest("/business-settings/customer-pool", {
+        method: "PUT",
+        body: JSON.stringify({ enabled: Boolean(form.elements.namedItem("enabled")?.checked), days })
+      });
+      render();
+      toast("客户自动流入公海规则已保存");
+    } catch (error) {
+      toast(`保存业务设置失败：${error.message}`, "error");
+      submit.disabled = false;
+    }
+  });
   document.querySelectorAll("[data-new-order-customer]").forEach(button => {
     if (button.textContent.includes("新订单")) button.innerHTML = `${icon("plus")}新建订单`;
   });

@@ -103,7 +103,10 @@
         <div class="customer-editor-body">
           <aside class="customer-avatar-panel">
             <h3>头像上传</h3>
-            <label class="customer-avatar-url"><span>头像地址</span><input name="avatarUrl" type="url" aria-label="客户头像地址" placeholder="https://..."></label>
+            <input name="avatarUrl" type="hidden">
+            <label class="customer-avatar-upload"><input id="customerAvatarFile" type="file" accept="image/jpeg,image/png,image/webp" aria-label="上传客户头像"><img id="customerAvatarPreview" alt="客户头像预览" hidden><span data-avatar-placeholder>＋</span><strong data-avatar-placeholder>选择图片</strong></label>
+            <small class="customer-avatar-help">JPG、PNG、WebP，最大 5MB</small>
+            <button id="removeCustomerAvatar" class="table-link" type="button" hidden>移除头像</button>
           </aside>
           <section class="customer-basic-panel">
             <h3>基本信息</h3>

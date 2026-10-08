@@ -1,0 +1,1 @@
+ALTER TABLE crm_customer MODIFY COLUMN avatar_url MEDIUMTEXT NULL;
