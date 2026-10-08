@@ -2402,12 +2402,33 @@ function customerDateRangeShiftMonth(value, offset) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function customerDateRangeSetViewMonth(target, year, month, calendarIndex = 0) {
+  const selectedMonth = `${year}-${String(month).padStart(2, "0")}`;
+  const viewMonth = Number(calendarIndex) === 1
+    ? customerDateRangeShiftMonth(selectedMonth, -1)
+    : selectedMonth;
+  if (target === "followup") state.customerFollowUpDateViewMonth = viewMonth;
+  else if (target === "advanced") state.customerAdvancedDatePickerViewMonth = viewMonth;
+  else state.customerDateRangeViewMonth = viewMonth;
+}
+
 function customerDateRangeMonthLabel(value) {
   const date = customerDateRangeMonthDate(value);
   return `${date.getFullYear()}年 ${date.getMonth() + 1}月`;
 }
 
-function customerDateRangeCalendar(monthValue, start, end, dateAttribute = "data-customer-date") {
+function customerDateRangeYearOptions(monthValue, start = "", end = "") {
+  const selectedYear = customerDateRangeMonthDate(monthValue).getFullYear();
+  const currentYear = new Date().getFullYear();
+  const boundaryYears = [start, end]
+    .map(value => parseInt(String(value || "").slice(0, 4), 10))
+    .filter(year => Number.isInteger(year) && year >= 1000 && year <= 9999);
+  const minimumYear = Math.min(currentYear - 10, selectedYear - 5, ...boundaryYears);
+  const maximumYear = Math.max(currentYear + 10, selectedYear + 5, ...boundaryYears);
+  return Array.from({ length: maximumYear - minimumYear + 1 }, (_, index) => minimumYear + index);
+}
+
+function customerDateRangeCalendar(monthValue, start, end, dateAttribute = "data-customer-date", viewTarget = "customer", calendarIndex = 0) {
   const cursor = customerDateRangeMonthDate(monthValue);
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -2424,7 +2445,13 @@ function customerDateRangeCalendar(monthValue, start, end, dateAttribute = "data
     const isEnd = key === end;
     return `<button class="customer-date-range-day ${inMonth ? "" : "outside"} ${inRange ? "in-range" : ""} ${isStart ? "range-start" : ""} ${isEnd ? "range-end" : ""}" type="button" ${dateAttribute}="${key}" aria-label="${key}">${date.getDate()}</button>`;
   }).join("");
-  return `<div class="customer-date-range-month"><strong>${customerDateRangeMonthLabel(monthValue)}</strong><div class="customer-date-range-weekdays">${weekdays.map(day => `<span>${day}</span>`).join("")}</div><div class="customer-date-range-days">${cells}</div></div>`;
+  const yearOptions = customerDateRangeYearOptions(monthValue, start, end)
+    .map(option => `<option value="${option}" ${option === year ? "selected" : ""}>${option}年</option>`)
+    .join("");
+  const monthOptions = Array.from({ length: 12 }, (_, index) => index + 1)
+    .map(option => `<option value="${option}" ${option === month + 1 ? "selected" : ""}>${option}月</option>`)
+    .join("");
+  return `<div class="customer-date-range-month" data-date-range-calendar-index="${calendarIndex}"><div class="customer-date-range-month-controls"><select data-date-range-view-year="${viewTarget}" aria-label="选择年份">${yearOptions}</select><select data-date-range-view-month="${viewTarget}" aria-label="选择月份">${monthOptions}</select></div><div class="customer-date-range-weekdays">${weekdays.map(day => `<span>${day}</span>`).join("")}</div><div class="customer-date-range-days">${cells}</div></div>`;
 }
 
 function sharedCustomerDateRangePickerView({
@@ -2437,7 +2464,9 @@ function sharedCustomerDateRangePickerView({
   clearAttribute = "data-clear-customer-date-range",
   className = "",
   id = "",
-  ariaLabel = "选择时间范围"
+  ariaLabel = "选择时间范围",
+  title = "选择时间范围",
+  viewTarget = "customer"
 } = {}) {
   start = String(start || "");
   end = String(end || "");
@@ -2449,9 +2478,9 @@ function sharedCustomerDateRangePickerView({
       ? `${start} 至 请选择结束日期`
       : "请选择开始日期和结束日期";
   return `<div class="date-range-popover open ${className}" ${id ? `id="${id}"` : ""} role="dialog" aria-label="${ariaLabel}">
-    <div class="date-range-popover-header"><strong>选择时间范围</strong><div class="date-range-popover-nav"><button type="button" ${shiftAttribute}="-1" aria-label="上两个月">${icon("chevron-left")}</button><button type="button" ${shiftAttribute}="1" aria-label="下两个月">${icon("chevron-right")}</button></div></div>
+    <div class="date-range-popover-header"><strong>${title}</strong><div class="date-range-popover-nav"><button type="button" ${shiftAttribute}="-1" aria-label="上个月">${icon("chevron-left")}</button><button type="button" ${shiftAttribute}="1" aria-label="下个月">${icon("chevron-right")}</button></div></div>
     <div class="customer-date-range-summary"><div class="${picking === "start" ? "active" : ""}"><small>开始日期</small><strong>${start || "请选择"}</strong></div><span>→</span><div class="${picking === "end" ? "active" : ""}"><small>结束日期</small><strong>${end || "请选择"}</strong></div></div>
-    <div class="customer-date-range-calendars">${customerDateRangeCalendar(viewMonth, start, end, dateAttribute)}${customerDateRangeCalendar(nextMonth, start, end, dateAttribute)}</div>
+    <div class="customer-date-range-calendars">${customerDateRangeCalendar(viewMonth, start, end, dateAttribute, viewTarget, 0)}${customerDateRangeCalendar(nextMonth, start, end, dateAttribute, viewTarget, 1)}</div>
     <div class="customer-date-range-footer"><span>${selectedLabel}</span><button type="button" ${clearAttribute}>清空</button></div>
   </div>`;
 }
@@ -2477,27 +2506,29 @@ function customerFollowUpDateRangePickerView() {
     shiftAttribute: "data-followup-date-shift",
     clearAttribute: "data-clear-followup-date-range",
     className: "customer-followup-date-popover",
-    ariaLabel: "选择跟进记录时间范围"
+    ariaLabel: "选择跟进记录时间范围",
+    title: "选择跟进记录时间范围",
+    viewTarget: "followup"
   });
 }
 
 function customerAdvancedDateRangePickerView(field) {
-  const start = String(state.customerAdvancedDatePickerDraftStart || "");
-  const end = String(state.customerAdvancedDatePickerDraftEnd || "");
-  const viewMonth = customerDateRangeMonthValue(state.customerAdvancedDatePickerViewMonth || start);
-  const nextMonth = customerDateRangeShiftMonth(viewMonth, 1);
-  const fieldLabels = { registration: "客户注册时间", lastLogin: "最近登录时间", firstAllocation: "首次分配时间", lastFollowUp: "最后跟进时间" };
-  const selectedLabel = start && end
-    ? `${start} 至 ${end}`
-    : start
-      ? `${start} 至 请选择结束日期`
-      : "请选择开始日期和结束日期";
-  return `<div class="date-range-popover open advanced-date-range-popover" id="customerAdvancedDateRangePicker" role="dialog" aria-label="选择${fieldLabels[field] || "时间范围"}">
-    <div class="date-range-popover-header"><strong>选择${fieldLabels[field] || "时间范围"}</strong><div class="date-range-popover-nav"><button type="button" data-customer-advanced-date-shift="-1" aria-label="上两个月">${icon("chevron-left")}</button><button type="button" data-customer-advanced-date-shift="1" aria-label="下两个月">${icon("chevron-right")}</button></div></div>
-    <div class="customer-date-range-summary"><div class="${state.customerAdvancedDatePickerPicking === "start" ? "active" : ""}"><small>开始日期</small><strong>${start || "请选择"}</strong></div><span>→</span><div class="${state.customerAdvancedDatePickerPicking === "end" ? "active" : ""}"><small>结束日期</small><strong>${end || "请选择"}</strong></div></div>
-    <div class="customer-date-range-calendars">${customerDateRangeCalendar(viewMonth, start, end, "data-customer-advanced-date")}${customerDateRangeCalendar(nextMonth, start, end, "data-customer-advanced-date")}</div>
-    <div class="customer-date-range-footer"><span>${selectedLabel}</span><button type="button" data-clear-customer-advanced-date-range>清空</button></div>
-  </div>`;
+  const fieldLabels = { registration: "客户注册时间", lastLogin: "最近登录时间", firstAllocation: "首次分配时间", lastFollowUp: "最后跟进时间", nextFollow: "下次跟进时间" };
+  const title = `选择${fieldLabels[field] || "时间范围"}`;
+  return sharedCustomerDateRangePickerView({
+    start: state.customerAdvancedDatePickerDraftStart,
+    end: state.customerAdvancedDatePickerDraftEnd,
+    viewMonth: state.customerAdvancedDatePickerViewMonth,
+    picking: state.customerAdvancedDatePickerPicking,
+    dateAttribute: "data-customer-advanced-date",
+    shiftAttribute: "data-customer-advanced-date-shift",
+    clearAttribute: "data-clear-customer-advanced-date-range",
+    className: "advanced-date-range-popover",
+    id: "customerAdvancedDateRangePicker",
+    ariaLabel: title,
+    title,
+    viewTarget: "advanced"
+  });
 }
 
 function customerMatchesScene(customer, scene) {
@@ -5943,6 +5974,16 @@ async function submitBusinessForm(event) {
 }
 
 function bindViewEvents() {
+  document.querySelectorAll("[data-date-range-view-year], [data-date-range-view-month]").forEach(select => select.addEventListener("change", event => {
+    event.stopPropagation();
+    const calendar = select.closest("[data-date-range-calendar-index]");
+    const yearSelect = calendar?.querySelector("[data-date-range-view-year]");
+    const monthSelect = calendar?.querySelector("[data-date-range-view-month]");
+    if (!calendar || !yearSelect || !monthSelect) return;
+    const target = select.dataset.dateRangeViewYear || select.dataset.dateRangeViewMonth || "customer";
+    customerDateRangeSetViewMonth(target, Number(yearSelect.value), Number(monthSelect.value), Number(calendar.dataset.dateRangeCalendarIndex));
+    render();
+  }));
   document.querySelectorAll("[data-new-order-customer]").forEach(button => {
     if (button.textContent.includes("新订单")) button.innerHTML = `${icon("plus")}新建订单`;
   });
@@ -5983,10 +6024,7 @@ function bindViewEvents() {
       return;
     }
     if (selectedDate < draftStart) {
-      state.customerFollowUpDateDraftFrom = selectedDate;
-      state.customerFollowUpDateDraftTo = "";
-      state.customerFollowUpDatePicking = "end";
-      render();
+      toast("结束日期不能早于开始日期");
       return;
     }
     state.customerFollowUpDateDraftTo = selectedDate;
@@ -6642,10 +6680,7 @@ function bindViewEvents() {
       return;
     }
     if (selectedDate < draftStart) {
-      state.customerAdvancedDatePickerDraftStart = selectedDate;
-      state.customerAdvancedDatePickerDraftEnd = "";
-      state.customerAdvancedDatePickerPicking = "end";
-      render();
+      toast("结束日期不能早于开始日期");
       return;
     }
     const field = state.customerAdvancedDatePickerField;
@@ -6803,10 +6838,7 @@ function bindViewEvents() {
       return;
     }
     if (selectedDate < draftStart) {
-      state.customerDateRangeDraftStart = selectedDate;
-      state.customerDateRangeDraftEnd = "";
-      state.customerDateRangePicking = "end";
-      render();
+      toast("结束日期不能早于开始日期");
       return;
     }
     state.customerStartDate = draftStart;
