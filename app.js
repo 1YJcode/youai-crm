@@ -218,6 +218,7 @@ const state = {
   customerAdvancedDraftUncontactedDaysCustom: "",
   customerAdvancedDraftNextFollowPreset: "",
   customerAdvancedDraftSource: "",
+  customerSourceOptions: [],
   customerAdvancedDraftNativePlace: "",
   customerAdvancedDraftWorkLocation: "",
   customerAdvancedDraftOccupation: "",
@@ -2784,6 +2785,31 @@ function resetCustomerImportState() {
   state.importStatusFilter = "全部状态";
 }
 
+async function refreshCustomerSourceOptions() {
+  if (!state.auth.token) return;
+  const collectPageSources = result => pageContent(result).content
+    .map(customer => String(customer.source || "").trim())
+    .filter(Boolean);
+  try {
+    const firstResults = await Promise.all([
+      apiRequest("/customers?page=0&size=100"),
+      apiRequest("/customers/pool?page=0&size=100")
+    ]);
+    const requests = [];
+    firstResults.forEach((result, resultIndex) => {
+      const page = pageContent(result);
+      const endpoint = resultIndex === 0 ? "/customers" : "/customers/pool";
+      for (let pageIndex = 1; pageIndex < Math.min(Number(page.totalPages || 1), 100); pageIndex += 1) {
+        requests.push(apiRequest(`${endpoint}?page=${pageIndex}&size=100`));
+      }
+    });
+    const remainingResults = requests.length ? await Promise.all(requests) : [];
+    state.customerSourceOptions = [...new Set([...firstResults, ...remainingResults].flatMap(collectPageSources))];
+  } catch (error) {
+    console.warn("读取客户来源选项失败", error);
+  }
+}
+
 function loadCustomerImportHistory() {
   resetCustomerImportState();
   if (!isAdmin()) return;
@@ -3109,6 +3135,16 @@ function whiteboardAdvancedFilterView({ isPool = false } = {}) {
   const ownerLabel = isPool ? "前归属人" : "所属人";
   const ownerCascade = customerOwnerCascadeControl("advanced", state.customerAdvancedDraftOwnerSelection, state.customerAdvancedOwnerCascadeOpen, ownerLabel);
   const collaboratorCascade = customerOwnerCascadeControl("advanced-collaborator", state.customerAdvancedDraftCollaboratorSelection, state.customerAdvancedCollaboratorCascadeOpen);
+  // Sources are free-form values. Build the suggestions from the actual
+  // customer records so imported/custom sources remain selectable too.
+  const sourceSuggestions = [...new Set([
+    "线上咨询", "老客户转介绍", "市场活动", "主动开发",
+    ...state.customerSourceOptions,
+    ...customers.map(customer => customer.source),
+    ...(state.poolCustomers || []).map(customer => customer.source),
+    state.customerAdvancedDraftSource
+  ].map(source => String(source || "").trim()).filter(Boolean))];
+  const sourceOptions = sourceSuggestions.map(source => `<option value="${escapeHtml(source)}"></option>`).join("");
   return `<div class="modal-backdrop whiteboard-advanced-backdrop" role="presentation"><section class="whiteboard-advanced-modal" role="dialog" aria-modal="true" aria-label="高级筛选">
     <header><h2>高级筛选</h2><button type="button" id="closeWhiteboardAdvanced" aria-label="关闭">×</button></header>
     <div class="whiteboard-advanced-body">
@@ -3116,7 +3152,7 @@ function whiteboardAdvancedFilterView({ isPool = false } = {}) {
       <label class="advanced-full"><strong>客户类型：</strong><select id="customerTypeFilter"><option value="" ${!state.customerAdvancedDraftCustomerType ? "selected" : ""}>全部</option><option value="会员" ${state.customerAdvancedDraftCustomerType === "会员" ? "selected" : ""}>会员</option><option value="非会员" ${state.customerAdvancedDraftCustomerType === "非会员" ? "selected" : ""}>非会员</option><option value="__unknown__" ${state.customerAdvancedDraftCustomerType === "__unknown__" ? "selected" : ""}>未知</option></select></label>
       <label class="advanced-full"><strong>客户状态：</strong><select id="customerAdvancedStatusFilter"><option value="" ${!state.customerAdvancedDraftStatus ? "selected" : ""}>全部</option>${customerStatusOptions.map(option => `<option value="${escapeHtml(option)}" ${state.customerAdvancedDraftStatus === option ? "selected" : ""}>${option}</option>`).join("")}</select></label>
       <div class="advanced-wide-row${isPool ? " advanced-next-follow-row" : ""}"><strong>下次跟进时间：</strong><div class="advanced-checks">${["今天", "明天", "本周", "下周", "本月", "下月"].map(item => `<label><input type="checkbox" data-customer-next-follow-preset="${escapeHtml(item)}" ${state.customerAdvancedDraftNextFollowPreset === item ? "checked" : ""}>${item}</label>`).join("")}</div>${dates("nextFollow", { customDate: isPool })}</div>
-      <div class="advanced-two-column"><label><strong>未联系天数：</strong><div class="uncontacted-days-control">${uncontactedDaysSelect}${customUncontactedDays}</div></label><label><strong>会员来源：</strong><input id="customerSourceFilter" value="${escapeHtml(state.customerAdvancedDraftSource)}" placeholder="请输入会员来源"></label></div>
+      <div class="advanced-two-column"><label><strong>未联系天数：</strong><div class="uncontacted-days-control">${uncontactedDaysSelect}${customUncontactedDays}</div></label><label><strong>会员来源：</strong><input id="customerSourceFilter" list="customerAdvancedSourceOptions" value="${escapeHtml(state.customerAdvancedDraftSource)}" placeholder="请选择或输入会员来源"><datalist id="customerAdvancedSourceOptions">${sourceOptions}</datalist></label></div>
       <section class="advanced-profile"><h3>客户资料详情：</h3><div class="advanced-profile-grid">
         <label><span>性别：</span>${genderSelect}</label><label><span>年龄：</span>${ageRange}</label><label><span>身高：</span>${heightRange}</label><label><span>学历：</span>${educationMultiSelect}</label>
         <label><span>收入：</span>${range("元", "customerIncomeMin", "customerIncomeMax", state.customerAdvancedDraftIncomeMin, state.customerAdvancedDraftIncomeMax)}</label><label><span>婚况：</span>${maritalStatusSelect}</label><label><span>籍贯：</span><input id="customerNativePlaceFilter" value="${escapeHtml(state.customerAdvancedDraftNativePlace)}" placeholder="请输入"></label><label><span>工作地：</span><input id="customerWorkLocationFilter" value="${escapeHtml(state.customerAdvancedDraftWorkLocation)}" placeholder="请输入"></label>
@@ -6537,7 +6573,7 @@ function bindViewEvents() {
   document.querySelector("#clearWhiteboardTags")?.addEventListener("click", () => { state.whiteboardSelectedTags = []; render(); });
   document.querySelector("#whiteboardTagSearch")?.addEventListener("input", event => { const query = event.target.value.trim(); document.querySelectorAll("[data-whiteboard-tag]").forEach(button => { button.hidden = !!query && !button.textContent.includes(query); }); });
   const customerAdvancedButton = document.querySelector(".customer-list-page .customer-filter-actions .text-button") || document.querySelector("#openWhiteboardAdvanced");
-  customerAdvancedButton?.addEventListener("click", () => {
+  customerAdvancedButton?.addEventListener("click", async () => {
     state.customerAdvancedDraftCustomerType = state.customerType;
     const selectedStatuses = selectedCustomerStatuses();
     state.customerAdvancedDraftStatusSelection = [...selectedStatuses];
@@ -6580,6 +6616,7 @@ function bindViewEvents() {
     state.customerAdvancedDraftIncomeMax = state.customerIncomeMax;
     state.customerAdvancedOpen = true;
     state.whiteboardAdvancedOpen = customerAdvancedButton.id === "openWhiteboardAdvanced";
+    await refreshCustomerSourceOptions();
     render();
   });
   document.querySelector("#closeWhiteboardAdvanced")?.addEventListener("click", () => { state.customerAdvancedOpen = false; state.whiteboardAdvancedOpen = false; state.customerEducationMenuOpen = false; state.customerAdvancedOwnerCascadeOpen = false; state.customerAdvancedCollaboratorCascadeOpen = false; state.customerAdvancedDatePickerOpen = false; state.customerAdvancedDatePickerField = ""; render(); });
@@ -7774,7 +7811,9 @@ document.querySelector("#customerForm").addEventListener("submit", async event =
     nickname: data.nickname,
     phone: data.phone.replace(/\D/g, ""),
     company: data.company,
-    source: data.source,
+    // Imported customers may carry a source outside the suggested values.
+    // Keep the existing value when editing unless the user explicitly changes it.
+    source: String(data.source || existing?.source || "").trim(),
     owner: data.owner || (existing?.ownerId ? `user:${existing.ownerId}` : existing?.owner) || currentOwner(),
     stage: data.stage,
     level: data.level,
