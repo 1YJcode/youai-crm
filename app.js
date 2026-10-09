@@ -303,7 +303,7 @@ const state = {
   importSkipInvalid: false,
   importDetailStatusFilter: "全部状态",
   importStatusFilter: "全部状态",
-  importHistory: JSON.parse(localStorage.getItem("youai.crm.importHistory") || "[]"),
+  importHistory: [],
   customerAuditLog: JSON.parse(localStorage.getItem("youai.crm.customerAuditLog") || "[]"),
   customerCollaborators: JSON.parse(localStorage.getItem("youai.crm.customerCollaborators") || "{}"),
   customerRegistrationEvents: {},
@@ -932,6 +932,7 @@ function clearAuth() {
   state.auth.token = "";
   state.auth.refreshToken = "";
   state.auth.user = null;
+  resetCustomerImportState();
   loadCustomerTableColumns();
   localStorage.removeItem("youai.crm.accessToken");
   localStorage.removeItem("youai.crm.refreshToken");
@@ -951,9 +952,12 @@ function customerOwnerSelectionNames(selection = {}) {
 }
 
 function saveAuth(auth) {
+  const accountChanged = String(state.auth.user?.id) !== String(auth.user?.id);
+  const wasAdmin = isAdmin();
   state.auth.token = auth.accessToken;
   state.auth.refreshToken = auth.refreshToken || state.auth.refreshToken || "";
   state.auth.user = auth.user;
+  if (accountChanged || wasAdmin !== isAdmin()) resetCustomerImportState();
   loadCustomerTableColumns();
   localStorage.setItem("youai.crm.accessToken", auth.accessToken);
   if (state.auth.refreshToken) localStorage.setItem("youai.crm.refreshToken", state.auth.refreshToken);
@@ -1118,12 +1122,15 @@ async function submitLogin(event) {
 
 
 function showApp() {
+  document.querySelector(".nav-hover-menu")?.classList.remove("open");
   document.querySelector(".topbar").hidden = false;
   document.querySelector(".help-rail").hidden = false;
   document.querySelector("#workspaceTabs").hidden = false;
   ensureFollowupAlertRegion();
   document.querySelector("#followupAlertRegion")?.removeAttribute("hidden");
+  loadCustomerImportHistory();
   restoreActiveWorkspaceTab();
+  enforceCustomerImportAccess();
   updateAuthChrome();
   bindHelpActions();
   render();
@@ -1791,6 +1798,7 @@ function loadWorkspaceTabs() {
     state.workspaceTabs = [];
     state.activeWorkspaceTabId = "";
   }
+  enforceCustomerImportAccess();
 }
 
 function saveWorkspaceTabs() {
@@ -1800,6 +1808,7 @@ function saveWorkspaceTabs() {
 
 function restoreActiveWorkspaceTab() {
   loadWorkspaceTabs();
+  enforceCustomerImportAccess();
   const tab = state.workspaceTabs.find(item => item.id === state.activeWorkspaceTabId);
   if (!tab || (location.hash && tab.view !== state.view)) return;
   const shouldOpenImportHistory = tab.importDetailId && location.hash === "#customers";
@@ -1842,6 +1851,7 @@ function renderWorkspaceTabs() {
 
 function activateWorkspaceTab(id) {
   loadWorkspaceTabs();
+  enforceCustomerImportAccess();
   const tab = state.workspaceTabs.find(item => item.id === id);
   if (!tab) return;
   if (!canAccessView(tab.view)) {
@@ -2741,11 +2751,55 @@ const customerImportDetailColumns = [
   { key: "avatarUrl", label: "头像地址" }
 ];
 
+function resetCustomerImportState() {
+  state.importSessionVersion = (state.importSessionVersion || 0) + 1;
+  state.importHistory = [];
+  state.importRows = [];
+  state.importActiveId = null;
+  state.importDetailId = null;
+  state.importEditingRow = null;
+  state.importSelectedRows = [];
+  state.importSkipInvalid = false;
+  state.importDetailStatusFilter = "全部状态";
+  state.importStatusFilter = "全部状态";
+}
+
+function loadCustomerImportHistory() {
+  resetCustomerImportState();
+  if (!isAdmin()) return;
+  try {
+    const stored = JSON.parse(localStorage.getItem("youai.crm.importHistory") || "[]");
+    state.importHistory = Array.isArray(stored) ? stored : [];
+  } catch (_) { state.importHistory = []; }
+}
+
+function requireCustomerImportAccess() {
+  if (isAdmin()) return true;
+  toast("仅管理员可以使用客户导入");
+  return false;
+}
+
+function enforceCustomerImportAccess() {
+  if (isAdmin()) return;
+  resetCustomerImportState();
+  const tabs = state.workspaceTabs || [];
+  state.workspaceTabs = tabs.filter(tab => !(tab.view === "customers" && (tab.section === "客户导入" || tab.importDetailId)));
+  const removedActive = tabs.some(tab => tab.id === state.activeWorkspaceTabId) && !state.workspaceTabs.some(tab => tab.id === state.activeWorkspaceTabId);
+  if (state.customerSection === "客户导入" || removedActive) {
+    state.customerSection = "客户列表";
+    state.customerDetailId = null;
+    state.activeWorkspaceTabId = "customers:客户列表";
+  }
+  if (tabs.length !== state.workspaceTabs.length) saveWorkspaceTabs();
+}
+
 function importHistoryRecord(id) {
+  if (!isAdmin()) return null;
   return state.importHistory.find(record => String(record.id) === String(id));
 }
 
 function persistImportHistory() {
+  if (!isAdmin()) return;
   try {
     localStorage.setItem("youai.crm.importHistory", JSON.stringify(state.importHistory));
   } catch (_) {
@@ -2825,6 +2879,7 @@ function importRowStatus(row, validation) {
 }
 
 function customerImportDetailView(record) {
+  if (!isAdmin()) { enforceCustomerImportAccess(); return customerListView(); }
   const rows = importRowsForRecord(record);
   const filteredRows = rows.map((row, index) => ({ row, index })).filter(({ row }) => {
     return state.importDetailStatusFilter === "全部状态"
@@ -2856,6 +2911,7 @@ return `<tr class="${rowClass}" data-import-row-index="${index}"><td class="impo
 }
 
 function customerImportView() {
+  if (!isAdmin()) { enforceCustomerImportAccess(); return customerListView(); }
   const detailRecord = state.importDetailId ? importHistoryRecord(state.importDetailId) : null;
   if (detailRecord) return customerImportDetailView(detailRecord);
   const records = state.importHistory.filter(record => state.importStatusFilter === "全部状态" || record.status === state.importStatusFilter);
@@ -4160,6 +4216,7 @@ function restoreTableScrollPositions(positions) {
 }
 
 function render() {
+  enforceCustomerImportAccess();
   if (!viewMeta[state.view]) state.view = "dashboard";
   const nextView = accessibleView(state.view);
   if (nextView !== state.view) {
@@ -5533,11 +5590,14 @@ async function readCustomerImportRows(file) {
 }
 
 async function handleCustomerImportFile(event) {
+  if (!requireCustomerImportAccess()) return;
+  const importSessionVersion = state.importSessionVersion;
   const file = event.target.files?.[0];
   if (!file) return;
   if (file.size > 50 * 1024 * 1024) { toast("文件不能超过 50MB"); return; }
   try {
     const rows = await readCustomerImportRows(file);
+    if (!isAdmin() || state.importSessionVersion !== importSessionVersion) return;
     const record = { id: Date.now(), uploadedAt: new Date().toLocaleString("sv-SE").replace("T", " "), status: rows.length ? "待导入" : "上传失败", count: rows.length, success: 0, fail: 0, skipped: 0, uploader: currentOwner(), fileName: file.name, rows, message: rows.length ? "" : "上传失败，请检查文件格式及字段位置是否正确" };
     state.importRows = rows;
     state.importActiveId = record.id;
@@ -5552,6 +5612,7 @@ async function handleCustomerImportFile(event) {
     render();
     toast(rows.length ? `已解析 ${rows.length} 条客户，请在导入详情中核对` : "文件中没有可导入的客户");
   } catch (error) {
+    if (!isAdmin() || state.importSessionVersion !== importSessionVersion) return;
     const record = { id: Date.now(), uploadedAt: new Date().toLocaleString("sv-SE").replace("T", " "), status: "上传失败", count: 0, success: 0, fail: 0, uploader: currentOwner(), fileName: file.name, message: "上传失败，请检查文件格式及字段位置是否正确" };
     state.importHistory = [record, ...state.importHistory].slice(0, 100);
     state.importDetailId = null;
@@ -5612,10 +5673,11 @@ function importPayloadFromRow(row, toPool = false) {
 }
 
 async function importCustomersFromRows(rowIndexes = null) {
+  if (!requireCustomerImportAccess()) return;
+  const importSessionVersion = state.importSessionVersion;
   const record = importHistoryRecord(state.importDetailId || state.importActiveId);
   const rows = importRowsForRecord(record);
   if (!rows.length) return;
-  if (!isAdmin()) { toast("仅管理员可以审核并导入客户"); return; }
   const toPool = Boolean(document.querySelector("#importToPool")?.checked && isAdmin());
   const pendingIndexes = rows.map((row, index) => index).filter(index => !["已导入", "已跳过"].includes(rows[index]._importStatus));
   const requestedIndexes = rowIndexes === null ? pendingIndexes : rowIndexes.filter(index => pendingIndexes.includes(index));
@@ -5632,6 +5694,7 @@ async function importCustomersFromRows(rowIndexes = null) {
   try {
     requireBackend();
     for (const index of requestedIndexes) {
+      if (!isAdmin() || state.importSessionVersion !== importSessionVersion) return;
       const row = rows[index];
       const validation = importRowValidation(row, rows);
       if (state.importSkipInvalid && validation.errors.length) {
@@ -5651,6 +5714,7 @@ async function importCustomersFromRows(rowIndexes = null) {
         const phone = validation.phone;
         const before = customers.concat(state.poolCustomers || []).find(item => String(item.phone || "").replace(/\D/g, "") === phone);
         const saved = await apiRequest("/customers/import", { method: "POST", body: JSON.stringify(payload) });
+        if (!isAdmin() || state.importSessionVersion !== importSessionVersion) return;
         const normalized = mergeCustomerRecord(saved);
         row._importStatus = "已导入";
         row._importMessage = normalized.id ? `客户ID：${normalized.id}` : "";
@@ -5658,6 +5722,7 @@ async function importCustomersFromRows(rowIndexes = null) {
         else recordCustomerActivity({ customerId: saved.id, customer: saved.name, type: "客户导入", detail: `导入客户资料，手机号 ${saved.phone}`, owner: currentOwner() });
         success += 1;
       } catch (error) {
+        if (!isAdmin() || state.importSessionVersion !== importSessionVersion) return;
         row._importStatus = "导入失败";
         row._importMessage = error.message;
         failures.push(`${row.name}：${error.message}`);
@@ -5678,6 +5743,7 @@ async function importCustomersFromRows(rowIndexes = null) {
     toast(`${summary}${duplicates ? `，其中重复注册 ${duplicates} 条` : ""}${toPool ? "，已进入公海" : ""}${failures.length ? `：${failures[0]}` : ""}`);
     render();
   } catch (error) {
+    if (!isAdmin() || state.importSessionVersion !== importSessionVersion) return;
     record.message = error.message;
     persistImportHistory();
     toast(`导入在第 ${success + skipped + 1} 条失败：${error.message}`);
@@ -5687,6 +5753,7 @@ async function importCustomersFromRows(rowIndexes = null) {
 }
 
 function downloadCustomerTemplate() {
+  if (!requireCustomerImportAccess()) return;
   const csv = "客户姓名,手机号,公司,客户来源,负责人,跟进阶段,客户等级,预计金额,所在城市,备注,标签,性别,生日,出生年份,年龄,身高,婚况,学历,月收入,年收入,职业,住房,购车,籍贯,工作地,微信号,身份证号,备注说明\n张三,13800138000,示例公司,线上咨询,白板,初步沟通,普通客户,0,天津,首次导入示例,新客户,男,1995-01-01,1995,31,177cm,未婚,本科,8001-12000元,150000,工程师,已购房,已购车,天津,天津,zhangsan,120000199501010000,补充说明";
   const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" })); link.download = "优客云-客户导入模板.csv"; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 0);
   toast("客户导入模板已下载");
@@ -6241,6 +6308,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-add-customer]").forEach(button => button.addEventListener("click", () => openModal()));
   document.querySelectorAll("[data-route]").forEach(button => button.addEventListener("click", () => navigate(button.dataset.route)));
   document.querySelectorAll("[data-subnav-value]").forEach(button => button.addEventListener("click", () => {
+    if (button.dataset.subnavValue === "客户导入" && !requireCustomerImportAccess()) return;
     if (state.view === "dashboard") { state.dashboardTab = button.dataset.subnavValue; render(); }
     if (state.view === "customers") { state.customerSection = button.dataset.subnavValue; state.customerDetailId = null; state.importDetailId = null; state.customerPage = 1; state.whiteboardCustomerPage = 1; render(); refreshVisibleCustomerList(); }
     if (state.view === "tasks") {
@@ -7056,6 +7124,7 @@ function bindViewEvents() {
   document.querySelector("#applyImportFilters")?.addEventListener("click", render);
   document.querySelector("#resetImportFilters")?.addEventListener("click", () => { state.importStatusFilter = "全部状态"; render(); });
   document.querySelectorAll("[data-import-detail]").forEach(button => button.addEventListener("click", () => {
+    if (!requireCustomerImportAccess()) return;
     const record = importHistoryRecord(button.dataset.importDetail);
     if (!record) { toast("未找到对应的导入记录"); return; }
     state.customerDetailId = null;
@@ -7071,8 +7140,9 @@ function bindViewEvents() {
   document.querySelector("#importDetailStatusFilter")?.addEventListener("change", event => { state.importDetailStatusFilter = event.target.value; });
   document.querySelector("#applyImportDetailFilters")?.addEventListener("click", render);
   document.querySelector("#resetImportDetailFilters")?.addEventListener("click", () => { state.importDetailStatusFilter = "全部状态"; render(); });
-  document.querySelector("#importSkipInvalid")?.addEventListener("change", event => { state.importSkipInvalid = event.target.checked; render(); });
+  document.querySelector("#importSkipInvalid")?.addEventListener("change", event => { if (!requireCustomerImportAccess()) return; state.importSkipInvalid = event.target.checked; render(); });
   document.querySelector("#selectImportRows")?.addEventListener("change", event => {
+    if (!requireCustomerImportAccess()) return;
     const record = importHistoryRecord(state.importDetailId);
     const rows = importRowsForRecord(record);
     const pending = rows.map((row, index) => index).filter(index => !["已导入", "已跳过"].includes(rows[index]._importStatus));
@@ -7080,6 +7150,7 @@ function bindViewEvents() {
     render();
   });
   document.querySelectorAll("[data-import-select]").forEach(input => input.addEventListener("change", event => {
+    if (!requireCustomerImportAccess()) return;
     const index = Number(event.currentTarget.dataset.importSelect);
     state.importSelectedRows = event.currentTarget.checked
       ? [...new Set([...state.importSelectedRows, index])]
@@ -7087,11 +7158,13 @@ function bindViewEvents() {
     render();
   }));
   document.querySelectorAll("[data-import-edit]").forEach(button => button.addEventListener("click", () => {
+    if (!requireCustomerImportAccess()) return;
     state.importEditingRow = Number(button.dataset.importEdit);
     render();
     document.querySelector(`[data-import-row-index="${button.dataset.importEdit}"] [data-import-field="name"]`)?.focus();
   }));
   document.querySelectorAll("[data-import-save]").forEach(button => button.addEventListener("click", () => {
+    if (!requireCustomerImportAccess()) return;
     const index = Number(button.dataset.importSave);
     const record = importHistoryRecord(state.importDetailId);
     const row = importRowsForRecord(record)[index];
@@ -7108,6 +7181,7 @@ function bindViewEvents() {
   }));
   document.querySelectorAll("[data-import-cancel]").forEach(button => button.addEventListener("click", () => { state.importEditingRow = null; render(); }));
   document.querySelectorAll("[data-import-delete]").forEach(button => button.addEventListener("click", () => {
+    if (!requireCustomerImportAccess()) return;
     if (!window.confirm("确定删除这条待导入客户信息吗？")) return;
     const record = importHistoryRecord(state.importDetailId);
     const index = Number(button.dataset.importDelete);
@@ -7623,7 +7697,7 @@ navHoverMenu.className = "nav-hover-menu";
 document.body.appendChild(navHoverMenu);
 let navHoverTimer;
 function showNavHoverMenu(item) {
-  const items = navHoverItems[item.dataset.view] || [];
+  const items = (navHoverItems[item.dataset.view] || []).filter(label => label !== "客户导入" || isAdmin());
   if (!items.length) {
     navHoverMenu.classList.remove("open");
     return;
@@ -7647,6 +7721,7 @@ navHoverMenu.addEventListener("click", event => {
   const button = event.target.closest("[data-hover-subnav]");
   if (!button) return;
   const label = button.dataset.hoverSubnav;
+  if (label === "客户导入" && !requireCustomerImportAccess()) return;
   const view = navHoverMenu.dataset.view;
   if (view === "dashboard") state.dashboardTab = label;
   if (view === "customers") state.customerSection = label;

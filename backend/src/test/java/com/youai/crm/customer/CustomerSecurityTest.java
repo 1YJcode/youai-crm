@@ -24,6 +24,22 @@ class CustomerSecurityTest {
     @Autowired CustomerRepository customers;
     @Autowired CrmUserRepository users;
 
+    @Test
+    void onlyAdministratorsCanImportCustomers() throws Exception {
+        employee("import_sales", "导入权限员工");
+        String body = json.createObjectNode().put("name", "导入权限客户").put("phone", "13800997654")
+                .put("owner", "白板").put("source", "测试").toString();
+        long count = customers.count();
+        mvc.perform(post("/api/customers/import").with(user("import_sales").roles("SALES"))
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        assertEquals(count, customers.count());
+        mvc.perform(post("/api/customers/import").with(user("admin").roles("ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.owner").value("白板"));
+        assertEquals(count + 1, customers.count());
+    }
+
     private long employee(String username, String name) throws Exception {
         String body = json.createObjectNode().put("username", username).put("displayName", name)
                 .put("password", "EmployeePassword123!").toString();
