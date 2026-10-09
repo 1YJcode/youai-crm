@@ -9,6 +9,7 @@ import com.youai.crm.account.CrmUserRepository;
 import com.youai.crm.communication.SystemNotification;
 import com.youai.crm.communication.SystemNotificationRepository;
 import com.youai.crm.common.NotFoundException;
+import com.youai.crm.common.ConflictException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -54,8 +55,8 @@ public class CustomerAssignmentService {
             ownership.assign(customer, PUBLIC_POOL);
             customer.setPoolEntryType("主动放弃");
         } else {
-            if (!PUBLIC_POOL.equals(customer.getOwner()) && !accessPolicy.isAdmin(authentication)) {
-                throw new AccessDeniedException("\u53ea\u80fd\u9886\u53d6\u516c\u6d77\u5ba2\u6237");
+            if (!PUBLIC_POOL.equals(customer.getOwner())) {
+                throw new ConflictException("客户已不在公海，可能已被其他人领取，请刷新后重试");
             }
             ownership.assignCurrent(customer, authentication);
             customer.setPoolEntryType(null);

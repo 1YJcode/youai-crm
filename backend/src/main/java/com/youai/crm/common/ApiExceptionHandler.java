@@ -5,6 +5,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
+import jakarta.persistence.OptimisticLockException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -18,6 +20,16 @@ import com.youai.crm.account.AccountUnavailableException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+    @ExceptionHandler({OptimisticLockingFailureException.class, OptimisticLockException.class})
+    public ResponseEntity<ApiError> handleConcurrentUpdate(Exception exception) {
+        return response(HttpStatus.CONFLICT, "CONCURRENT_UPDATE", "客户已被其他操作更新，请刷新后重试", Map.of());
+    }
+
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ApiError> handleBusinessConflict(ConflictException exception) {
+        return response(HttpStatus.CONFLICT, "DATA_CONFLICT", exception.getMessage(), Map.of());
+    }
 
     @ExceptionHandler(LoginRateLimitException.class)
     public ResponseEntity<ApiError> handleLoginRateLimit(LoginRateLimitException exception) {
