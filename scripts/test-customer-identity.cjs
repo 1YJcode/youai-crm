@@ -14,9 +14,10 @@ function helpers() {
       { id: 11, username: 'first', displayName: '同名员工', roles: ['SALES'] },
       { id: 12, username: 'second', displayName: '同名员工', roles: ['SALES'] }
     ]
-  } });
+  }, escapeHtml: value => String(value ?? ''), businessModalFooter: () => '' });
   for (const name of ['customerOwnerAccountUsers', 'customerOwnerIsAdminUser', 'customerOwnerEmployeeOptions',
-    'customerUserReferenceLabel', 'isCurrentCustomerOwner', 'currentOwner', 'customerPayload']) {
+    'customerOwnerTree', 'customerUserReferenceLabel', 'collaborationOwnerField', 'collaborationOrdinal',
+    'collaborationRow', 'businessModalFields', 'isCurrentCustomerOwner', 'currentOwner', 'customerPayload']) {
     const start = source.indexOf(`function ${name}(`);
     assert.notEqual(start, -1, `${name} must exist`);
     const remainder = source.slice(start);
@@ -31,8 +32,37 @@ test('same-name employees remain separate choices and show their accounts', () =
   const options = context.customerOwnerEmployeeOptions();
   assert.equal(options.length, 2);
   assert.notEqual(options[0][0], options[1][0]);
+  assert.match(options[0][1], /first/);
+  assert.match(options[1][1], /second/);
+  const employees = context.customerOwnerTree(false).children[0].children;
+  assert.match(employees[0].label, /first/);
+  assert.match(employees[1].label, /second/);
   assert.match(context.customerUserReferenceLabel('user:11'), /first/);
   assert.match(context.customerUserReferenceLabel('user:12'), /second/);
+});
+
+test('reopening multiple collaborators preserves separate editable rows and account labels', () => {
+  const context = helpers();
+  for (const record of [
+    { collaborators: ['user:11', 'user:12'] },
+    { collaborator: 'user:11、user:12' }
+  ]) {
+    const html = context.businessModalFields('collaboration', record);
+    assert.equal((html.match(/data-collaboration-row/g) || []).length, 2);
+    assert.deepEqual([...html.matchAll(/name="collaborators" value="([^"]*)"/g)].map(match => match[1]),
+      ['user:11', 'user:12']);
+    assert.match(html, /同名员工（first）/);
+    assert.match(html, /同名员工（second）/);
+  }
+});
+
+test('removing one collaborator preserves the other stable account reference', () => {
+  const context = helpers();
+  const html = context.businessModalFields('collaboration', { collaborators: ['user:11', 'user:12'] });
+  const references = [...html.matchAll(/name="collaborators" value="([^"]*)"/g)].map(match => match[1]);
+  references.splice(0, 1);
+  const payload = context.customerPayload({ collaboratorIds: [11, 12] }, { collaborator: references.join('、') });
+  assert.equal(payload.collaborator, 'user:12');
 });
 
 test('UI ownership survives rename and cannot be inferred from matching names', () => {

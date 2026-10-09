@@ -733,7 +733,7 @@ function customerOwnerIsAdminUser(user) {
 function customerOwnerEmployeeOptions() {
   return customerOwnerAccountUsers()
     .filter(user => !customerOwnerIsAdminUser(user))
-    .map(user => [String(user.id), user.name]);
+    .map(user => [String(user.id), `${user.name}（${user.username}）`]);
 }
 
 function customerOwnerStoreLabel(value) {
@@ -750,7 +750,7 @@ function customerOwnerTree(includeAdmins = true) {
   })) : [];
   const employees = users.filter(user => !customerOwnerIsAdminUser(user)).map(user => ({
     id: `user:${user.id}`,
-    label: user.name,
+    label: `${user.name}（${user.username}）`,
     owner: user.name,
     children: []
   }));
@@ -1036,7 +1036,7 @@ function showLogin(message = "", mode = "account") {
   document.querySelector("#app").innerHTML = `<main class="login-screen"><section class="login-panel reference-login"><div class="reference-logo"><img src="logo-youai.png" alt="优爱 YOUAI"></div><div class="reference-name"><strong>客户经营管理平台</strong><span>让每一次客户沟通都有记录、有结果</span></div><div class="login-tabs"><button class="${mode === "account" ? "active" : ""}" type="button" data-login-mode="account">账号密码登录</button><button class="${mode === "phone" ? "active" : ""}" type="button" data-login-mode="phone">手机号登录</button></div><form class="login-form" id="loginForm" data-login-mode="${mode}"><label><span id="loginIdentityLabel">${mode === "phone" ? "手机号码" : "登录账号"}</span><input name="${mode === "phone" ? "phone" : "username"}" type="${mode === "phone" ? "tel" : "text"}" inputmode="${mode === "phone" ? "numeric" : "text"}" autocomplete="${mode === "phone" ? "tel" : "username"}" pattern="${mode === "phone" ? "1[3-9][0-9]{9}" : "[A-Za-z][A-Za-z0-9_.-]*"}" required placeholder="${mode === "phone" ? "请输入 11 位手机号" : "请输入账号名，例如 admin"}"></label><label><span>登录密码</span><input name="password" type="password" autocomplete="current-password" required placeholder="请输入登录密码"></label><div class="captcha-row"><label><span>验证码</span><input name="captcha" required maxlength="4" autocomplete="off" placeholder="请输入验证码"></label><button type="button" class="captcha-code" id="refreshCaptcha" aria-label="刷新验证码" title="点击刷新验证码">${captcha}</button></div><label class="auto-login"><input type="checkbox" checked> <span>记住登录状态</span></label><p class="login-error" id="loginError" ${message ? "" : "hidden"}>${escapeHtml(message)}</p><button class="button primary" type="submit" id="loginSubmit">登录系统</button></form><p class="demo-account">没有账号？请联系管理员开通。手机号登录使用员工绑定的手机号和密码。</p><footer class="reference-footer">Copyright © 2026<br><span>优爱 YOUAI</span> 出品</footer></section></main>`;
   document.querySelector("#loginForm").addEventListener("submit", submitLogin);
   document.querySelector("#refreshCaptcha").addEventListener("click", refreshLoginCaptcha);
-  document.querySelectorAll("[data-login-mode]").forEach(button => button.addEventListener("click", () => switchLoginMode(button.dataset.loginMode)));
+  document.querySelectorAll(".login-tabs button[data-login-mode]").forEach(button => button.addEventListener("click", () => switchLoginMode(button.dataset.loginMode)));
   document.querySelector("#loginForm input").focus();
 }
 
@@ -1059,7 +1059,7 @@ function switchLoginMode(mode) {
   const label = document.querySelector("#loginIdentityLabel");
   if (!form || !identity) return;
   const phoneMode = mode === "phone";
-  document.querySelectorAll("[data-login-mode]").forEach(button => button.classList.toggle("active", button.dataset.loginMode === mode));
+  document.querySelectorAll(".login-tabs button[data-login-mode]").forEach(button => button.classList.toggle("active", button.dataset.loginMode === mode));
   identity.name = phoneMode ? "phone" : "username";
   identity.type = phoneMode ? "tel" : "text";
   identity.inputMode = phoneMode ? "numeric" : "text";
@@ -4541,7 +4541,7 @@ function businessModalFields(type, record) {
   if (type === "collaboration") {
     const collaborators = Array.isArray(record?.collaborators)
       ? record.collaborators
-      : [record?.collaborator].filter(Boolean);
+      : String(record?.collaborator || "").split(/[、,，]/).map(value => value.trim()).filter(Boolean);
     return `<input type="hidden" name="customerId" value="${escapeHtml(record?.customerId || "")}"><div class="collaboration-entry"><div class="collaboration-entry-list" data-collaboration-entries>${collaborators.map((collaborator, index) => collaborationRow(index, collaborator)).join("")}</div><button class="collaboration-add" type="button" data-add-collaborator>增加</button></div>${businessModalFooter(false, "保存")}`;
   }
   if (type === "task") {
@@ -7188,7 +7188,7 @@ function bindViewEvents() {
     if (!customer) return;
     const action = Number(button.dataset.customerMoreAction);
     if (action === 0) {
-      openBusinessModal("collaboration", { customer: customer.name, customerId: customer.id, collaborator: (customer.collaboratorIds || []).map(id => `user:${id}`).join("、") });
+      openBusinessModal("collaboration", { customer: customer.name, customerId: customer.id, collaborators: (customer.collaboratorIds || []).map(id => `user:${id}`) });
       return;
     }
     if (action === 1) { toast("转为库存功能暂未接入"); return; }
