@@ -282,6 +282,7 @@ const state = {
   customerSection: "客户列表",
   customerDetailId: null,
   customerDetailTab: "profile",
+  customerEditorDrafts: {},
   customerFollowUpFilterType: "",
   customerFollowUpFrom: "",
   customerFollowUpTo: "",
@@ -1874,6 +1875,10 @@ function activateWorkspaceTab(id) {
     navigate(tab.view);
     return;
   }
+  preserveActiveCustomerEditor();
+  closeDrawer();
+  hideCustomerModal();
+  closeBusinessModal();
   state.view = tab.view;
   setWorkspaceSection(tab.view, tab.section);
   state.customerDetailId = tab.detailId || null;
@@ -1882,6 +1887,7 @@ function activateWorkspaceTab(id) {
   saveWorkspaceTabs();
   location.hash = tab.view;
   render();
+  restoreCustomerEditor(tab.id);
   refreshVisibleCustomerList();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -1890,6 +1896,7 @@ function closeWorkspaceTab(id) {
   loadWorkspaceTabs();
   const index = state.workspaceTabs.findIndex(tab => tab.id === id);
   if (index < 0) return;
+  delete state.customerEditorDrafts[id];
   const wasActive = state.activeWorkspaceTabId === id;
   state.workspaceTabs.splice(index, 1);
   if (!state.workspaceTabs.length) {
@@ -4417,8 +4424,9 @@ function navigate(view) {
   if (!viewMeta[view]) return;
   const nextView = accessibleView(view);
   if (nextView !== view) toast("当前账号无权访问该功能");
+  preserveActiveCustomerEditor();
   closeDrawer();
-  closeModal();
+  hideCustomerModal();
   closeBusinessModal();
   state.customerDetailId = null;
   state.importDetailId = null;
@@ -4530,13 +4538,53 @@ function openModal(customer = null) {
 }
 
 function closeModal() {
+  if (state.activeWorkspaceTabId) delete state.customerEditorDrafts[state.activeWorkspaceTabId];
+  hideCustomerModal(true);
+}
+
+function hideCustomerModal(reset = false) {
   ++customerAvatarSelection;
   document.querySelector("#customerAvatarFile").setCustomValidity("");
   document.querySelector("#modalBackdrop").hidden = true;
   document.body.style.overflow = "";
+  if (!reset) return;
   const form = document.querySelector("#customerForm");
   form.reset();
   form.querySelector('[name="owner"]').disabled = false;
+}
+
+function preserveActiveCustomerEditor() {
+  const backdrop = document.querySelector("#modalBackdrop");
+  const tabId = state.activeWorkspaceTabId;
+  if (!tabId || backdrop.hidden) return;
+  const form = document.querySelector("#customerForm");
+  const customerId = form.querySelector('[name="customerId"]')?.value;
+  if (!customerId) return;
+  const fields = {};
+  [...form.elements].forEach(field => {
+    if (!field.name || field.type === "file") return;
+    fields[field.name] = field.type === "checkbox" || field.type === "radio" ? field.checked : field.value;
+  });
+  state.customerEditorDrafts[tabId] = { customerId, fields };
+}
+
+function restoreCustomerEditor(tabId) {
+  const draft = state.customerEditorDrafts[tabId];
+  if (!draft) return;
+  const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(draft.customerId));
+  if (!customer) {
+    delete state.customerEditorDrafts[tabId];
+    return;
+  }
+  openModal(customer);
+  const form = document.querySelector("#customerForm");
+  Object.entries(draft.fields).forEach(([name, value]) => {
+    const field = form.querySelector(`[name="${CSS.escape(name)}"]`);
+    if (!field) return;
+    if (field.type === "checkbox" || field.type === "radio") field.checked = Boolean(value);
+    else field.value = value ?? "";
+  });
+  updateCustomerAvatarPreview();
 }
 
 let collaborationOwnerPopover = null;
@@ -6381,7 +6429,20 @@ function bindViewEvents() {
     if (state.view === "analytics") { state.analyticsSection = button.dataset.subnavValue; render(); }
     if (state.view === "finance") { state.financeSection = button.dataset.subnavValue; render(); }
   }));
-  document.querySelectorAll("[data-customer-section]").forEach(button => button.addEventListener("click", () => { if (!requireCustomerSectionAccess(button.dataset.customerSection)) return; state.customerSection = button.dataset.customerSection; state.customerPage = 1; state.whiteboardCustomerPage = 1; render(); refreshVisibleCustomerList(); }));
+  document.querySelectorAll("[data-customer-section]").forEach(button => button.addEventListener("click", () => {
+    if (!requireCustomerSectionAccess(button.dataset.customerSection)) return;
+    state.customerSection = button.dataset.customerSection;
+    state.customerDetailId = null;
+    state.importDetailId = null;
+    state.customerPage = 1;
+    state.whiteboardCustomerPage = 1;
+    preserveActiveCustomerEditor();
+    closeDrawer();
+    hideCustomerModal();
+    closeBusinessModal();
+    render();
+    refreshVisibleCustomerList();
+  }));
   document.querySelectorAll("[data-range] button").forEach(button => button.addEventListener("click", event => {
     state.range = event.currentTarget.textContent;
     render();
