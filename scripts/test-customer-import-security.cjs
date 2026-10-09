@@ -16,6 +16,7 @@ function setup(admin = true) {
     localStorage: { getItem: key => { reads.push(key); return stored.get(key); },
       setItem: (key, value) => stored.set(key, value), removeItem: key => stored.delete(key) },
     toast: () => {}, loadCustomerTableColumns: () => {},
+    adminOnlyCustomerSections: new Set(['白板列表', '客户导入']),
     customerListView: () => '客户列表', customers: [],
     viewMeta: { customers: {}, dashboard: {} }, location: { hash: '#customers' },
     setWorkspaceSection: (view, section) => { context.state.customerSection = section; },
@@ -23,7 +24,7 @@ function setup(admin = true) {
     render: () => { throw new Error('Unauthorized import must not render'); },
     readCustomerImportRows: () => { throw new Error('Unauthorized file must not be read'); }
   });
-  for (const name of ['isAdmin', 'resetCustomerImportState', 'loadCustomerImportHistory',
+  for (const name of ['isAdmin', 'canAccessCustomerSection', 'requireCustomerSectionAccess', 'resetCustomerImportState', 'loadCustomerImportHistory',
     'requireCustomerImportAccess', 'enforceCustomerImportAccess', 'importHistoryRecord',
     'persistImportHistory', 'importRowsForRecord', 'customerImportView', 'customerImportDetailView',
     'clearAuth', 'saveAuth', 'workspaceTabId', 'loadWorkspaceTabs', 'saveWorkspaceTabs',
@@ -110,18 +111,22 @@ test('file parsing finishing after account switch cannot restore private import 
   assert.equal(context.state.importRows.length, 0);
 });
 
-test('navigation shows customer import only to administrators', () => {
+test('navigation shows whiteboard and customer import only to administrators', () => {
   const { context } = setup();
-  context.navHoverItems = { customers: ['客户列表', '客户导入'] };
+  context.navHoverItems = { customers: ['客户列表', '白板列表', '客户导入'] };
   context.navHoverMenu = { dataset: {}, style: {}, classList: { add: () => {}, remove: () => {} } };
   context.currentWorkspaceSection = () => '客户列表';
   context.escapeHtml = value => value;
   const item = { dataset: { view: 'customers' }, getBoundingClientRect: () => ({ left: 10, bottom: 10 }) };
   context.showNavHoverMenu(item);
+  assert.match(context.navHoverMenu.innerHTML, /白板列表/);
   assert.match(context.navHoverMenu.innerHTML, /客户导入/);
   context.state.auth.user.roles = ['SALES'];
   context.showNavHoverMenu(item);
+  assert.doesNotMatch(context.navHoverMenu.innerHTML, /白板列表/);
   assert.doesNotMatch(context.navHoverMenu.innerHTML, /客户导入/);
+  assert.equal(context.canAccessCustomerSection('白板列表'), false);
+  assert.equal(context.canAccessCustomerSection('客户列表'), true);
 });
 
 test('import response arriving after switch cannot merge private customers or continue batch', async () => {

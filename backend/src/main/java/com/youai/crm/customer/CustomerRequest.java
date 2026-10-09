@@ -14,6 +14,9 @@ public record CustomerRequest(
         @Size(max = 64, message = "客户姓名不能超过 64 个字符")
         String name,
 
+        @Size(max = 64, message = "客户昵称不能超过 64 个字符")
+        String nickname,
+
         @NotBlank(message = "手机号码不能为空")
         @Pattern(regexp = "1[3-9][0-9]{9}", message = "请输入正确的 11 位手机号码")
         String phone,

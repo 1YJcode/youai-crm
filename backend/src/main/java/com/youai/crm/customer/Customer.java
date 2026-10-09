@@ -34,6 +34,9 @@ public class Customer {
     @Column(nullable = false, length = 64)
     private String name;
 
+    @Column(length = 64)
+    private String nickname;
+
     @Column(nullable = false, unique = true, length = 24)
     private String phone;
 
@@ -166,6 +169,8 @@ public class Customer {
     public void setCustomerNo(String customerNo) { this.customerNo = customerNo; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
+    public String getNickname() { return nickname; }
+    public void setNickname(String nickname) { this.nickname = nickname; }
     public String getPhone() { return phone; }
     public void setPhone(String phone) { this.phone = phone; }
     public String getCompany() { return company; }

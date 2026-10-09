@@ -125,6 +125,7 @@ public class CustomerCommandService {
 
     private void apply(Customer customer, CustomerRequest request, Authentication authentication, boolean resolveRequestedOwner) {
         customer.setName(request.name().trim());
+        customer.setNickname(request.nickname() == null ? "" : request.nickname().trim());
         customer.setPhone(request.phone().trim());
         customer.setCompany(defaultText(request.company(), "\u4e2a\u4eba\u5ba2\u6237"));
         customer.setSource(request.source().trim());
@@ -140,7 +141,7 @@ public class CustomerCommandService {
         customer.setLevel(defaultText(request.level(), "\u666e\u901a\u5ba2\u6237"));
         customer.setExpectedAmount(request.amount() == null ? BigDecimal.ZERO : request.amount());
         customer.setCity(defaultText(request.city(), "\u5f85\u8865\u5145"));
-        customer.setNote(defaultText(request.note(), "\u6682\u65e0\u5907\u6ce8"));
+        customer.setNote(request.note() == null ? "" : request.note().trim());
         customer.setNextFollowAt(request.nextFollowAt());
         if (request.gender() != null) customer.setGender(request.gender());
         if (request.birthday() != null) customer.setBirthday(request.birthday());

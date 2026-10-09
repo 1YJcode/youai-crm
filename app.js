@@ -987,6 +987,7 @@ function isAdmin() {
 }
 
 const adminOnlyViews = new Set(["system", "finance"]);
+const adminOnlyCustomerSections = new Set(["白板列表", "客户导入"]);
 
 function canAccessView(view) {
   return !adminOnlyViews.has(view) || isAdmin();
@@ -994,6 +995,16 @@ function canAccessView(view) {
 
 function accessibleView(view) {
   return canAccessView(view) ? view : "dashboard";
+}
+
+function canAccessCustomerSection(section) {
+  return !adminOnlyCustomerSections.has(section) || isAdmin();
+}
+
+function requireCustomerSectionAccess(section) {
+  if (canAccessCustomerSection(section)) return true;
+  toast(section === "白板列表" ? "仅管理员可以查看白板列表" : "仅管理员可以使用客户导入");
+  return false;
 }
 
 function updateAuthChrome() {
@@ -1008,6 +1019,10 @@ function updateAuthChrome() {
   if (nextView !== state.view) {
     state.view = nextView;
     if (location.hash !== `#${nextView}`) history.replaceState(null, "", `#${nextView}`);
+  }
+  if (!canAccessCustomerSection(state.customerSection)) {
+    state.customerSection = "客户列表";
+    state.customerDetailId = null;
   }
   menu.querySelector(".avatar").textContent = (user.displayName || user.username || "用").slice(0, 1);
   menu.querySelector(".user-name").textContent = user.displayName || user.username;
@@ -1755,7 +1770,7 @@ function currentWorkspaceSection(view = state.view) {
 
 function setWorkspaceSection(view, section) {
   if (view === "dashboard") state.dashboardTab = section;
-  if (view === "customers") state.customerSection = section;
+  if (view === "customers") state.customerSection = canAccessCustomerSection(section) ? section : "客户列表";
   if (view === "tasks") state.taskMode = section === "日历视图" ? "calendar" : section === "跟进记录" ? "activity" : "board";
   if (view === "calls") state.callSection = section;
   if (view === "messages") state.messageSection = section;
@@ -2218,8 +2233,8 @@ function filteredCustomers(options = {}) {
   const selectedEducations = selectedCustomerEducations();
   const advancedDateRanges = state.customerAdvancedDateRanges;
   return customers.filter(customer => {
-    const queryMatch = !query || [customer.name, customer.phone, customer.company, customer.id].join(" ").toLowerCase().includes(query);
-    const nameMatch = !nameQuery || [customer.name, customer.note, customer.remark].join(" ").toLowerCase().includes(nameQuery);
+    const queryMatch = !query || [customer.name, customer.nickname, customer.phone, customer.company, customer.id].join(" ").toLowerCase().includes(query);
+    const nameMatch = !nameQuery || [customer.name, customer.nickname, customer.note, customer.remark].join(" ").toLowerCase().includes(nameQuery);
     const stageMatch = state.customerStage === "全部阶段" || customer.stage === state.customerStage;
     const levelMatch = state.customerLevel === "全部等级" || customer.level === state.customerLevel;
     const selectedStatuses = selectedCustomerStatuses();
@@ -2632,7 +2647,7 @@ function customerTableColumnHtml(customer, key) {
   if (key === "tag") return `<span class="customer-table-flag">⚑</span>`;
   if (key === "id") return `<a class="table-link" onclick="event.stopPropagation()">${escapeHtml(customer.id)}</a>`;
   if (key === "customer") {
-    return `<div class="customer-cell"><span class="person-avatar">${escapeHtml(customer.name?.[0] || "客")}</span><span><strong>${escapeHtml(customer.name || "—")}</strong><small>${escapeHtml(customer.phone || "")}</small></span></div>`;
+    return `<div class="customer-cell"><span class="person-avatar">${escapeHtml(customer.name?.[0] || "客")}</span><span><strong>${escapeHtml(customer.name || "—")}</strong><small>${escapeHtml(customer.nickname || "暂无昵称")}</small></span></div>`;
   }
   if (key === "income") return escapeHtml(customerTableDisplayValue(customer.monthlyIncome || customer.annualIncome || customer.amount));
   if (key === "followUpCount") return escapeHtml(String(customerFollowUpCount(customer)));
@@ -2686,7 +2701,12 @@ function customerListView({ isPool = false } = {}) {
   const totalPages = Math.max(1, Number(meta.totalPages || 1));
   const currentPage = Math.min(Math.max(1, Number(meta.page || 0) + 1), totalPages);
   state[isPool ? "poolCustomerPage" : "customerPage"] = currentPage;
-  const pageRows = rows;
+  // The identity column deliberately exposes the customer's chosen nickname,
+  // never their phone number (masked or otherwise).
+  const pageRows = rows.map(customer => ({
+    ...customer,
+    phone: customer.nickname || "暂无昵称"
+  }));
   const pageSize = Number(meta.size || state.customerPageSize || 20);
   const pageStart = totalElements ? (currentPage - 1) * pageSize + 1 : 0;
   const pageEnd = pageRows.length ? pageStart + pageRows.length - 1 : 0;
@@ -2783,9 +2803,9 @@ function enforceCustomerImportAccess() {
   if (isAdmin()) return;
   resetCustomerImportState();
   const tabs = state.workspaceTabs || [];
-  state.workspaceTabs = tabs.filter(tab => !(tab.view === "customers" && (tab.section === "客户导入" || tab.importDetailId)));
+  state.workspaceTabs = tabs.filter(tab => !(tab.view === "customers" && (!canAccessCustomerSection(tab.section) || tab.importDetailId)));
   const removedActive = tabs.some(tab => tab.id === state.activeWorkspaceTabId) && !state.workspaceTabs.some(tab => tab.id === state.activeWorkspaceTabId);
-  if (state.customerSection === "客户导入" || removedActive) {
+  if (!canAccessCustomerSection(state.customerSection) || removedActive) {
     state.customerSection = "客户列表";
     state.customerDetailId = null;
     state.activeWorkspaceTabId = "customers:客户列表";
@@ -3203,6 +3223,7 @@ function customerFeatureView(section) {
 }
 
 function customersView() {
+  if (!canAccessCustomerSection(state.customerSection)) state.customerSection = "客户列表";
   if (state.customerDetailId) return customerDetailView(state.customerDetailId);
   if (state.customerSection === "公海列表") return customerPoolView();
   if (state.customerSection === "诚意资源") return sincereResourceView();
@@ -3297,7 +3318,9 @@ function customerDetailView(id) {
     : fallbackRecords).map(customerFollowUpRecordViewModel);
   const annotations = state.customerFollowUpAnnotations[customer.id] || {};
   const portrait = `<div class="profile-reference-portrait">${customer.avatarUrl ? `<img class="profile-reference-avatar" src="${escapeHtml(customer.avatarUrl)}" alt="客户头像">` : `<div class="profile-reference-placeholder" role="img" aria-label="客户默认头像">${icon("users")}</div>`}<span class="profile-reference-caption">${value(customer.name)}</span></div>`;
-  const noteText = [customer.note, customer.remark].filter(Boolean).join("\n");
+  const customerNote = String(customer.note || "").trim();
+  const customerRemark = String(customer.remark || "").trim();
+  const noteText = [customerNote === "暂无备注" && customerRemark ? "" : customerNote, customerRemark].filter(Boolean).join("\n");
   const noteTime = customer.updatedAt || customer.createdAt;
   const profile = `<div class="profile-reference-overview">${portrait}<section class="profile-reference-basic"><h3>基本信息</h3><dl class="profile-reference-basic-grid">${basicRows.flat().join("")}</dl></section><section class="profile-reference-mating"><h3>择偶信息</h3><dl>${matingInfo.map(([label, item]) => cell(label, item)).join("")}</dl></section></div><section class="profile-reference-notes"><h3>备注</h3><dl><div><dt>备注信息</dt><dd><span>${value(noteText)}</span>${noteTime ? `<time>${value(formatDateTime(noteTime))}</time>` : ""}</dd></div></dl></section><section class="profile-reference-photos"><h3>图片</h3><p>暂无照片</p></section>`;
   const customerTools = `<div class="customer-detail-tools"><button type="button" data-customer-opening>开场白</button><button type="button" data-customer-followup>写跟进</button></div>`;
@@ -4452,7 +4475,7 @@ function openModal(customer = null) {
   field("customerId").value = customer?.id || "";
   document.querySelector("#modalTitle").textContent = customer ? "编辑客户" : "创建客户";
   if (customer) {
-    const profileFields = ["name", "company", "source", "level", "owner", "stage", "amount", "city", "gender", "birthday", "age", "height", "maritalStatus", "education", "monthlyIncome", "annualIncome", "occupation", "housing", "car", "vehicleHousing", "nativePlace", "workLocation", "wechat", "idCard", "certificationStatus", "familyStatus", "childrenStatus", "matchAgeRange", "matchMaritalStatus", "matchHeightRange", "matchEducation", "matchMonthlyIncome", "matchMostImportant", "matchPersonality", "matchChildren", "matchDealbreakers", "customerType", "avatarUrl", "note", "remark"];
+    const profileFields = ["name", "nickname", "company", "source", "level", "owner", "stage", "amount", "city", "gender", "birthday", "age", "height", "maritalStatus", "education", "monthlyIncome", "annualIncome", "occupation", "housing", "car", "vehicleHousing", "nativePlace", "workLocation", "wechat", "idCard", "certificationStatus", "familyStatus", "childrenStatus", "matchAgeRange", "matchMaritalStatus", "matchHeightRange", "matchEducation", "matchMonthlyIncome", "matchMostImportant", "matchPersonality", "matchChildren", "matchDealbreakers", "customerType", "avatarUrl", "note", "remark"];
     profileFields.forEach(name => { field(name).value = customer[name] ?? ""; });
     field("owner").value = ownerReference;
     field("phone").value = String(customer.phone || "").replace(/\D/g, "");
@@ -5441,7 +5464,7 @@ function customerPayload(customer, overrides = {}) {
     level: customer.level || "普通客户",
     amount: Number(customer.amount || 0),
     city: customer.city || "待补充",
-    note: customer.note || "暂无备注",
+    note: customer.note || "",
     nextFollowAt: customer.nextFollowAt || null,
     gender: customer.gender || "",
     birthday: customer.birthday || "",
@@ -5633,7 +5656,7 @@ function importPayloadFromRow(row, toPool = false) {
     level: row.level || "普通客户",
     amount: Number(row.amount || 0),
     city: row.city || "待补充",
-    note: row.note || "暂无备注",
+    note: row.note || "",
     nextFollowAt: row.nextFollowAt || null,
     gender: row.gender || "",
     birthday: row.birthday || row.birthYear || "",
@@ -6308,7 +6331,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-add-customer]").forEach(button => button.addEventListener("click", () => openModal()));
   document.querySelectorAll("[data-route]").forEach(button => button.addEventListener("click", () => navigate(button.dataset.route)));
   document.querySelectorAll("[data-subnav-value]").forEach(button => button.addEventListener("click", () => {
-    if (button.dataset.subnavValue === "客户导入" && !requireCustomerImportAccess()) return;
+    if (!requireCustomerSectionAccess(button.dataset.subnavValue)) return;
     if (state.view === "dashboard") { state.dashboardTab = button.dataset.subnavValue; render(); }
     if (state.view === "customers") { state.customerSection = button.dataset.subnavValue; state.customerDetailId = null; state.importDetailId = null; state.customerPage = 1; state.whiteboardCustomerPage = 1; render(); refreshVisibleCustomerList(); }
     if (state.view === "tasks") {
@@ -6322,7 +6345,7 @@ function bindViewEvents() {
     if (state.view === "analytics") { state.analyticsSection = button.dataset.subnavValue; render(); }
     if (state.view === "finance") { state.financeSection = button.dataset.subnavValue; render(); }
   }));
-  document.querySelectorAll("[data-customer-section]").forEach(button => button.addEventListener("click", () => { state.customerSection = button.dataset.customerSection; state.customerPage = 1; state.whiteboardCustomerPage = 1; render(); refreshVisibleCustomerList(); }));
+  document.querySelectorAll("[data-customer-section]").forEach(button => button.addEventListener("click", () => { if (!requireCustomerSectionAccess(button.dataset.customerSection)) return; state.customerSection = button.dataset.customerSection; state.customerPage = 1; state.whiteboardCustomerPage = 1; render(); refreshVisibleCustomerList(); }));
   document.querySelectorAll("[data-range] button").forEach(button => button.addEventListener("click", event => {
     state.range = event.currentTarget.textContent;
     render();
@@ -7697,7 +7720,7 @@ navHoverMenu.className = "nav-hover-menu";
 document.body.appendChild(navHoverMenu);
 let navHoverTimer;
 function showNavHoverMenu(item) {
-  const items = (navHoverItems[item.dataset.view] || []).filter(label => label !== "客户导入" || isAdmin());
+  const items = (navHoverItems[item.dataset.view] || []).filter(label => item.dataset.view !== "customers" || canAccessCustomerSection(label));
   if (!items.length) {
     navHoverMenu.classList.remove("open");
     return;
@@ -7721,7 +7744,7 @@ navHoverMenu.addEventListener("click", event => {
   const button = event.target.closest("[data-hover-subnav]");
   if (!button) return;
   const label = button.dataset.hoverSubnav;
-  if (label === "客户导入" && !requireCustomerImportAccess()) return;
+  if (!requireCustomerSectionAccess(label)) return;
   const view = navHoverMenu.dataset.view;
   if (view === "dashboard") state.dashboardTab = label;
   if (view === "customers") state.customerSection = label;
@@ -7748,6 +7771,7 @@ document.querySelector("#customerForm").addEventListener("submit", async event =
   const existing = data.customerId ? customers.find(customer => customer.id === data.customerId) : null;
   const payload = {
     name: data.name,
+    nickname: data.nickname,
     phone: data.phone.replace(/\D/g, ""),
     company: data.company,
     source: data.source,

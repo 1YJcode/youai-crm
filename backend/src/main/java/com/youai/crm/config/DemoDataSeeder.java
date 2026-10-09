@@ -68,7 +68,7 @@ public class DemoDataSeeder {
             String name, String phone, String company, String source, String owner,
             String stage, String level, long amount, String city, List<String> tags) {
         return new CustomerRequest(
-                name, phone, company, source, owner, stage, level, BigDecimal.valueOf(amount), city,
+                name, name.length() > 1 ? name.substring(1) : name, phone, company, source, owner, stage, level, BigDecimal.valueOf(amount), city,
                 "由系统初始化的演示客户，可直接编辑并用于联调。",
                 LocalDateTime.now().plusDays(1),
                 null, null, null, null, null, null, null, null,

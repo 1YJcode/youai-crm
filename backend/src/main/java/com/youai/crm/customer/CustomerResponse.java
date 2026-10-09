@@ -7,6 +7,7 @@ import java.util.List;
 public record CustomerResponse(
         String id,
         String name,
+        String nickname,
         String phone,
         String company,
         String source,
@@ -71,6 +72,7 @@ public record CustomerResponse(
         return new CustomerResponse(
                 customer.getCustomerNo(),
                 customer.getName(),
+                customer.getNickname(),
                 contactVisible ? customer.getPhone() : maskPhone(customer.getPhone()),
                 contactVisible ? customer.getCompany() : null,
                 contactVisible ? customer.getSource() : null,
