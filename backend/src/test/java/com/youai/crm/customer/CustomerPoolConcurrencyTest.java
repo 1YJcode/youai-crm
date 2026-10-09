@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.AuthorityUtils;
@@ -68,7 +69,9 @@ class CustomerPoolConcurrencyTest {
             Throwable two = second.get(30, TimeUnit.SECONDS);
             assertThat((one == null ? 1 : 0) + (two == null ? 1 : 0)).isEqualTo(1);
             Throwable loser = one == null ? two : one;
-            assertThat(loser).isInstanceOf(OptimisticLockingFailureException.class);
+            // InnoDB may choose a deadlock victim before the optimistic version check.
+            assertThat(loser).isInstanceOfAny(OptimisticLockingFailureException.class,
+                    PessimisticLockingFailureException.class);
             var response = new ApiExceptionHandler().handleConcurrentUpdate((Exception) loser);
             assertThat(response.getStatusCode().value()).isEqualTo(409);
             assertThat(response.getBody().code()).isEqualTo("CONCURRENT_UPDATE");

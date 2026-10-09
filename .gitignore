@@ -17,6 +17,7 @@ tmp_sheet/
 .tmp_upload.zip
 *.inspect.ndjson
 .tmp_*
+__pycache__/
 *.broken-backup
 
 # Local runtime output

@@ -6,6 +6,7 @@ import java.util.Map;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import jakarta.persistence.OptimisticLockException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -21,7 +22,8 @@ import com.youai.crm.account.AccountUnavailableException;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
-    @ExceptionHandler({OptimisticLockingFailureException.class, OptimisticLockException.class})
+    @ExceptionHandler({OptimisticLockingFailureException.class, OptimisticLockException.class,
+            PessimisticLockingFailureException.class})
     public ResponseEntity<ApiError> handleConcurrentUpdate(Exception exception) {
         return response(HttpStatus.CONFLICT, "CONCURRENT_UPDATE", "客户已被其他操作更新，请刷新后重试", Map.of());
     }

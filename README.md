@@ -119,6 +119,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\test-backend.ps1 -BuildDirect
 
 ## 真实 MySQL 回归验证
 
+默认 Compose 使用 **MySQL 8.4**。下述已记录的 5.7.26 回归不能代替 8.4 验证。与默认部署版本一致的独立容器回归入口为：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-mysql84.ps1
+```
+
+需要 Docker、Java 21 和 Maven（支持 `.tools` 中的便携工具或系统 Maven/Java）。该脚本不连接现有业务库。实际结果以 `.tmp_mysql84_*` 中的版本、镜像 ID、迁移历史和测试报告为准。
+
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-mysql.ps1
 # 使用其他 MySQL 安装目录或测试端口：
@@ -128,6 +136,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-mysql.ps1 -My
 脚本创建独立数据目录和仅监听 `127.0.0.1` 的临时 MySQL 实例，使用随机测试密码及三个独立库，不读取应用数据库连接配置。测试结束自动关闭实例，日志、迁移历史与测试报告保存在项目 `.tmp_mysql_verify_*` 目录。测试启用 Flyway 和 Hibernate `validate`，不会用自动建表替代真实迁移。普通 `test-backend.ps1` 仍默认使用 H2。
 
 2026-10-08 合并远程资源池、头像和筛选功能后，已在 **MySQL Community Server 5.7.26（Windows）** 验证：回归套件 71 项全部通过（0 失败、0 错误、0 跳过），其中 Spring 集成测试使用真实 MySQL；纯单元测试及原 H2 迁移单测保持原环境。覆盖空库 V1–V26 迁移、带历史数据的 V24→V26 升级、中文和 emoji 数据保留、重名归属拒绝猜测、改名后身份稳定、外键与级联约束、重复迁移零执行，以及生产初始化、客户权限、关联接口和敏感字段回归。本次未连接现有业务库，也未验证 MySQL 8.4。
+
+2026-10-09 补充默认部署版本回归：在独立 Docker **MySQL Community Server 8.4.11** 上运行完整套件，**72 项通过，0 失败、0 错误、0 跳过**。首次执行发现并发领取时 InnoDB 死锁异常未映射为业务冲突，修复后重跑通过；保留单一领取成功及失败方审计回滚断言。Spring 集成测试使用真实 MySQL，原纯单元及 H2 迁移单测仍保持原环境。报告保存在 `.tmp_mysql84_b3f2077350984e8d8ddad434d2fab835/`，测试退出码为 0，临时容器已清理。本次验证未连接业务库，不代替目标部署环境验收或容量压测。
+
+## 目标环境验收和容量压测
+
+执行流程、通过条件和当前状态见 [目标环境验收和容量验证](docs/target-validation.md)。`scripts/verify-target.py` 提供只读目标环境冒烟检查和带阈值的并发读取压测，使用 Python 标准库。目标环境业务验收及目标数据规模压测尚需实际执行并留存报告；新增执行入口不代表已经通过验收。
 
 ## 后端接口
 
