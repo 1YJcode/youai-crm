@@ -3151,7 +3151,7 @@ function whiteboardAdvancedFilterView({ isPool = false } = {}) {
     ...(state.poolCustomers || []).map(customer => customer.source),
     state.customerAdvancedDraftSource
   ].map(source => String(source || "").trim()).filter(Boolean))];
-  const sourceOptions = sourceSuggestions.map(source => `<option value="${escapeHtml(source)}"></option>`).join("");
+  const sourceOptions = sourceSuggestions.map(source => `<button type="button" class="customer-source-option" role="option" data-customer-source-option="${escapeHtml(source)}">${escapeHtml(source)}</button>`).join("");
   return `<div class="modal-backdrop whiteboard-advanced-backdrop" role="presentation"><section class="whiteboard-advanced-modal" role="dialog" aria-modal="true" aria-label="高级筛选">
     <header><h2>高级筛选</h2><button type="button" id="closeWhiteboardAdvanced" aria-label="关闭">×</button></header>
     <div class="whiteboard-advanced-body">
@@ -3159,7 +3159,7 @@ function whiteboardAdvancedFilterView({ isPool = false } = {}) {
       <label class="advanced-full"><strong>客户类型：</strong><select id="customerTypeFilter"><option value="" ${!state.customerAdvancedDraftCustomerType ? "selected" : ""}>全部</option><option value="会员" ${state.customerAdvancedDraftCustomerType === "会员" ? "selected" : ""}>会员</option><option value="非会员" ${state.customerAdvancedDraftCustomerType === "非会员" ? "selected" : ""}>非会员</option><option value="__unknown__" ${state.customerAdvancedDraftCustomerType === "__unknown__" ? "selected" : ""}>未知</option></select></label>
       <label class="advanced-full"><strong>客户状态：</strong><select id="customerAdvancedStatusFilter"><option value="" ${!state.customerAdvancedDraftStatus ? "selected" : ""}>全部</option>${customerStatusOptions.map(option => `<option value="${escapeHtml(option)}" ${state.customerAdvancedDraftStatus === option ? "selected" : ""}>${option}</option>`).join("")}</select></label>
       <div class="advanced-wide-row${isPool ? " advanced-next-follow-row" : ""}"><strong>下次跟进时间：</strong><div class="advanced-checks">${["今天", "明天", "本周", "下周", "本月", "下月"].map(item => `<label><input type="checkbox" data-customer-next-follow-preset="${escapeHtml(item)}" ${state.customerAdvancedDraftNextFollowPreset === item ? "checked" : ""}>${item}</label>`).join("")}</div>${dates("nextFollow", { customDate: isPool })}</div>
-      <div class="advanced-two-column"><label><strong>未联系天数：</strong><div class="uncontacted-days-control">${uncontactedDaysSelect}${customUncontactedDays}</div></label><label><strong>会员来源：</strong><input id="customerSourceFilter" list="customerAdvancedSourceOptions" value="${escapeHtml(state.customerAdvancedDraftSource)}" placeholder="请选择或输入会员来源"><datalist id="customerAdvancedSourceOptions">${sourceOptions}</datalist></label></div>
+      <div class="advanced-two-column"><label><strong>未联系天数：</strong><div class="uncontacted-days-control">${uncontactedDaysSelect}${customUncontactedDays}</div></label><label><strong>会员来源：</strong><div class="customer-source-combobox"><input id="customerSourceFilter" value="${escapeHtml(state.customerAdvancedDraftSource)}" placeholder="请选择或输入会员来源" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="customerAdvancedSourceOptions"><span class="customer-source-toggle" aria-hidden="true"></span><div id="customerAdvancedSourceOptions" class="customer-source-menu" role="listbox">${sourceOptions}<div class="customer-source-empty">没有匹配的来源，可直接输入</div></div></div></label></div>
       <section class="advanced-profile"><h3>客户资料详情：</h3><div class="advanced-profile-grid">
         <label><span>性别：</span>${genderSelect}</label><label><span>年龄：</span>${ageRange}</label><label><span>身高：</span>${heightRange}</label><label><span>学历：</span>${educationMultiSelect}</label>
         <label><span>收入：</span>${range("元", "customerIncomeMin", "customerIncomeMax", state.customerAdvancedDraftIncomeMin, state.customerAdvancedDraftIncomeMax)}</label><label><span>婚况：</span>${maritalStatusSelect}</label><label><span>籍贯：</span><input id="customerNativePlaceFilter" value="${escapeHtml(state.customerAdvancedDraftNativePlace)}" placeholder="请输入"></label><label><span>工作地：</span><input id="customerWorkLocationFilter" value="${escapeHtml(state.customerAdvancedDraftWorkLocation)}" placeholder="请输入"></label>
@@ -7045,6 +7045,65 @@ function bindViewEvents() {
     if (!state.customerAdvancedOpen) return;
     state[key] = event.target.value;
   }));
+  const customerSourceInput = document.querySelector("#customerSourceFilter");
+  const customerSourceCombobox = customerSourceInput?.closest(".customer-source-combobox");
+  const customerSourceMenu = document.querySelector("#customerAdvancedSourceOptions");
+  const customerSourceOptions = [...document.querySelectorAll("[data-customer-source-option]")];
+  let activeCustomerSourceIndex = -1;
+  const visibleCustomerSourceOptions = () => customerSourceOptions.filter(option => !option.hidden);
+  const setActiveCustomerSource = index => {
+    const visible = visibleCustomerSourceOptions();
+    customerSourceOptions.forEach(option => option.classList.remove("active"));
+    if (!visible.length) { activeCustomerSourceIndex = -1; return; }
+    activeCustomerSourceIndex = (index + visible.length) % visible.length;
+    visible[activeCustomerSourceIndex].classList.add("active");
+    visible[activeCustomerSourceIndex].scrollIntoView({ block: "nearest" });
+  };
+  const filterCustomerSources = () => {
+    const keyword = String(customerSourceInput?.value || "").trim().toLocaleLowerCase();
+    customerSourceOptions.forEach(option => { option.hidden = Boolean(keyword) && !option.textContent.toLocaleLowerCase().includes(keyword); });
+    customerSourceMenu?.classList.toggle("is-empty", !visibleCustomerSourceOptions().length);
+    activeCustomerSourceIndex = -1;
+    customerSourceOptions.forEach(option => option.classList.remove("active"));
+  };
+  customerSourceInput?.addEventListener("click", () => {
+    const opening = !customerSourceCombobox.classList.contains("open");
+    customerSourceCombobox.classList.toggle("open", opening);
+    customerSourceInput.setAttribute("aria-expanded", String(opening));
+    filterCustomerSources();
+  });
+  customerSourceInput?.addEventListener("input", () => {
+    customerSourceCombobox.classList.add("open");
+    customerSourceInput.setAttribute("aria-expanded", "true");
+    filterCustomerSources();
+  });
+  customerSourceInput?.addEventListener("keydown", event => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      customerSourceCombobox?.classList.add("open");
+      customerSourceInput.setAttribute("aria-expanded", "true");
+      setActiveCustomerSource(activeCustomerSourceIndex + (event.key === "ArrowDown" ? 1 : -1));
+    } else if (event.key === "Enter" && activeCustomerSourceIndex >= 0) {
+      event.preventDefault();
+      visibleCustomerSourceOptions()[activeCustomerSourceIndex]?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    } else if (event.key === "Escape") {
+      customerSourceCombobox?.classList.remove("open");
+      customerSourceInput.setAttribute("aria-expanded", "false");
+      customerSourceInput.blur();
+    }
+  });
+  customerSourceOptions.forEach(option => option.addEventListener("mousedown", event => {
+    event.preventDefault();
+    state.customerAdvancedDraftSource = option.dataset.customerSourceOption;
+    customerSourceInput.value = option.dataset.customerSourceOption;
+    customerSourceCombobox?.classList.remove("open");
+    customerSourceInput.setAttribute("aria-expanded", "false");
+    customerSourceInput.blur();
+  }));
+  customerSourceInput?.addEventListener("blur", () => setTimeout(() => {
+    customerSourceCombobox?.classList.remove("open");
+    customerSourceInput.setAttribute("aria-expanded", "false");
+  }, 0));
   document.querySelector("#whiteboardApplyFilters")?.addEventListener("click", () => { state.whiteboardCustomerPage = 1; render(); refreshCustomerSearchFromApi(); });
   document.querySelector("#whiteboardResetFilters")?.addEventListener("click", () => { state.customerSearch = ""; state.whiteboardNameSearch = ""; state.whiteboardStatus = "全部"; state.whiteboardSelectedTags = []; state.whiteboardCustomerPage = 1; render(); refreshCustomerSearchFromApi(); });
   document.querySelector("#openInventoryTags")?.addEventListener("click", () => { state.whiteboardTagModalOpen = true; render(); });

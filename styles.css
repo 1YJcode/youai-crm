@@ -1063,6 +1063,16 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 .education-multi-option b { color: #1594e8; font-weight: 500; }
 .advanced-two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 80px; padding: 14px 0; }
 .advanced-two-column label { display: grid; grid-template-columns: 104px minmax(0,1fr); align-items: center; }
+.customer-source-combobox { position: relative; min-width: 0; }
+.whiteboard-advanced-body .customer-source-combobox > input { padding-right: 34px; transition: border-color .16s ease, box-shadow .16s ease; }
+.whiteboard-advanced-body .customer-source-combobox.open > input { border-color: #409eff; box-shadow: 0 0 0 2px rgba(64,158,255,.14); }
+.customer-source-toggle { position: absolute; top: 9px; right: 12px; z-index: 2; width: 7px; height: 7px; border-right: 2px solid #344054; border-bottom: 2px solid #344054; pointer-events: none; transform: rotate(45deg); transform-origin: center; transition: transform .16s ease; }
+.customer-source-menu { position: absolute; top: calc(100% + 4px); right: 0; left: 0; z-index: 45; display: none; max-height: 248px; overflow-y: auto; padding: 5px 0; background: #fff; border: 1px solid #e4e7ed; border-radius: 3px; box-shadow: 0 8px 20px rgba(31,45,61,.16); }
+.customer-source-combobox.open .customer-source-menu { display: block; }
+.customer-source-option { display: block; width: 100%; height: 34px; padding: 0 12px; overflow: hidden; color: #303133; background: #fff; border: 0; font: inherit; font-size: 13px; line-height: 34px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.customer-source-option:hover, .customer-source-option.active { color: #409eff; background: #f5f7fa; }
+.customer-source-empty { display: none; padding: 13px 12px; color: #909399; font-size: 12px; text-align: center; }
+.customer-source-menu.is-empty .customer-source-empty { display: block; }
 .advanced-profile { display: grid; grid-template-columns: 120px minmax(0,1fr); padding: 15px 0; border-top: 1px solid #f0f2f5; border-bottom: 1px solid #f0f2f5; }
 .advanced-profile h3 { margin: 10px 0 0; color: #344054; font-size: 12px; font-weight: 500; }
 .advanced-profile-grid { display: grid; grid-template-columns: repeat(4,minmax(150px,1fr)); gap: 8px 22px; }
