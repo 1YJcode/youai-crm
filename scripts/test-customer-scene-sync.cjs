@@ -94,7 +94,7 @@ function setup(overrides = {}, respond = () => page()) {
     render: () => { context.renderCount += 1; }, renderCount: 0
   });
   const names = ['localDateValue', 'pageContent', 'parseCustomerDate', 'daysSince',
-    'customerFollowUpCount', 'customerMatchesScene', 'updateCustomerSearchFeedback', 'refreshCustomerSearchFromApi',
+    'customerFollowUpCount', 'customerMatchesScene', 'customerSceneItems', 'updateCustomerSearchFeedback', 'refreshCustomerSearchFromApi',
     'refreshVisibleCustomerList', 'refreshAssignedCustomers', 'mergeCustomerRecord', 'refreshCustomerFollowUpCounts'];
   // Include the production visibility predicate when the implementation shares one.
   for (const name of ['customerAssignedListVisible']) {
@@ -349,4 +349,24 @@ test('follow-up refresh responses from a previous account cannot change the curr
   assert.equal(state.poolCustomers.length, 1);
   assert.equal(state.poolCustomers[0].id, 'pool-id');
   assert.deepEqual(warnings, []);
+});
+
+test('pool scene badges count pool customers rather than assigned customers', () => {
+  const { context, state } = setup({ customerSection: '公海列表' });
+  context.customers = [{ id: 'assigned', owner: '林夕', followUpCount: 0 }];
+  state.poolCustomers = [{ id: 'pool', owner: '公海', followUpCount: 3 }];
+  assert.equal(context.customerSceneItems().find(item => item.key === 'new-unfollowed').count, 1);
+  assert.equal(context.customerSceneItems({ isPool: true }).find(item => item.key === 'new-unfollowed').count, 0);
+  state.poolCustomers.push({ id: 'pool-new', owner: '公海', followUpCount: 0 });
+  assert.equal(context.customerSceneItems({ isPool: true }).find(item => item.key === 'new-unfollowed').count, 1);
+});
+
+test('administrator queries the selected list for unfollowed customers', async () => {
+  const { context, state, requests } = setup({ customerScope: 'all' });
+  context.isAdmin = () => true;
+  await context.refreshCustomerSearchFromApi();
+  assert.ok(requests.some(path => path.startsWith('/customers?') && path.includes('scene=new-unfollowed')));
+  state.customerSection = '公海列表';
+  await context.refreshCustomerSearchFromApi();
+  assert.ok(requests.some(path => path.startsWith('/customers/pool?') && path.includes('scene=new-unfollowed')));
 });
