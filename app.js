@@ -153,6 +153,7 @@ const state = {
   customerStatus: "全部状态",
   customerStatuses: [],
   customerScene: "all",
+  customerSearchPending: false,
   customerOwner: "全部负责人",
   customerOwnerSelection: { nodes: [] },
   customerTagFilter: "",
@@ -1438,9 +1439,30 @@ function requireBackend() {
   throw new Error("数据服务暂不可用，请恢复连接后重试");
 }
 
-async function refreshCustomerSearchFromApi() {
+function updateCustomerSearchFeedback() {
+  const page = document.querySelector(".customer-list-page, .pool-page, .whiteboard-page");
+  if (!page) return;
+  page.setAttribute("aria-busy", String(state.customerSearchPending));
+  page.querySelectorAll("[data-customer-scene]").forEach(button => {
+    button.classList.toggle("active", button.dataset.customerScene === state.customerScene);
+  });
+  const panel = page.querySelector(".data-panel");
+  if (!panel) return;
+  let status = panel.querySelector(".customer-query-status");
+  if (!status && state.customerSearchPending) {
+    status = document.createElement("div");
+    status.className = "customer-query-status";
+    status.setAttribute("role", "status");
+    status.textContent = "正在加载客户…";
+    panel.prepend(status);
+  }
+  if (status) status.hidden = !state.customerSearchPending;
+}
+
+async function refreshCustomerSearchFromApi({ silent = false } = {}) {
   if (!state.auth.token) return;
   const requestId = ++customerSearchRequestId;
+  const authToken = state.auth.token;
   const reopenStatusMenu = Boolean(document.querySelector("#levelFilter")?.closest(".status-filter")?.classList.contains("open"));
   const params = new URLSearchParams();
   const isPoolPage = Boolean(document.querySelector(".pool-page"));
@@ -1514,10 +1536,14 @@ async function refreshCustomerSearchFromApi() {
     scope: !isWhiteboardPage && state.customerScope !== "all" ? state.customerScope : ""
   };
   Object.entries(advanced).forEach(([key, value]) => { if (value != null && String(value).trim()) params.set(key, value); });
+  if (!silent) {
+    state.customerSearchPending = true;
+    updateCustomerSearchFeedback();
+  }
   try {
     const endpoint = isPoolPage ? "/customers/pool" : "/customers";
     const pageData = pageContent(await apiRequest(`${endpoint}?${params.toString()}`));
-    if (requestId !== customerSearchRequestId) return;
+    if (requestId !== customerSearchRequestId || authToken !== state.auth.token) return;
     const normalized = pageData.content.map(normalizeCustomer);
     if (isPoolPage) state.poolCustomerPageMeta = pageData;
     else if (isWhiteboardPage) state.whiteboardCustomerPageMeta = pageData;
@@ -1536,7 +1562,14 @@ async function refreshCustomerSearchFromApi() {
       nextLevelFilter?.focus({ preventScroll: true });
       nextLevelFilter?.closest(".status-filter")?.classList.add("open");
     }
-  } catch (error) { toast(error.message); }
+  } catch (error) {
+    if (requestId === customerSearchRequestId && authToken === state.auth.token && !silent) toast(error.message);
+  } finally {
+    if (requestId === customerSearchRequestId) {
+      state.customerSearchPending = false;
+      updateCustomerSearchFeedback();
+    }
+  }
 }
 
 function refreshVisibleCustomerList() {
@@ -2295,7 +2328,10 @@ function customerHasAvatar(customer) {
 }
 
 function customerFollowUpCount(customer) {
-  return tasks.filter(task => task.customer === customer.name).length
+  if (customer.followUpCount != null && Number.isFinite(Number(customer.followUpCount))) {
+    return Math.max(0, Number(customer.followUpCount));
+  }
+  return tasks.filter(task => task.customerId === customer.id).length
     + calls.filter(call => call.customerId === customer.id).length;
 }
 
@@ -3650,15 +3686,27 @@ async function refreshFollowupAlertTasks() {
   await followupAlertRefreshPromise;
 }
 
+function customerAssignedListVisible() {
+  return state.view === "customers" && state.customerSection === "客户列表"
+    && !state.customerDetailId && !state.importDetailId;
+}
+
 async function refreshAssignedCustomers() {
   if (!state.auth.token || customerSyncPromise) return;
+  const authToken = state.auth.token;
+  const requestId = customerSearchRequestId;
+  const refreshList = customerAssignedListVisible();
   customerSyncPromise = Promise.all([
-    apiRequest("/customers?page=0&size=100"),
+    refreshList
+      ? (state.customerSearchPending ? Promise.resolve(null) : refreshCustomerSearchFromApi({ silent: true }))
+      : apiRequest("/customers?page=0&size=100"),
     apiRequest("/system-notifications")
   ]).then(([customerData, notificationData]) => {
-    const customerPageData = pageContent(customerData);
-    const nextCustomers = customerPageData.content.map(normalizeCustomer);
-    state.customerPageMeta = customerPageData;
+    if (authToken !== state.auth.token) return;
+    // A background snapshot must never replace a filtered page or a newer search.
+    const updateSnapshot = !refreshList && !customerAssignedListVisible()
+      && requestId === customerSearchRequestId;
+    const nextCustomers = updateSnapshot ? pageContent(customerData).content.map(normalizeCustomer) : null;
     const nextSystemNotifications = Array.isArray(notificationData) ? notificationData.map(item => ({
       id: item.id,
       type: "系统消息",
@@ -3670,13 +3718,16 @@ async function refreshAssignedCustomers() {
       customerId: item.customerNo,
       read: Boolean(item.read)
     })) : [];
-    const previousCustomers = customers.map(item => `${item.id}:${item.owner}:${item.updatedAt || ""}`).join("|");
+    const previousCustomers = nextCustomers ? customers.map(item => `${item.id}:${item.owner}:${item.updatedAt || ""}`).join("|") : null;
     const previousNotifications = state.systemNotifications.map(item => `${item.id}:${item.read ? "1" : "0"}`).join("|");
-    customers = [...new Map([...state.whiteboardCustomers, ...nextCustomers].map(customer => [String(customer.id), customer])).values()];
+    if (nextCustomers) {
+      state.customerPageMeta = pageContent(customerData);
+      customers = [...new Map([...state.whiteboardCustomers, ...nextCustomers].map(customer => [String(customer.id), customer])).values()];
+    }
     state.systemNotifications = nextSystemNotifications;
     state.systemNotifications.filter(item => item.read).forEach(item => { state.notificationRead[item.id] = true; });
     localStorage.setItem("youai.crm.notificationRead", JSON.stringify(state.notificationRead));
-    const nextCustomerSignature = nextCustomers.map(item => `${item.id}:${item.owner}:${item.updatedAt || ""}`).join("|");
+    const nextCustomerSignature = nextCustomers ? nextCustomers.map(item => `${item.id}:${item.owner}:${item.updatedAt || ""}`).join("|") : null;
     const nextNotificationSignature = nextSystemNotifications.map(item => `${item.id}:${item.read ? "1" : "0"}`).join("|");
     if (previousCustomers !== nextCustomerSignature || previousNotifications !== nextNotificationSignature) render();
   }).catch(() => {}).finally(() => { customerSyncPromise = null; });
@@ -4313,6 +4364,7 @@ function render() {
   bindServerPaginationControls();
   positionCustomerFollowUpDatePopover();
   updateNotificationChrome();
+  updateCustomerSearchFeedback();
   restoreTableScrollPositions(tableScrollPositions);
   lastRenderedTableScrollContext = scrollContext;
 }
@@ -5601,6 +5653,19 @@ function mergeCustomerRecord(saved) {
   return normalized;
 }
 
+async function refreshCustomerFollowUpCounts(customerIds) {
+  const authToken = state.auth.token;
+  const ids = [...new Set(customerIds.filter(Boolean).map(String))];
+  await Promise.all(ids.map(async id => {
+    try {
+      const saved = await apiRequest(`/customers/${encodeURIComponent(id)}`);
+      if (authToken === state.auth.token) mergeCustomerRecord(saved);
+    } catch (error) {
+      console.warn("刷新客户跟进次数失败", error);
+    }
+  }));
+}
+
 async function setCustomerPool(customer, inPool, details = {}) {
   requireBackend();
   const saved = await apiRequest(`/customers/${encodeURIComponent(customer.id)}/pool`, { method: "PATCH", body: JSON.stringify({ inPool }) });
@@ -5961,8 +6026,10 @@ async function deleteTask(task) {
     requireBackend();
     await apiRequest(`/tasks/${task.id}`, { method: "DELETE" });
     tasks = tasks.filter(item => item.id !== task.id);
+    await refreshCustomerFollowUpCounts([task.customerId]);
     closeBusinessModal();
     render();
+    refreshVisibleCustomerList();
     toast("任务已删除");
   } catch (error) {
     toast(`任务删除失败：${error.message}`);
@@ -6147,12 +6214,14 @@ async function submitBusinessForm(event) {
         state.notificationRead[`task-${data.reminderTaskId}`] = true;
         localStorage.setItem("youai.crm.notificationRead", JSON.stringify(state.notificationRead));
       }
+      await refreshCustomerFollowUpCounts([normalized.customerId, existingTask?.customerId]);
       if (normalized.customerId && String(state.customerDetailId) === String(normalized.customerId)) {
         await loadCustomerFollowUps(normalized.customerId, false);
       }
       checkUpcomingFollowupAlerts();
       closeBusinessModal();
       render();
+      refreshVisibleCustomerList();
       toast(id ? "任务已更新" : "任务已创建");
     } else if (type === "order") {
       const id = data.recordId;
@@ -6187,8 +6256,10 @@ async function submitBusinessForm(event) {
       const payload = { customerId: data.customerId, customer: customer?.name, direction: data.direction, status: data.status, durationSeconds: normalizeCallDuration(data.durationSeconds), note: data.note || "" };
       const result = await apiRequest("/calls", { method: "POST", body: JSON.stringify(payload) });
       calls.unshift(normalizeCall(result));
+      await refreshCustomerFollowUpCounts([data.customerId]);
       closeBusinessModal();
-      if (state.view === "calls") render();
+      render();
+      refreshVisibleCustomerList();
       toast("通话记录已保存");
     } else if (type === "conversation") {
       const existing = conversations.find(item => item.customerId === data.customerId);
@@ -7420,7 +7491,7 @@ function bindViewEvents() {
     event.stopPropagation();
     openCustomer(button.dataset.openCustomer);
   }));
-  document.querySelector("[data-back-customer-list]")?.addEventListener("click", () => { state.customerContactReveals = {}; state.customerDetailId = null; render(); });
+  document.querySelector("[data-back-customer-list]")?.addEventListener("click", () => { state.customerContactReveals = {}; state.customerDetailId = null; render(); refreshVisibleCustomerList(); });
   document.querySelectorAll("[data-edit-profile-customer]").forEach(button => button.addEventListener("click", event => { const customer = customers.find(item => String(item.id) === String(event.currentTarget.dataset.editProfileCustomer)); if (customer) openModal(customer); }));
   const profileActions = document.querySelector(".customer-profile-actions");
   const editProfile = document.querySelector("[data-edit-profile-customer]");

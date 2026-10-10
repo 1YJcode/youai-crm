@@ -49,9 +49,10 @@ class MySqlUpgradeTest {
             }
             List<List<String>> before = snapshot(connection);
             Flyway current = Flyway.configure().dataSource(url, username, password).load();
-            assertEquals(2, current.migrate().migrationsExecuted);
+            assertEquals(3, current.migrate().migrationsExecuted, "V24 upgrades through identity and nickname migrations V25-V27");
             current.validate();
             assertEquals(before, snapshot(connection));
+            assertEquals(owners.length, scalar(connection, "SELECT COUNT(*) FROM crm_customer WHERE nickname IS NULL"));
             try (var statement = connection.createStatement(); var rows = statement.executeQuery("SELECT owner_id FROM crm_customer ORDER BY id")) {
                 Long[] expected = {3L, null, null, null, 3L, null, 4L};
                 for (Long id : expected) { assertTrue(rows.next()); assertEquals(id, rows.getObject(1, Long.class)); }
@@ -69,7 +70,7 @@ class MySqlUpgradeTest {
             }
             assertEquals(0, current.migrate().migrationsExecuted, "Restart must not repeat identity resolution");
             assertEquals(before, snapshot(connection));
-            assertEquals(26, scalar(connection, "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1"));
+            assertEquals(27, scalar(connection, "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1"));
         }
     }
 

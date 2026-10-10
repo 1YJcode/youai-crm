@@ -37,6 +37,23 @@ powershell -ExecutionPolicy Bypass -File .\scripts\test-backend.ps1
 
 ## Docker 一键运行
 
+### 从远程仓库在另一台电脑运行
+
+远程默认主分支为 `main`（不是 `master`）。已部署到某台电脑的改动，只有提交并推送到 `origin/main` 后，其他电脑克隆或拉取才会获得。另一台首次运行：
+
+```powershell
+git clone --branch main https://github.com/1YJcode/youai-crm.git
+cd youai-crm
+Copy-Item .env.example .env
+# 按下文生产配置填写密码、JWT 密钥及首次管理员账号。
+docker volume create youai_mysql84_data
+docker compose up -d --build
+```
+
+已有项目更新时执行 `git pull --ff-only origin main`，再执行 `docker compose up -d --build backend frontend`，并刷新浏览器。构建使用仓库中的 Dockerfile 和源代码，不依赖本机的临时部署目录或预先打包的 JAR；首次构建需要联网下载基础镜像和 Maven 依赖。
+
+代码相同不代表业务数据和配置自动相同：`.env`、账号密码、客户数据和 MySQL 数据卷不随 Git 同步。新机器默认创建空库；若需保留本机已有业务数据，应另行备份、恢复数据库，并配置相应端口、运行 Profile 和密钥。
+
 项目提供了完整的 Docker Compose 配置，会启动 MySQL、Spring Boot 后端和 Nginx 前端。首次克隆后，先创建本地配置和独立的 MySQL 8.4 数据卷；将 `.env` 中的 `MYSQL_ROOT_PASSWORD`、`BOOTSTRAP_ADMIN_USERNAME`、`BOOTSTRAP_ADMIN_PASSWORD` 和 `JWT_SECRET` 改为自己的值，再启动容器。数据卷不会随 Git 仓库复制，首次启动的是空数据库：
 
 ```powershell

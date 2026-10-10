@@ -8,8 +8,10 @@ import java.util.stream.Collectors;
 
 import com.youai.crm.account.AccessPolicy;
 import com.youai.crm.common.NotFoundException;
+import com.youai.crm.communication.CallRecord;
 import com.youai.crm.communication.CallRecordRepository;
 import com.youai.crm.communication.CustomerCallDuration;
+import com.youai.crm.task.FollowUpTask;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -99,12 +101,17 @@ public class CustomerQueryService {
                     .filter(customer -> numericFiltersMatch(customer, advanced)).toList();
             int from = (int) Math.min((long) safePageable.getOffset(), filtered.size());
             int to = Math.min(from + safePageable.getPageSize(), filtered.size());
-            List<CustomerResponse> content = filtered.subList(from, to).stream()
-                    .map(customer -> responseMapper.toResponse(customer, authentication)).toList();
+            List<Customer> pageCustomers = filtered.subList(from, to);
+            Map<String, Long> followUpCounts = responseMapper.followUpCounts(pageCustomers);
+            List<CustomerResponse> content = pageCustomers.stream()
+                    .map(customer -> responseMapper.toResponse(customer, authentication, 0,
+                            followUpCounts.getOrDefault(customer.getCustomerNo(), 0L))).toList();
             return new PageImpl<>(content, safePageable, filtered.size());
         }
-        return repository.findAll(specification, safePageable)
-                .map(customer -> responseMapper.toResponse(customer, authentication));
+        Page<Customer> page = repository.findAll(specification, safePageable);
+        Map<String, Long> followUpCounts = responseMapper.followUpCounts(page.getContent());
+        return page.map(customer -> responseMapper.toResponse(customer, authentication, 0,
+                followUpCounts.getOrDefault(customer.getCustomerNo(), 0L)));
     }
 
     private void addAdvancedPredicates(jakarta.persistence.criteria.From<?, Customer> root,
@@ -166,7 +173,7 @@ public class CustomerQueryService {
         }
         addAllocationDateRange(builder, root, predicates, values);
         addQuickFilter(builder, root, predicates, values);
-        addSceneFilter(builder, root, predicates, values);
+        addSceneFilter(builder, root, query, predicates, values);
         if (has(values, "scope")) {
             String scope = values.get("scope").trim();
             Long currentUserId = accessPolicy.currentUserId(authentication);
@@ -286,23 +293,41 @@ public class CustomerQueryService {
     }
 
     private void addSceneFilter(jakarta.persistence.criteria.CriteriaBuilder builder,
-            jakarta.persistence.criteria.From<?, Customer> root, List<Predicate> predicates,
+            jakarta.persistence.criteria.From<?, Customer> root,
+            jakarta.persistence.criteria.CriteriaQuery<?> query, List<Predicate> predicates,
             Map<String, String> values) {
         if (!has(values, "scene")) return;
         String scene = values.get("scene").trim();
         if ("today-new".equals(scene)) addTodayRange(builder, root, predicates, "createdAt");
         else if ("today-follow".equals(scene)) addTodayRange(builder, root, predicates, "nextFollowAt");
         else if ("protected".equals(scene)) predicates.add(builder.equal(root.get("level"), "重点客户"));
-        else if ("duplicate-unfollowed".equals(scene)) predicates.add(builder.and(
-                builder.greaterThan(root.get("registrationCount"), 1), builder.isNull(root.get("lastContactAt"))));
+        else if ("duplicate-unfollowed".equals(scene)) {
+            predicates.add(builder.greaterThan(root.get("registrationCount"), 1));
+            addUnfollowedFilter(builder, root, query, predicates);
+        }
         else if ("pool-claimed".equals(scene)) predicates.add(builder.and(
                 builder.notEqual(root.get("owner"), PUBLIC_POOL), builder.isNotNull(root.get("previousOwner"))));
-        else if ("new-unfollowed".equals(scene)) predicates.add(builder.isNull(root.get("lastContactAt")));
+        else if ("new-unfollowed".equals(scene)) addUnfollowedFilter(builder, root, query, predicates);
         else if ("two-days-unfollowed".equals(scene)) {
             LocalDateTime cutoff = LocalDateTime.now().minusDays(2);
             predicates.add(builder.or(builder.lessThanOrEqualTo(root.get("lastContactAt"), cutoff),
                     builder.and(builder.isNull(root.get("lastContactAt")), builder.lessThanOrEqualTo(root.get("createdAt"), cutoff))));
         }
+    }
+
+    private void addUnfollowedFilter(jakarta.persistence.criteria.CriteriaBuilder builder,
+            jakarta.persistence.criteria.From<?, Customer> root,
+            jakarta.persistence.criteria.CriteriaQuery<?> query, List<Predicate> predicates) {
+        // lastContactAt also starts the pool deadline on creation/assignment;
+        // only stable customer references on real tasks and calls establish follow-up.
+        var tasks = query.subquery(Long.class);
+        var task = tasks.from(FollowUpTask.class);
+        tasks.select(task.get("id")).where(builder.equal(task.get("customerId"), root.get("customerNo")));
+        var calls = query.subquery(Long.class);
+        var call = calls.from(CallRecord.class);
+        calls.select(call.get("id")).where(builder.equal(call.get("customerNo"), root.get("customerNo")));
+        predicates.add(builder.not(builder.exists(tasks)));
+        predicates.add(builder.not(builder.exists(calls)));
     }
 
     private void addTodayRange(jakarta.persistence.criteria.CriteriaBuilder builder,
@@ -401,9 +426,12 @@ public class CustomerQueryService {
                 .toList();
         int from = (int) Math.min((long) safePageable.getOffset(), filtered.size());
         int to = Math.min(from + safePageable.getPageSize(), filtered.size());
-        List<CustomerResponse> content = filtered.subList(from, to).stream()
+        List<Customer> pageCustomers = filtered.subList(from, to);
+        Map<String, Long> followUpCounts = responseMapper.followUpCounts(pageCustomers);
+        List<CustomerResponse> content = pageCustomers.stream()
                 .map(customer -> responseMapper.toResponse(customer, authentication,
-                        durations.getOrDefault(customer.getCustomerNo(), 0)))
+                        durations.getOrDefault(customer.getCustomerNo(), 0),
+                        followUpCounts.getOrDefault(customer.getCustomerNo(), 0L)))
                 .toList();
         return new PageImpl<>(content, safePageable, filtered.size());
     }

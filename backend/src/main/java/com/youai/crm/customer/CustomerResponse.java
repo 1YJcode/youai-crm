@@ -51,7 +51,7 @@ public record CustomerResponse(
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         List<String> tags,
-        Integer deepTalkDurationSeconds, Long ownerId, java.util.Set<Long> collaboratorIds) {
+        Integer deepTalkDurationSeconds, Long ownerId, java.util.Set<Long> collaboratorIds, long followUpCount) {
 
     public static CustomerResponse from(Customer customer) {
         // Keep the safe projection as the default so a new caller cannot
@@ -69,6 +69,11 @@ public record CustomerResponse(
     }
 
     public static CustomerResponse from(Customer customer, boolean contactVisible, int deepTalkDurationSeconds) {
+        return from(customer, contactVisible, deepTalkDurationSeconds, 0);
+    }
+
+    public static CustomerResponse from(Customer customer, boolean contactVisible, int deepTalkDurationSeconds,
+            long followUpCount) {
         return new CustomerResponse(
                 customer.getCustomerNo(),
                 customer.getName(),
@@ -114,7 +119,8 @@ public record CustomerResponse(
                 customer.getCreatedAt(),
                 customer.getUpdatedAt(),
                 contactVisible ? List.copyOf(customer.getTags()) : List.of(),
-                Math.max(0, deepTalkDurationSeconds), customer.getOwnerId(), java.util.Set.copyOf(customer.getCollaboratorIds()));
+                Math.max(0, deepTalkDurationSeconds), customer.getOwnerId(), java.util.Set.copyOf(customer.getCollaboratorIds()),
+                Math.max(0, followUpCount));
     }
 
 }

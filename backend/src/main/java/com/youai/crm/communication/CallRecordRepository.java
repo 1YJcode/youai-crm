@@ -12,6 +12,15 @@ import java.time.LocalDateTime;
 public interface CallRecordRepository extends JpaRepository<CallRecord, Long>, JpaSpecificationExecutor<CallRecord> {
     List<CallRecord> findAllByOrderByStartedAtDesc();
 
+    interface CustomerRecordCount {
+        String getCustomerNo();
+        long getRecordCount();
+    }
+
+    @Query("select c.customerNo as customerNo, count(c) as recordCount from CallRecord c "
+            + "where c.customerNo in :customerNos group by c.customerNo")
+    List<CustomerRecordCount> countByCustomerNos(@Param("customerNos") Collection<String> customerNos);
+
     @Query("select coalesce(sum(c.durationSeconds), 0) from CallRecord c where (:owner is null or c.owner = :owner) "
             + "and c.startedAt >= :start and c.startedAt < :end")
     long sumDurationForDashboard(@Param("owner") String owner, @Param("start") LocalDateTime start,

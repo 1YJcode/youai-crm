@@ -2866,6 +2866,9 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
   .customer-follow-filled-time { margin: 0 auto 0 0; white-space: normal; text-align: left; }
 }
 
+.customer-query-status { padding: 10px 16px; color: #1677ff; background: #f5f9ff; border-bottom: 1px solid #e5edff; font-size: 13px; }
+.customer-query-status[hidden] { display: none; }
+
 /* 客户导入确认弹窗：与设计稿保持轻量提示框样式。 */
 .import-confirm-backdrop { z-index: 120; background: rgba(0, 0, 0, .42); backdrop-filter: none; }
 .import-confirm-modal { width: min(330px, calc(100vw - 32px)); overflow: hidden; background: #fff; border-radius: 2px; box-shadow: 0 10px 28px rgba(0, 0, 0, .22); }
