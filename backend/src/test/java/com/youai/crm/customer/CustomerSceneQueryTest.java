@@ -138,6 +138,99 @@ class CustomerSceneQueryTest {
                 .andExpect(jsonPath("$.content.length()").value(2));
     }
 
+    @Test
+    void poolFollowUpRangeUsesTasksAndCallsBeforePagination() throws Exception {
+        String keyword = "pool-range-" + NUMBERS.incrementAndGet();
+        Customer zero = customer("linxi", keyword, 1);
+        Customer one = customer("linxi", keyword, 1);
+        Customer two = customer("linxi", keyword, 1);
+        task(one, one.getCustomerNo());
+        task(two, two.getCustomerNo());
+        call(two);
+        for (Customer item : List.of(zero, one, two)) {
+            item.setOwner("公海");
+            item.setOwnerId(null);
+            customers.saveAndFlush(item);
+        }
+        mvc.perform(get("/api/customers/pool").with(user("admin").roles("ADMIN"))
+                        .param("keyword", keyword).param("followUpMin", "1").param("followUpMax", "2")
+                        .param("size", "1").param("page", "1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(2))
+                .andExpect(jsonPath("$.content[0].id").value(one.getCustomerNo()))
+                .andExpect(jsonPath("$.content[0].followUpCount").value(1));
+        mvc.perform(get("/api/customers/pool").with(user("admin").roles("ADMIN"))
+                        .param("keyword", keyword).param("followUpMax", "0"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(zero.getCustomerNo()));
+        mvc.perform(get("/api/customers/pool").with(user("admin").roles("ADMIN"))
+                        .param("keyword", keyword).param("followUpMin", "2"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(two.getCustomerNo()));
+        mvc.perform(get("/api/customers/pool").with(user("admin").roles("ADMIN"))
+                        .param("keyword", keyword).param("followUpMin", "2").param("followUpMax", "2"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1));
+        mvc.perform(get("/api/customers/pool").with(user("admin").roles("ADMIN"))
+                        .param("keyword", keyword))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(3));
+        for (String invalid : List.of("-1", "1.5", "abc", "99999999999999999999999")) {
+            mvc.perform(get("/api/customers/pool").with(user("admin").roles("ADMIN"))
+                            .param("followUpMin", invalid))
+                    .andExpect(status().isBadRequest());
+        }
+        mvc.perform(get("/api/customers/pool").with(user("admin").roles("ADMIN"))
+                        .param("followUpMin", "2").param("followUpMax", "1"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void tagAnyCombinesUntaggedAndMultipleTagsWithoutDuplicatePages() throws Exception {
+        for (boolean pool : List.of(false, true)) {
+            String keyword = "tag-any-" + NUMBERS.incrementAndGet();
+            Customer empty = customer("linxi", keyword, 1);
+            Customer important = customer("linxi", keyword, 1);
+            Customer ordinary = customer("linxi", keyword, 1);
+            Customer both = customer("linxi", keyword, 1);
+            Customer other = customer("linxi", keyword, 1);
+            important.setTags(List.of("重点客户"));
+            ordinary.setTags(List.of("普通客户"));
+            both.setTags(List.of("重点客户", "普通客户"));
+            other.setTags(List.of("其他"));
+            for (Customer item : List.of(empty, important, ordinary, both, other)) {
+                if (pool) { item.setOwner("公海"); item.setOwnerId(null); }
+                customers.saveAndFlush(item);
+            }
+            String endpoint = pool ? "/api/customers/pool" : "/api/customers";
+            mvc.perform(get(endpoint).with(user("admin").roles("ADMIN"))
+                            .param("keyword", keyword).param("tagMatch", "any")
+                            .param("tag", "重点客户,普通客户").param("size", "2").param("page", "1"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(3))
+                    .andExpect(jsonPath("$.totalPages").value(2))
+                    .andExpect(jsonPath("$.content.length()").value(1));
+            mvc.perform(get(endpoint).with(user("admin").roles("ADMIN"))
+                            .param("keyword", keyword).param("tagMatch", "any")
+                            .param("tag", "重点客户").param("noTag", "true"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(3));
+            mvc.perform(get(endpoint).with(user("admin").roles("ADMIN"))
+                            .param("keyword", keyword).param("tagMatch", "any").param("noTag", "true"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1))
+                    .andExpect(jsonPath("$.content[0].id").value(empty.getCustomerNo()));
+            mvc.perform(get(endpoint).with(user("admin").roles("ADMIN"))
+                            .param("keyword", keyword).param("tagMatch", "any")
+                            .param("tag", "重点客户,普通客户").param("noTag", "true"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(4));
+            mvc.perform(get(endpoint).with(user("admin").roles("ADMIN"))
+                            .param("keyword", keyword).param("tagMatch", "any"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(5));
+            mvc.perform(get(endpoint).with(user("admin").roles("ADMIN"))
+                            .param("keyword", keyword).param("tag", "重点客户"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(2));
+            mvc.perform(get(endpoint).with(user("admin").roles("ADMIN"))
+                            .param("keyword", keyword).param("tag", "重点客户").param("noTag", "true"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(0));
+        }
+    }
+
     private Customer customer(String username, String name, int registrationCount) {
         var owner = users.findByUsernameIgnoreCase(username).orElseThrow();
         Customer customer = new Customer();

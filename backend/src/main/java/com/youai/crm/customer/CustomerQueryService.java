@@ -192,17 +192,30 @@ public class CustomerQueryService {
                                 builder.lessThanOrEqualTo(root.get("createdAt"), cutoff))));
             } catch (NumberFormatException ignored) { }
         }
-        if (StringUtils.hasText(tag)) {
-            query.distinct(true);
-            List<String> tags = splitValues(tag);
-            if (!tags.isEmpty()) {
-                var tagMatches = builder.in(root.join("tags"));
-                tags.forEach(tagMatches::value);
-                predicates.add(tagMatches);
+        if ("any".equalsIgnoreCase(values.get("tagMatch"))) {
+            List<Predicate> tagOptions = new java.util.ArrayList<>();
+            if (StringUtils.hasText(tag)) {
+                for (String selectedTag : splitValues(tag)) {
+                    tagOptions.add(builder.isMember(selectedTag, root.get("tags")));
+                }
             }
-        }
-        if ("true".equalsIgnoreCase(values.get("noTag"))) {
-            predicates.add(builder.isEmpty(root.get("tags")));
+            if ("true".equalsIgnoreCase(values.get("noTag"))) {
+                tagOptions.add(builder.isEmpty(root.get("tags")));
+            }
+            if (!tagOptions.isEmpty()) predicates.add(builder.or(tagOptions.toArray(Predicate[]::new)));
+        } else {
+            if (StringUtils.hasText(tag)) {
+                query.distinct(true);
+                List<String> tags = splitValues(tag);
+                if (!tags.isEmpty()) {
+                    var tagMatches = builder.in(root.join("tags"));
+                    tags.forEach(tagMatches::value);
+                    predicates.add(tagMatches);
+                }
+            }
+            if ("true".equalsIgnoreCase(values.get("noTag"))) {
+                predicates.add(builder.isEmpty(root.get("tags")));
+            }
         }
     }
 
@@ -391,6 +404,11 @@ public class CustomerQueryService {
         accessPolicy.scopedOwner(authentication);
         Pageable safePageable = safePageable(pageable, Sort.by(Sort.Direction.DESC, "id"));
         Map<String, String> queryValues = advanced == null ? Map.of() : advanced;
+        Long followUpMin = followUpBound(queryValues, "followUpMin");
+        Long followUpMax = followUpBound(queryValues, "followUpMax");
+        if (followUpMin != null && followUpMax != null && followUpMin > followUpMax) {
+            throw new IllegalArgumentException("最小跟进次数不能大于最大跟进次数");
+        }
         String keyword = queryValues.get("keyword");
         String stage = queryValues.get("stage");
         String level = queryValues.get("level");
@@ -420,20 +438,36 @@ public class CustomerQueryService {
         List<Customer> poolCustomers = repository.findAll(specification, safePageable.getSort()).stream()
                 .filter(customer -> !hasNumericRange(queryValues) || numericFiltersMatch(customer, queryValues))
                 .toList();
+        Map<String, Long> rangeCounts = followUpMin != null || followUpMax != null
+                ? responseMapper.followUpCounts(poolCustomers) : Map.of();
         Map<String, Integer> durations = deepTalkDurationSeconds(poolCustomers);
         List<Customer> filtered = poolCustomers.stream()
+                .filter(customer -> followUpMin == null || rangeCounts.getOrDefault(customer.getCustomerNo(), 0L) >= followUpMin)
+                .filter(customer -> followUpMax == null || rangeCounts.getOrDefault(customer.getCustomerNo(), 0L) <= followUpMax)
                 .filter(customer -> matchesDeepTalkDuration(durations.getOrDefault(customer.getCustomerNo(), 0), deepTalkDuration))
                 .toList();
         int from = (int) Math.min((long) safePageable.getOffset(), filtered.size());
         int to = Math.min(from + safePageable.getPageSize(), filtered.size());
         List<Customer> pageCustomers = filtered.subList(from, to);
-        Map<String, Long> followUpCounts = responseMapper.followUpCounts(pageCustomers);
+        Map<String, Long> followUpCounts = followUpMin != null || followUpMax != null
+                ? rangeCounts : responseMapper.followUpCounts(pageCustomers);
         List<CustomerResponse> content = pageCustomers.stream()
                 .map(customer -> responseMapper.toResponse(customer, authentication,
                         durations.getOrDefault(customer.getCustomerNo(), 0),
                         followUpCounts.getOrDefault(customer.getCustomerNo(), 0L)))
                 .toList();
         return new PageImpl<>(content, safePageable, filtered.size());
+    }
+
+    private Long followUpBound(Map<String, String> values, String key) {
+        if (!has(values, key)) return null;
+        String value = values.get(key).trim();
+        if (!value.matches("[0-9]+")) throw new IllegalArgumentException("跟进次数请输入非负整数");
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("跟进次数超出支持范围");
+        }
     }
 
     private Map<String, Integer> deepTalkDurationSeconds(List<Customer> customers) {

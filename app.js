@@ -156,10 +156,13 @@ const state = {
   customerSearchPending: false,
   customerOwner: "全部负责人",
   customerOwnerSelection: { nodes: [] },
-  customerTagFilter: "",
+  customerTagFilters: [],
+  poolTagFilters: [],
   customerOwnerCascadeOpen: false,
   customerOwnerSearch: "",
   customerOwnerExpandedNodes: ["store:youai-tianjin", "group:sales"],
+  poolFollowUpMin: "",
+  poolFollowUpMax: "",
   customerStartDate: "",
   customerEndDate: "",
   customerDateRangePickerOpen: false,
@@ -1484,6 +1487,8 @@ async function refreshCustomerSearchFromApi({ silent = false } = {}) {
   const pageKey = isPoolPage ? "poolCustomerPage" : isWhiteboardPage ? "whiteboardCustomerPage" : "customerPage";
   params.set("page", String(Math.max(0, (state[pageKey] || 1) - 1)));
   params.set("size", String(Math.min(Math.max(state.customerPageSize || 20, 1), 100)));
+  if (isPoolPage && state.poolFollowUpMin !== "") params.set("followUpMin", state.poolFollowUpMin);
+  if (isPoolPage && state.poolFollowUpMax !== "") params.set("followUpMax", state.poolFollowUpMax);
   if (isPoolPage && state.poolDeepTalkDuration) params.set("deepTalkDuration", state.poolDeepTalkDuration);
   if (isPoolPage && state.customerPoolEntryType) params.set("poolEntryType", state.customerPoolEntryType);
   if (isWhiteboardPage) params.set("whiteboardOnly", "true");
@@ -1494,8 +1499,7 @@ async function refreshCustomerSearchFromApi({ silent = false } = {}) {
   else if (!isWhiteboardPage && state.customerStage !== "全部阶段") params.set("stage", state.customerStage);
   if (state.customerLevel !== "全部等级") params.set("level", state.customerLevel);
   if (isWhiteboardPage && state.whiteboardSelectedTags.length) params.set("tag", state.whiteboardSelectedTags.join(","));
-  else if (!isWhiteboardPage && state.customerTagFilter === "__none__") params.set("noTag", "true");
-  else if (!isWhiteboardPage && state.customerTagFilter) params.set("tag", state.customerTagFilter);
+  if (!isWhiteboardPage) appendCustomerTagFilterParams(params, isPoolPage);
   const ownerNames = isWhiteboardPage ? [] : customerOwnerSelectionNames(state.customerOwnerSelection);
   if (ownerNames.length) params.set("owner", ownerNames.join(","));
   const collaboratorNames = customerOwnerSelectionNames(state.customerAdvancedCollaboratorSelection);
@@ -2738,6 +2742,34 @@ function customerHeaderModalView() {
   </section></div>`;
 }
 
+function selectedCustomerTagFilters(isPool = false) {
+  return isPool ? state.poolTagFilters : state.customerTagFilters;
+}
+
+function customerMatchesTagFilters(customer, selected) {
+  if (!selected.length) return true;
+  const tags = Array.isArray(customer.tags) ? customer.tags : [];
+  return selected.some(tag => tag === "__none__" ? tags.length === 0 : tags.includes(tag));
+}
+
+function appendCustomerTagFilterParams(params, isPool) {
+  const selected = selectedCustomerTagFilters(isPool);
+  if (!selected.length) return;
+  params.set("tagMatch", "any");
+  const tags = selected.filter(tag => tag !== "__none__");
+  if (tags.length) params.set("tag", tags.join(","));
+  if (selected.includes("__none__")) params.set("noTag", "true");
+}
+
+function customerTagFilterButtons(isPool) {
+  const selected = selectedCustomerTagFilters(isPool);
+  return [
+    { value: "__none__", label: "无标签", className: "", flagClass: " no-tag-icon" },
+    { value: "重点客户", label: "重点客户", className: " important-tag", flagClass: "" },
+    { value: "普通客户", label: "普通客户", className: "", flagClass: "" }
+  ].map(item => `<button class="tag-filter${item.className}${selected.includes(item.value) ? " active" : ""}" type="button" data-customer-tag="${item.value}" data-customer-tag-list="${isPool ? "pool" : "customers"}" aria-pressed="${selected.includes(item.value)}"><span class="flag-icon${item.flagClass}">⚑</span> ${item.label}</button>`).join("");
+}
+
 function customerListView({ isPool = false } = {}) {
   const selectedStatuses = selectedCustomerStatuses();
   const meta = (isPool ? state.poolCustomerPageMeta : state.customerPageMeta) || { page: 0, size: state.customerPageSize, totalElements: 0, totalPages: 1 };
@@ -2746,9 +2778,7 @@ function customerListView({ isPool = false } = {}) {
     if (!isPool && !customerStatusMatches(customer, selectedStatuses)) return false;
     if (isPool && !customerMatchesDeepTalkDuration(customer, state.poolDeepTalkDuration)) return false;
     if (isPool && state.customerPoolEntryType && customer.poolEntryType !== state.customerPoolEntryType) return false;
-    if (!state.customerTagFilter) return true;
-    const tags = Array.isArray(customer.tags) ? customer.tags : [];
-    return state.customerTagFilter === "__none__" ? tags.length === 0 : tags.includes(state.customerTagFilter);
+    return customerMatchesTagFilters(customer, selectedCustomerTagFilters(isPool));
   }));
   const totalElements = Number(meta.totalElements || 0);
   const totalPages = Math.max(1, Number(meta.totalPages || 1));
@@ -2769,13 +2799,13 @@ function customerListView({ isPool = false } = {}) {
     ${subnav(["客户列表", "公海列表", "客户导入"], state.customerSection, ["客户列表", "公海列表", "客户导入"])}
     <div class="page-content">
       ${isPool ? "" : `<div class="customer-reference-tabs">${[["all","全部客户"],["mine","我的客户"],["subordinates","下属客户"],["collab","我的协作"],["subordinate-collab","下属协作"],["store","到店客户"]].map(([scope, label]) => `<button class="${state.customerScope === scope ? "active" : ""}" type="button" data-customer-scope="${scope}">${label}</button>`).join("")}</div>`}
-      <div class="customer-scene-bar"><span>场景：</span>${customerSceneItems({ isPool }).map(item => `<button class="scene-chip ${state.customerScene === item.key ? "active" : ""}" type="button" data-customer-scene="${item.key}">${item.label}${item.count > 0 ? `<b>${item.count}</b>` : ""}</button>`).join("")}<span class="pool-label">标注/标签：</span><button class="tag-filter ${state.customerTagFilter === "__none__" ? "active" : ""}" type="button" data-customer-tag="__none__"><span class="flag-icon no-tag-icon">⚑</span> 无标签</button><button class="tag-filter important-tag ${state.customerTagFilter === "重点客户" ? "active" : ""}" type="button" data-customer-tag="重点客户"><span class="flag-icon">⚑</span> 重点客户</button><button class="tag-filter ${state.customerTagFilter === "普通客户" ? "active" : ""}" type="button" data-customer-tag="普通客户">⚑ 普通客户</button><button class="text-button" type="button">更多</button></div>
+      <div class="customer-scene-bar"><span>场景：</span>${customerSceneItems({ isPool }).map(item => `<button class="scene-chip ${state.customerScene === item.key ? "active" : ""}" type="button" data-customer-scene="${item.key}">${item.label}${item.count > 0 ? `<b>${item.count}</b>` : ""}</button>`).join("")}<span class="pool-label">标注/标签：</span>${customerTagFilterButtons(isPool)}<button class="text-button" type="button">更多</button></div>
       <section class="filter-panel">
         <div class="filter-row">
           <label class="field"><span>筛选条件</span><input id="customerSearch" type="search" value="${state.customerSearch}" placeholder="ID/手机号"></label>
           <label class="field"><span>&nbsp;</span><input id="customerNameSearch" type="search" value="${escapeHtml(state.customerNameSearch)}" placeholder="姓名/昵称/备注"></label>
           <label class="field"><span>&nbsp;</span>${isPool ? `<select id="poolDeepTalkDuration" aria-label="深沟时长"><option value="">深沟时长</option><option value="0-3" ${state.poolDeepTalkDuration === "0-3" ? "selected" : ""}>0-3分钟</option><option value="3-5" ${state.poolDeepTalkDuration === "3-5" ? "selected" : ""}>3-5分钟</option><option value="5-10" ${state.poolDeepTalkDuration === "5-10" ? "selected" : ""}>5-10分钟</option><option value="10+" ${state.poolDeepTalkDuration === "10+" ? "selected" : ""}>10分钟以上</option></select>` : `<div class="status-filter stage-filter"><button id="stageFilter" class="filter-trigger" type="button">${escapeHtml(state.customerStage === "全部阶段" ? "全部" : state.customerStage)}</button></div>`}</label>
-          ${isPool ? `<label class="field pool-follow-range"><span>&nbsp;</span><div><input type="search" placeholder="最小跟进次数"><input type="search" placeholder="最大跟进次数"></div></label>` : `<label class="field status-filter-field"><span>&nbsp;</span><div class="status-filter"><div id="levelFilter" class="status-filter-control" role="combobox" tabindex="0" aria-label="客户状态筛选" aria-haspopup="listbox" aria-controls="customerStatusOptions" aria-expanded="false"><div class="status-filter-tags">${selectedStatuses.map(status => `<span class="status-filter-tag"><span>${escapeHtml(status)}</span><button type="button" data-customer-status-remove="${escapeHtml(status)}" aria-label="移除${escapeHtml(status)}">×</button></span>`).join("")}</div>${selectedStatuses.length ? "" : `<span class="status-filter-placeholder">请选择客户状态</span>`}</div><div id="customerStatusOptions" class="status-filter-menu" role="listbox" aria-multiselectable="true">${customerStatusOptions.map(option => `<button class="${selectedStatuses.includes(option) ? "active" : ""}" type="button" role="option" data-customer-status="${escapeHtml(option)}" aria-selected="${selectedStatuses.includes(option) ? "true" : "false"}" aria-pressed="${selectedStatuses.includes(option) ? "true" : "false"}">${escapeHtml(option)}</button>`).join("")}</div></div></label><label class="field"><span>&nbsp;</span>${customerOwnerCascadeControl("main", state.customerOwnerSelection, state.customerOwnerCascadeOpen)}</label>`}<label class="field customer-date-range"><span>&nbsp;</span><div class="date-range-picker-wrap"><div class="date-range-display"><span>${state.customerStartDate || (isPool ? "入海开始时间" : "分配开始时间")}</span><b>→</b><span>${state.customerEndDate || (isPool ? "入海结束时间" : "分配结束时间")}</span><button class="date-range-picker" id="openDateRangePicker" type="button" aria-label="${isPool ? "选择入海时间范围" : "选择分配时间范围"}">${icon("calendar")}</button></div>${state.customerDateRangePickerOpen ? customerDateRangePickerView() : ""}</div></label><div class="inline-actions customer-filter-actions"><button class="button primary" id="applyCustomerFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCustomerFilters" type="button">重置</button><button class="text-button" type="button">高级筛选</button></div>
+          ${isPool ? `<label class="field pool-follow-range"><span>&nbsp;</span><div><input id="poolFollowUpMin" type="text" inputmode="numeric" aria-label="最小跟进次数" placeholder="最小跟进次数" value="${escapeHtml(state.poolFollowUpMin)}"><input id="poolFollowUpMax" type="text" inputmode="numeric" aria-label="最大跟进次数" placeholder="最大跟进次数" value="${escapeHtml(state.poolFollowUpMax)}"></div></label>` : `<label class="field status-filter-field"><span>&nbsp;</span><div class="status-filter"><div id="levelFilter" class="status-filter-control" role="combobox" tabindex="0" aria-label="客户状态筛选" aria-haspopup="listbox" aria-controls="customerStatusOptions" aria-expanded="false"><div class="status-filter-tags">${selectedStatuses.map(status => `<span class="status-filter-tag"><span>${escapeHtml(status)}</span><button type="button" data-customer-status-remove="${escapeHtml(status)}" aria-label="移除${escapeHtml(status)}">×</button></span>`).join("")}</div>${selectedStatuses.length ? "" : `<span class="status-filter-placeholder">请选择客户状态</span>`}</div><div id="customerStatusOptions" class="status-filter-menu" role="listbox" aria-multiselectable="true">${customerStatusOptions.map(option => `<button class="${selectedStatuses.includes(option) ? "active" : ""}" type="button" role="option" data-customer-status="${escapeHtml(option)}" aria-selected="${selectedStatuses.includes(option) ? "true" : "false"}" aria-pressed="${selectedStatuses.includes(option) ? "true" : "false"}">${escapeHtml(option)}</button>`).join("")}</div></div></label><label class="field"><span>&nbsp;</span>${customerOwnerCascadeControl("main", state.customerOwnerSelection, state.customerOwnerCascadeOpen)}</label>`}<label class="field customer-date-range"><span>&nbsp;</span><div class="date-range-picker-wrap"><div class="date-range-display"><span>${state.customerStartDate || (isPool ? "入海开始时间" : "分配开始时间")}</span><b>→</b><span>${state.customerEndDate || (isPool ? "入海结束时间" : "分配结束时间")}</span><button class="date-range-picker" id="openDateRangePicker" type="button" aria-label="${isPool ? "选择入海时间范围" : "选择分配时间范围"}">${icon("calendar")}</button></div>${state.customerDateRangePickerOpen ? customerDateRangePickerView() : ""}</div></label><div class="inline-actions customer-filter-actions"><button class="button primary" id="applyCustomerFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCustomerFilters" type="button">重置</button><button class="text-button" type="button">高级筛选</button></div>
         </div>
         <div class="filter-footer"><div class="filter-tags">${["全部客户","重点客户","今日待跟进","即将成交"].map(item => `<button class="quick-filter ${state.quickFilter === item ? "active" : ""}" type="button" data-quick-filter="${item}">${item}</button>`).join("")}</div></div>
       </section>
@@ -7275,10 +7305,12 @@ function bindViewEvents() {
   document.querySelectorAll("[data-customer-scene]").forEach(button => button.addEventListener("click", () => { state.customerScene = button.dataset.customerScene; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
   document.querySelectorAll("[data-quick-filter]").forEach(button => button.addEventListener("click", () => { state.quickFilter = button.dataset.quickFilter; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
   document.querySelectorAll("[data-customer-tag]").forEach(button => button.addEventListener("click", () => {
-    state.customerTagFilter = state.customerTagFilter === button.dataset.customerTag ? "" : button.dataset.customerTag;
-    state.customerPage = 1;
-    state.poolCustomerPage = 1;
-    state.whiteboardCustomerPage = 1;
+    const isPool = button.dataset.customerTagList === "pool";
+    const key = isPool ? "poolTagFilters" : "customerTagFilters";
+    const tag = button.dataset.customerTag;
+    state[key] = state[key].includes(tag) ? state[key].filter(value => value !== tag) : [...state[key], tag];
+    state[isPool ? "poolCustomerPage" : "customerPage"] = 1;
+    render();
     refreshCustomerSearchFromApi();
   }));
   document.querySelectorAll("[data-customer-scope]").forEach(button => button.addEventListener("click", () => { state.customerScope = button.dataset.customerScope; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
@@ -7350,9 +7382,29 @@ function bindViewEvents() {
   document.querySelector("#poolDeepTalkDuration")?.addEventListener("change", event => {
     state.poolDeepTalkDuration = event.target.value;
   });
-  document.querySelector("#applyCustomerFilters")?.addEventListener("click", async () => { state.customerPage = 1; state.poolCustomerPage = 1; render(); await refreshCustomerSearchFromApi(); });
+  ["Min", "Max"].forEach(bound => {
+    document.querySelector(`#poolFollowUp${bound}`)?.addEventListener("input", event => {
+      state[`poolFollowUp${bound}`] = event.target.value.trim();
+    });
+  });
+  document.querySelector("#applyCustomerFilters")?.addEventListener("click", async () => {
+    if (document.querySelector("#poolFollowUpMin")) {
+      const bounds = [state.poolFollowUpMin, state.poolFollowUpMax];
+      if (bounds.some(value => value !== "" && (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))))) {
+        toast("跟进次数请输入非负整数");
+        return;
+      }
+      if (bounds.every(value => value !== "") && Number(bounds[0]) > Number(bounds[1])) {
+        toast("最小跟进次数不能大于最大跟进次数");
+        return;
+      }
+    }
+    state.customerPage = 1; state.poolCustomerPage = 1; render(); await refreshCustomerSearchFromApi();
+  });
   document.querySelector("#resetCustomerFilters")?.addEventListener("click", () => {
-    state.customerSearch = ""; state.customerNameSearch = ""; state.customerStage = "全部阶段"; state.customerLevel = "全部等级"; state.customerStatus = "全部状态"; state.customerStatuses = []; state.customerScene = "all"; state.customerTagFilter = ""; state.customerOwner = "全部负责人"; state.poolDeepTalkDuration = "";
+    if (document.querySelector(".pool-page")) state.poolTagFilters = [];
+    else if (document.querySelector(".customer-list-page")) state.customerTagFilters = [];
+    state.customerSearch = ""; state.customerNameSearch = ""; state.customerStage = "全部阶段"; state.customerLevel = "全部等级"; state.customerStatus = "全部状态"; state.customerStatuses = []; state.customerScene = "all"; state.customerOwner = "全部负责人"; state.poolDeepTalkDuration = ""; state.poolFollowUpMin = ""; state.poolFollowUpMax = "";
     state.customerOwnerSelection = { nodes: [] }; state.customerAdvancedCollaboratorSelection = { nodes: [] }; state.customerAdvancedDraftCollaboratorSelection = { nodes: [] }; state.customerAdvancedCollaboratorCascadeOpen = false; state.customerOwnerCascadeOpen = false; state.customerOwnerSearch = ""; state.customerOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"];
     state.customerStartDate = ""; state.customerEndDate = ""; state.customerDateRangePickerOpen = false; state.customerDateRangeDraftStart = ""; state.customerDateRangeDraftEnd = ""; state.customerDateRangeViewMonth = ""; state.customerDateRangePicking = "start";
     state.customerGender = "all"; state.customerMaritalStatus = "all"; state.customerAgeMin = ""; state.customerAgeMax = ""; state.customerHeightMin = ""; state.customerHeightMax = ""; state.customerEducation = []; state.customerEducationMenuOpen = false; state.customerUncontactedDays = "all"; state.customerUncontactedDaysCustom = "";

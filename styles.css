@@ -616,6 +616,8 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 .customer-list-page .customer-scene-bar .scene-chip:hover { color: var(--primary); background: #f8fbff; }
 .customer-list-page .customer-scene-bar .tag-filter { padding: 5px 14px; }
 .customer-list-page .customer-scene-bar .tag-filter::before { content: ""; display: inline-block; width: 13px; height: 13px; margin-right: 6px; border: 1px solid #b8c1cf; border-radius: 2px; background: #fff; vertical-align: -2px; }
+.customer-list-page .customer-scene-bar .tag-filter.active { color: var(--primary); background: #eef7ff; border-radius: 4px; font-weight: 600; }
+.customer-list-page .customer-scene-bar .tag-filter.active::before { content: "✓"; color: #fff; background: var(--primary); border-color: var(--primary); font-size: 11px; line-height: 13px; text-align: center; }
 .customer-list-page .customer-scene-bar .important-tag .flag-icon { color: #ef4444; }
 .customer-list-page .customer-scene-bar .no-tag-icon { color: #1f2937; }
 .customer-list-page .filter-panel { position: relative; z-index: 5; margin: 15px 0 0; padding: 14px 43px 14px 18px; border-top: 0; border-radius: 0; }
