@@ -1273,6 +1273,14 @@ function isCurrentCustomerOwner(customer) {
     && String(customer.ownerId) === String(state.auth.user.id);
 }
 
+function findEditableCustomerRecord(id) {
+  return [...customers, ...state.poolCustomers].find(customer => String(customer.id) === String(id));
+}
+
+function canEditCustomer(customer) {
+  return Boolean(customer && (isAdmin() || (customer.owner !== "公海" && isCurrentCustomerOwner(customer))));
+}
+
 function currentOwner() {
   return state.auth.user?.displayName || state.auth.user?.username || "林夕";
 }
@@ -3432,7 +3440,7 @@ function customerDetailView(id) {
     ? `<button class="button secondary" type="button" data-customer-more-action="1" data-customer-more-label="库存" data-customer-id="${value(customer.id)}">转为库存</button>${isAdmin() ? `<button class="button secondary" type="button" data-allocate-profile-customer="${value(customer.id)}">资源调配</button>` : ""}<button class="button secondary" type="button" data-customer-more-action="4" data-customer-more-label="诚意库" data-customer-id="${value(customer.id)}">＋ 添加至诚意库</button><button class="button secondary" type="button" data-next-customer="${value(customer.id)}" data-next-customer-label="下一个客户">下一个客户 ›</button>`
     : `<button class="button secondary" type="button" data-new-order-customer="${value(customer.id)}">＋ 新订单</button>${contactVisible ? `<button class="button secondary" type="button" data-call-name="${value(customer.name)}">☎ 拨打</button><button class="button secondary" type="button" data-message-name="${value(customer.name)}">▣ 消息</button>` : ""}${isAdmin() ? `<button class="button secondary" type="button" data-allocate-profile-customer="${value(customer.id)}">资源调配</button>` : ""}<button class="button secondary" type="button" data-next-customer="${value(customer.id)}">下个客户 ›</button>${moreMenu}`;
   const profileHeader = `<div class="profile-reference-header"><div class="profile-reference-title-row"><h1>${value(headerPhone)} <span>[${value(profileGender)} ${value(profileAge)} ${value(profileEducation)}]</span>　【${value(customer.id)}】 <span class="profile-header-icons">${icon("star")} ${icon(contactVisible ? "lock-open" : "lock")} ${icon("flag")}</span></h1><span class="profile-reference-status">● 未激活</span></div><div class="profile-reference-second-row"><div class="profile-reference-header-meta"><div class="profile-reference-meta-row profile-reference-tags-row"><span>客户标签：</span><button class="profile-add-tag" type="button" data-add-profile-tag="${value(customer.id)}">+ 增加标签</button></div><div class="profile-reference-meta-row"><span>归属人：<b>${value(profileOwner)}</b></span><span>协作人：<b>${value(profileCollaborator)}</b></span><span>分配时间：<b>${value(profileAllocationTime)}</b></span><span>下次跟进时间：<b>${value(customer.nextFollowAt ? formatDateTime(customer.nextFollowAt) : "")}</b></span></div></div><div class="profile-reference-actions">${profileActions}</div></div></div>`;
-  const profileTabEdit = state.customerDetailTab === "profile" && contactVisible
+  const profileTabEdit = state.customerDetailTab === "profile" && canEditCustomer(customer)
     ? `<button class="customer-profile-tab-edit" type="button" data-edit-profile-customer="${value(customer.id)}">编辑</button>`
     : "";
   const activeTabTools = state.customerDetailTab === "follow" ? followFilter : profileTabEdit;
@@ -4560,6 +4568,10 @@ document.querySelector("#removeCustomerAvatar").addEventListener("click", () => 
 });
 
 function openModal(customer = null) {
+  if (customer) {
+    customer = findEditableCustomerRecord(customer.id);
+    if (!canEditCustomer(customer)) { toast("仅管理员或当前负责人可以编辑客户，公海客户请先领取"); return; }
+  }
   const backdrop = document.querySelector("#modalBackdrop");
   const form = document.querySelector("#customerForm");
   const field = name => form.querySelector(`[name="${name}"]`);
@@ -5539,7 +5551,7 @@ async function openCustomer(id) {
   window.scrollTo({ top: 0, behavior: "instant" });
   return;
   const drawer = document.querySelector("#detailDrawer");
-  drawer.innerHTML = `<header class="drawer-header"><div><p class="eyebrow">CUSTOMER DETAIL</p><h2>客户详情</h2></div><button class="icon-button" data-close-drawer aria-label="关闭">${icon("close")}</button></header><div class="drawer-body"><div class="profile-head"><span class="person-avatar">${customer.name[0]}</span><div><h3>${customer.name}</h3><p>${customer.company}</p></div></div><div class="profile-actions"><button class="button primary" data-call-name="${customer.name}">${icon("phone")}记录通话</button><button class="button secondary" data-message-name="${customer.name}">${icon("message")}发送消息</button><button class="button secondary" data-edit-customer="${customer.id}">${icon("edit")}编辑</button></div><section class="detail-section"><h4>基本信息</h4><div class="detail-grid"><div class="detail-item"><span>手机号码</span><strong>${customer.phone}</strong></div><div class="detail-item"><span>客户编号</span><strong>${customer.id}</strong></div><div class="detail-item"><span>当前阶段</span><strong>${customerPill(customer.stage)}</strong></div><div class="detail-item"><span>客户等级</span><strong>${customer.level}</strong></div><div class="detail-item"><span>预计金额</span><strong>${money(customer.amount)}</strong></div><div class="detail-item"><span>负责人</span><strong>${customerOwnerDisplay(customer.owner)}</strong></div><div class="detail-item"><span>客户来源</span><strong>${customer.source}</strong></div><div class="detail-item"><span>所在城市</span><strong>${customer.city}</strong></div></div></section><section class="detail-section"><h4>客户备注</h4><p style="color:#475467;font-size:12px;line-height:1.8">${customer.note}</p></section><section class="detail-section"><h4>跟进安排</h4><div class="timeline"><div class="timeline-item"><time>${customer.lastContact}</time><p>最近更新客户资料与沟通状态。</p></div><div class="timeline-item"><time>${customer.nextFollow}</time><p>下一次客户跟进计划。</p></div></div></section></div>`;
+  drawer.innerHTML = `<header class="drawer-header"><div><p class="eyebrow">CUSTOMER DETAIL</p><h2>客户详情</h2></div><button class="icon-button" data-close-drawer aria-label="关闭">${icon("close")}</button></header><div class="drawer-body"><div class="profile-head"><span class="person-avatar">${customer.name[0]}</span><div><h3>${customer.name}</h3><p>${customer.company}</p></div></div><div class="profile-actions"><button class="button primary" data-call-name="${customer.name}">${icon("phone")}记录通话</button><button class="button secondary" data-message-name="${customer.name}">${icon("message")}发送消息</button>${canEditCustomer(customer) ? `<button class="button secondary" data-edit-customer="${customer.id}">${icon("edit")}编辑</button>` : ""}</div><section class="detail-section"><h4>基本信息</h4><div class="detail-grid"><div class="detail-item"><span>手机号码</span><strong>${customer.phone}</strong></div><div class="detail-item"><span>客户编号</span><strong>${customer.id}</strong></div><div class="detail-item"><span>当前阶段</span><strong>${customerPill(customer.stage)}</strong></div><div class="detail-item"><span>客户等级</span><strong>${customer.level}</strong></div><div class="detail-item"><span>预计金额</span><strong>${money(customer.amount)}</strong></div><div class="detail-item"><span>负责人</span><strong>${customerOwnerDisplay(customer.owner)}</strong></div><div class="detail-item"><span>客户来源</span><strong>${customer.source}</strong></div><div class="detail-item"><span>所在城市</span><strong>${customer.city}</strong></div></div></section><section class="detail-section"><h4>客户备注</h4><p style="color:#475467;font-size:12px;line-height:1.8">${customer.note}</p></section><section class="detail-section"><h4>跟进安排</h4><div class="timeline"><div class="timeline-item"><time>${customer.lastContact}</time><p>最近更新客户资料与沟通状态。</p></div><div class="timeline-item"><time>${customer.nextFollow}</time><p>下一次客户跟进计划。</p></div></div></section></div>`;
   document.querySelector("#drawerBackdrop").hidden = false;
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
@@ -5979,7 +5991,7 @@ function bindDrawerEvents() {
   document.querySelector("[data-close-drawer]")?.addEventListener("click", closeDrawer);
   document.querySelector("#detailDrawer [data-call-name]")?.addEventListener("click", event => callCustomer(event.currentTarget.dataset.callName));
   document.querySelector("#detailDrawer [data-message-name]")?.addEventListener("click", event => openConversationForCustomer(event.currentTarget.dataset.messageName));
-  document.querySelector("#detailDrawer [data-edit-customer]")?.addEventListener("click", event => { const customer = customers.find(item => item.id === event.currentTarget.dataset.editCustomer); closeDrawer(); openModal(customer); });
+  document.querySelector("#detailDrawer [data-edit-customer]")?.addEventListener("click", event => { const customer = findEditableCustomerRecord(event.currentTarget.dataset.editCustomer); if (!customer) return; closeDrawer(); openModal(customer); });
   document.querySelector("#detailDrawer [data-edit-order]")?.addEventListener("click", event => { const order = orders.find(item => item.id === event.currentTarget.dataset.editOrder); closeDrawer(); openBusinessModal("order", order); });
   document.querySelector("#detailDrawer [data-update-payment]")?.addEventListener("click", event => { const order = orders.find(item => item.id === event.currentTarget.dataset.updatePayment); closeDrawer(); openPaymentModal(order); });
   document.querySelector("#detailDrawer [data-update-service]")?.addEventListener("click", event => { const order = orders.find(item => item.id === event.currentTarget.dataset.updateService); closeDrawer(); openServiceModal(order); });
@@ -7492,7 +7504,7 @@ function bindViewEvents() {
     openCustomer(button.dataset.openCustomer);
   }));
   document.querySelector("[data-back-customer-list]")?.addEventListener("click", () => { state.customerContactReveals = {}; state.customerDetailId = null; render(); refreshVisibleCustomerList(); });
-  document.querySelectorAll("[data-edit-profile-customer]").forEach(button => button.addEventListener("click", event => { const customer = customers.find(item => String(item.id) === String(event.currentTarget.dataset.editProfileCustomer)); if (customer) openModal(customer); }));
+  document.querySelectorAll("[data-edit-profile-customer]").forEach(button => button.addEventListener("click", event => { const customer = findEditableCustomerRecord(event.currentTarget.dataset.editProfileCustomer); if (customer) openModal(customer); }));
   const profileActions = document.querySelector(".customer-profile-actions");
   const editProfile = document.querySelector("[data-edit-profile-customer]");
   if (profileActions && editProfile && isAdmin() && !profileActions.querySelector("[data-allocate-profile-customer]")) {
@@ -8002,7 +8014,11 @@ document.querySelector("#drawerBackdrop").addEventListener("click", closeDrawer)
 document.querySelector("#customerForm").addEventListener("submit", async event => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.currentTarget));
-  const existing = data.customerId ? customers.find(customer => customer.id === data.customerId) : null;
+  const existing = data.customerId ? findEditableCustomerRecord(data.customerId) : null;
+  if (data.customerId && !canEditCustomer(existing)) {
+    toast("仅管理员或当前负责人可以编辑客户，公海客户请先领取");
+    return;
+  }
   const payload = {
     name: data.name,
     nickname: data.nickname,
