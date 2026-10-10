@@ -17,7 +17,8 @@ function helpers() {
   }, escapeHtml: value => String(value ?? ''), businessModalFooter: () => '' });
   for (const name of ['customerOwnerAccountUsers', 'customerOwnerIsAdminUser', 'customerOwnerEmployeeOptions',
     'customerOwnerTree', 'customerUserReferenceLabel', 'collaborationOwnerField', 'collaborationOrdinal',
-    'collaborationRow', 'businessModalFields', 'isCurrentCustomerOwner', 'currentOwner', 'customerPayload']) {
+    'collaborationRow', 'businessModalFields', 'isCurrentCustomerOwner', 'currentOwner', 'customerPayload',
+    'formatPhone', 'formatRelativeDate', 'normalizeCustomer']) {
     const start = source.indexOf(`function ${name}(`);
     assert.notEqual(start, -1, `${name} must exist`);
     const remainder = source.slice(start);
@@ -70,6 +71,16 @@ test('UI ownership survives rename and cannot be inferred from matching names', 
   assert.equal(context.isCurrentCustomerOwner({ ownerId: 11, owner: '旧姓名' }), true);
   assert.equal(context.isCurrentCustomerOwner({ ownerId: 12, owner: '同名员工' }), false);
   assert.equal(context.isCurrentCustomerOwner({ owner: '同名员工' }), false);
+});
+
+test('pool responses clear cached contacts when visibility is revoked', () => {
+  const context = helpers();
+  const original = { id: '123', ownerId: 11, phone: '13800991234', wechat: 'private_wechat', contactVisible: true };
+  assert.equal(context.normalizeCustomer(original).phone, '138 0099 1234');
+  assert.equal(context.normalizeCustomer(original).wechat, 'private_wechat');
+  const released = context.normalizeCustomer({ ...original, owner: '公海', ownerId: null, contactVisible: false });
+  assert.equal(released.phone, '');
+  assert.equal(released.wechat, '');
 });
 
 test('saving a customer keeps stable owner and collaborator identities', () => {

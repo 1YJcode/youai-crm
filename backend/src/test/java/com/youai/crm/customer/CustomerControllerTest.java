@@ -503,7 +503,7 @@ class CustomerControllerTest {
 
     @Test
     @WithMockUser(username = "admin", roles = "ADMIN")
-    void masksContactDetailsUntilCustomerIsAssignedToEmployee() throws Exception {
+    void hidesContactDetailsUntilCustomerIsAssignedToEmployee() throws Exception {
         String body = """
                 {
                   "name": "联系方式权限测试客户",
@@ -529,8 +529,8 @@ class CustomerControllerTest {
 
         mockMvc.perform(get("/api/customers/pool").with(user("chenchen").roles("SALES")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[?(@.id == '%s')].phone".formatted(customerNo)).value("138****5555"))
-                .andExpect(jsonPath("$.content[?(@.id == '%s')].wechat".formatted(customerNo)).value("c****5"))
+                .andExpect(jsonPath("$.content[?(@.id == '%s')].phone".formatted(customerNo)).value(org.hamcrest.Matchers.contains(org.hamcrest.Matchers.nullValue())))
+                .andExpect(jsonPath("$.content[?(@.id == '%s')].wechat".formatted(customerNo)).value(org.hamcrest.Matchers.contains(org.hamcrest.Matchers.nullValue())))
                 .andExpect(jsonPath("$.content[?(@.id == '%s')].contactVisible".formatted(customerNo)).value(false));
 
         mockMvc.perform(patch("/api/customers/{customerNo}/assignment", customerNo)

@@ -62,7 +62,7 @@ public record CustomerResponse(
     /**
      * The visibility flag is the authorization result calculated by the
      * service: only an administrator or the current owner may receive the
-     * unmasked contact fields.
+     * contact fields. Unauthorized responses contain no partial identifiers.
      */
     public static CustomerResponse from(Customer customer, boolean contactVisible) {
         return from(customer, contactVisible, 0);
@@ -73,7 +73,7 @@ public record CustomerResponse(
                 customer.getCustomerNo(),
                 customer.getName(),
                 customer.getNickname(),
-                contactVisible ? customer.getPhone() : maskPhone(customer.getPhone()),
+                contactVisible ? customer.getPhone() : null,
                 contactVisible ? customer.getCompany() : null,
                 contactVisible ? customer.getSource() : null,
                 customer.getOwner(),
@@ -95,7 +95,7 @@ public record CustomerResponse(
                 customer.getCar(),
                 contactVisible ? customer.getNativePlace() : null,
                 contactVisible ? customer.getWorkLocation() : null,
-                contactVisible ? customer.getWechat() : maskWechat(customer.getWechat()),
+                contactVisible ? customer.getWechat() : null,
                 contactVisible,
                 contactVisible ? customer.getIdCard() : null,
                 contactVisible ? customer.getRemark() : null,
@@ -117,18 +117,4 @@ public record CustomerResponse(
                 Math.max(0, deepTalkDurationSeconds), customer.getOwnerId(), java.util.Set.copyOf(customer.getCollaboratorIds()));
     }
 
-    private static String maskPhone(String phone) {
-        if (phone == null || phone.isBlank()) return phone;
-        String compact = phone.replaceAll("\\s+", "");
-        if (compact.matches("\\d{11}")) return compact.substring(0, 3) + "****" + compact.substring(7);
-        if (compact.length() <= 5) return "******";
-        return compact.substring(0, 3) + "****" + compact.substring(compact.length() - 2);
-    }
-
-    private static String maskWechat(String wechat) {
-        if (wechat == null || wechat.isBlank()) return wechat;
-        String value = wechat.trim();
-        if (value.length() <= 2) return "******";
-        return value.substring(0, 1) + "****" + value.substring(value.length() - 1);
-    }
 }

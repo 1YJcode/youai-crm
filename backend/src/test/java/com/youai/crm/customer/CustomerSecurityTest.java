@@ -126,13 +126,16 @@ class CustomerSecurityTest {
     }
 
     @Test
-    void publicPoolMasksPrivateFieldsAndClaimRestoresOwnerVisibility() throws Exception {
+    void publicPoolHidesContactsAndClaimRestoresOnlyOwnerVisibility() throws Exception {
         long owner = employee("pool_identity", "领取员工");
+        employee("pool_other", "其他员工");
         String id = customer("user:" + owner, "user:" + owner).get("id").asText();
         mvc.perform(patch("/api/customers/" + id + "/pool").with(user("pool_identity").roles("SALES"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"inPool\":true}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.ownerId").isEmpty())
-                .andExpect(jsonPath("$.collaboratorIds").isEmpty());
+                .andExpect(jsonPath("$.collaboratorIds").isEmpty())
+                .andExpect(jsonPath("$.phone").isEmpty())
+                .andExpect(jsonPath("$.wechat").isEmpty());
         String result = mvc.perform(get("/api/customers/pool").param("size", "100")
                 .with(user("pool_identity").roles("SALES"))).andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
@@ -141,13 +144,42 @@ class CustomerSecurityTest {
         assertNotNull(record);
         assertFalse(record.get("contactVisible").asBoolean());
         for (String field : new String[]{"idCard", "note", "remark", "birthday", "workLocation"}) assertTrue(record.get(field).isNull(), field);
-        assertNotEquals("13800991234", record.get("phone").asText());
-        assertNotEquals("private_wechat", record.get("wechat").asText());
+        assertTrue(record.get("phone").isNull());
+        assertTrue(record.get("wechat").isNull());
+        for (String username : new String[]{"pool_identity", "pool_other"}) {
+            mvc.perform(get("/api/customers").param("inPool", "true").param("keyword", id)
+                    .with(user(username).roles("SALES")))
+                    .andExpect(jsonPath("$.content[0].phone").isEmpty())
+                    .andExpect(jsonPath("$.content[0].wechat").isEmpty());
+            mvc.perform(get("/api/customers/" + id).with(user(username).roles("SALES")))
+                    .andExpect(status().isForbidden());
+        }
+        mvc.perform(get("/api/customers").param("inPool", "true").param("keyword", id)
+                .with(user("admin").roles("ADMIN")))
+                .andExpect(jsonPath("$.content[0].phone").value("13800991234"))
+                .andExpect(jsonPath("$.content[0].wechat").value("private_wechat"));
         mvc.perform(patch("/api/customers/" + id + "/pool").with(user("pool_identity").roles("SALES"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"inPool\":false}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.ownerId").value(owner))
                 .andExpect(jsonPath("$.idCard").value("120000199405060000"))
-                .andExpect(jsonPath("$.note").value("私密备注13800991234"));
+                .andExpect(jsonPath("$.note").value("私密备注13800991234"))
+                .andExpect(jsonPath("$.phone").value("13800991234"))
+                .andExpect(jsonPath("$.wechat").value("private_wechat"));
+        mvc.perform(get("/api/customers/" + id).with(user("pool_other").roles("SALES")))
+                .andExpect(status().isForbidden());
+        mvc.perform(patch("/api/customers/" + id + "/pool").with(user("pool_identity").roles("SALES"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"inPool\":true}"))
+                .andExpect(jsonPath("$.contactVisible").value(false))
+                .andExpect(jsonPath("$.phone").isEmpty())
+                .andExpect(jsonPath("$.wechat").isEmpty());
+        mvc.perform(get("/api/customers/" + id).with(user("pool_identity").roles("SALES")))
+                .andExpect(status().isForbidden());
+        mvc.perform(patch("/api/customers/" + id + "/pool").with(user("pool_other").roles("SALES"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"inPool\":false}"))
+                .andExpect(jsonPath("$.phone").value("13800991234"))
+                .andExpect(jsonPath("$.wechat").value("private_wechat"));
+        mvc.perform(get("/api/customers/" + id).with(user("pool_identity").roles("SALES")))
+                .andExpect(status().isForbidden());
     }
 
     @Test

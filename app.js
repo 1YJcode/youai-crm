@@ -1337,7 +1337,8 @@ function normalizeCustomer(customer) {
     ...customer,
     collaborators,
     collaborator: customer.collaborator || collaborators.join("、"),
-    phone: formatPhone(customer.phone),
+    phone: customer.contactVisible === false ? "" : formatPhone(customer.phone),
+    wechat: customer.contactVisible === false ? "" : customer.wechat,
     amount: Number(customer.amount || 0),
     lastContact: formatRelativeDate(customer.lastContactAt || customer.lastContact),
     nextFollow: formatRelativeDate(customer.nextFollowAt || customer.nextFollow),
@@ -3293,11 +3294,16 @@ function customerDetailView(id) {
   const canRevealContact = contactVisible && (isAdmin() || isCustomerOwner);
   const isContactRevealable = label => canRevealContact && ["电话号码", "微信号"].includes(label);
   const isContactRevealed = label => isContactRevealable(label) && Boolean(state.customerContactReveals[`${customer.id}:${label}`]);
-  const headerPhone = isContactRevealed("电话号码") ? (customer.phone || "") : maskPhoneDisplay(customer.phone);
+  const headerPhone = canRevealContact
+    ? (isContactRevealed("电话号码") ? (customer.phone || "") : maskPhoneDisplay(customer.phone))
+    : "联系方式未授权";
   const cell = (label, item, required = false) => label
     ? `<div class="profile-reference-field"><dt>${required ? "*" : ""}${label}</dt><dd>${value(item)}</dd></div>`
     : '<div class="profile-reference-gap" aria-hidden="true"></div>';
   const privateCell = (label, item) => {
+    if (["电话号码", "微信号"].includes(label) && !canRevealContact) {
+      return cell(label, customer.owner === "公海" ? "领取后可查看" : "无查看权限");
+    }
     const revealable = isContactRevealable(label);
     const revealed = isContactRevealed(label);
     const displayValue = revealed
