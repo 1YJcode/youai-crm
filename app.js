@@ -337,7 +337,6 @@ const state = {
   callNameKeyword: "",
   callStatusFilter: "全部",
   callDirectionFilter: "全部",
-  callAiPreview: false,
   callSection: "通话记录",
   callTaskFilter: "all",
   callAgentFilter: "全部坐席",
@@ -893,13 +892,14 @@ function customerCollaboratorHierarchyMatches(customer, selection = {}) {
 const API_BASE = window.YOUAI_API_BASE || "http://127.0.0.1:8080/api";
 
 async function apiRequest(path, options = {}, allowRefresh = true) {
+  const { responseType, timeoutMs = 10000, ...fetchOptions } = options;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+    const headers = { ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(options.headers || {}) };
     if (state.auth.token && !headers.Authorization) headers.Authorization = `Bearer ${state.auth.token}`;
     const response = await fetch(`${API_BASE}${path}`, {
-      ...options,
+      ...fetchOptions,
       signal: controller.signal,
       headers
     });
@@ -924,6 +924,7 @@ async function apiRequest(path, options = {}, allowRefresh = true) {
       throw apiError;
     }
     if (response.status === 204) return null;
+    if (responseType === "blob") return await response.blob();
     return await response.json();
   } catch (error) {
     if (error.name === "AbortError") throw new Error("数据服务响应超时，请稍后重试");
@@ -935,6 +936,8 @@ async function apiRequest(path, options = {}, allowRefresh = true) {
 }
 
 function clearAuth() {
+  if (typeof closeKnowledgeDialog === "function") closeKnowledgeDialog();
+  if (typeof closeCallRecording === "function") closeCallRecording();
   state.auth.token = "";
   state.auth.refreshToken = "";
   state.auth.user = null;
@@ -959,6 +962,8 @@ function customerOwnerSelectionNames(selection = {}) {
 
 function saveAuth(auth) {
   const accountChanged = String(state.auth.user?.id) !== String(auth.user?.id);
+  if (accountChanged && typeof closeCallRecording === "function") closeCallRecording();
+  if (accountChanged && typeof closeKnowledgeDialog === "function") closeKnowledgeDialog();
   const wasAdmin = isAdmin();
   state.auth.token = auth.accessToken;
   state.auth.refreshToken = auth.refreshToken || state.auth.refreshToken || "";
@@ -3519,7 +3524,7 @@ function callRecordsView() {
     <label><b>ID/手机号：</b><input id="callKeyword" value="${escapeHtml(state.callKeyword)}" placeholder="请输入用户Id或者手机号"></label><label><b>昵称/姓名：</b><input id="callNameKeyword" value="${escapeHtml(state.callNameKeyword)}" placeholder="请输入用户昵称或姓名"></label><label><b>呼出时间：</b><span class="call-date-range"><input type="date" aria-label="开始日期"><i>→</i><input type="date" aria-label="结束日期"></span></label>
     <label><b>处理人：</b><select id="callAgentFilter"><option value="全部坐席">请选择</option>${agents.map(agent => `<option ${agent === state.callAgentFilter ? "selected" : ""}>${escapeHtml(agent)}</option>`).join("")}</select></label><label><b>呼叫类型：</b><select id="callDirectionFilter"><option>全部</option><option ${state.callDirectionFilter === "呼出" ? "selected" : ""}>呼出</option><option ${state.callDirectionFilter === "呼入" ? "selected" : ""}>呼入</option></select></label><label><b>通话状态：</b><select id="callStatusFilter"><option>全部</option><option ${state.callStatusFilter === "已接通" ? "selected" : ""}>已接通</option><option ${state.callStatusFilter === "未接通" ? "selected" : ""}>未接通</option><option ${state.callStatusFilter === "待回拨" ? "selected" : ""}>待回拨</option></select></label>
     <label><b>呼叫时长：</b><select><option>请选择</option></select></label><label><b>通话时长：</b><select><option>请选择</option></select></label><div class="call-filter-actions"><button class="button primary" id="applyCallFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCallFilters" type="button">${icon("repeat")}重置</button></div>
-  </section><section class="call-record-panel"><div class="call-record-tools"><label>AI分析展开预览 <input id="callAiPreview" type="checkbox" ${state.callAiPreview ? "checked" : ""}><span></span></label><button class="button primary" type="button">通话相关数据</button></div><div class="table-wrap"><table class="call-record-table"><thead><tr><th>用户ID</th><th>真实姓名</th><th>呼出时间</th><th>呼叫类型</th><th>处理人</th><th>中间号码</th><th>通话状态</th><th>呼叫时长</th><th>通话时长 ↕</th><th>AI分析状态 ◉</th><th>操作</th></tr></thead><tbody>${records.map(call => `<tr><td><button class="call-id-link">${escapeHtml((call.customerId || String(call.id)).replace(/\D/g, "").slice(-10) || String(call.id))}</button></td><td>${escapeHtml(call.customer || "-")}</td><td>${escapeHtml(call.started || "-")}</td><td>${escapeHtml(call.direction || "-")}</td><td>${escapeHtml(call.agent || call.owner || "-")}</td><td>99915400${String(call.id).slice(-1)}</td><td>${call.status === "未接通" ? "客户未接听" : escapeHtml(call.status || "-")}</td><td>${formatDuration(call.durationSeconds || 0)}</td><td>${call.status === "已接通" ? formatDuration(call.durationSeconds || 0) : "00:00"}</td><td>• ${state.callAiPreview ? "分析完成" : "不分析"}</td><td>${call.recording ? "查看录音" : "无录音"}</td></tr>`).join("") || `<tr><td colspan="11" class="call-empty">暂无通话记录</td></tr>`}</tbody></table></div><footer class="call-pagination"><span>${pageStart}-${pageEnd} 共${totalElements}条</span><button data-call-page="${currentPage - 1}" ${currentPage <= 1 ? "disabled" : ""}>‹</button>${visiblePages.map(page => `<button data-call-page="${page}" class="${page === currentPage ? "active" : ""}">${page}</button>`).join("")}<button data-call-page="${currentPage + 1}" ${currentPage >= totalPages ? "disabled" : ""}>›</button><select id="callPageSize"><option value="10" ${state.callPageSize===10?"selected":""}>10 条/页</option><option value="20" ${state.callPageSize===20?"selected":""}>20 条/页</option><option value="50" ${state.callPageSize===50?"selected":""}>50 条/页</option><option value="100" ${state.callPageSize===100?"selected":""}>100 条/页</option></select></footer></section>
+  </section><section class="call-record-panel"><div class="call-record-tools"><span>在“录音管理”中上传、播放并查看 AI 整理结果</span><button class="button primary" type="button">通话相关数据</button></div><div class="table-wrap"><table class="call-record-table"><thead><tr><th>用户ID</th><th>真实姓名</th><th>呼出时间</th><th>呼叫类型</th><th>处理人</th><th>中间号码</th><th>通话状态</th><th>呼叫时长</th><th>通话时长 ↕</th><th>AI分析状态 ◉</th><th>操作</th></tr></thead><tbody>${records.map(call => `<tr><td><button class="call-id-link">${escapeHtml((call.customerId || String(call.id)).replace(/\D/g, "").slice(-10) || String(call.id))}</button></td><td>${escapeHtml(call.customer || "-")}</td><td>${escapeHtml(call.started || "-")}</td><td>${escapeHtml(call.direction || "-")}</td><td>${escapeHtml(call.agent || call.owner || "-")}</td><td>99915400${String(call.id).slice(-1)}</td><td>${call.status === "未接通" ? "客户未接听" : escapeHtml(call.status || "-")}</td><td>${formatDuration(call.durationSeconds || 0)}</td><td>${call.status === "已接通" ? formatDuration(call.durationSeconds || 0) : "00:00"}</td><td>录音内查看</td><td><button class="button ghost" type="button" data-call-recording="${escapeHtml(String(call.id))}">录音管理</button></td></tr>`).join("") || `<tr><td colspan="11" class="call-empty">暂无通话记录</td></tr>`}</tbody></table></div><footer class="call-pagination"><span>${pageStart}-${pageEnd} 共${totalElements}条</span><button data-call-page="${currentPage - 1}" ${currentPage <= 1 ? "disabled" : ""}>‹</button>${visiblePages.map(page => `<button data-call-page="${page}" class="${page === currentPage ? "active" : ""}">${page}</button>`).join("")}<button data-call-page="${currentPage + 1}" ${currentPage >= totalPages ? "disabled" : ""}>›</button><select id="callPageSize"><option value="10" ${state.callPageSize===10?"selected":""}>10 条/页</option><option value="20" ${state.callPageSize===20?"selected":""}>20 条/页</option><option value="50" ${state.callPageSize===50?"selected":""}>50 条/页</option><option value="100" ${state.callPageSize===100?"selected":""}>100 条/页</option></select></footer></section>
   </div></section>`;
 }
 
@@ -3571,7 +3576,7 @@ function callQualityView() {
   return `<section class="page">${callNav("录音质检")}<div class="page-content">
     ${pageHeading(`<button class="button secondary" id="exportCallQuality" type="button">${icon("download")}导出质检结果</button>`)}
     <section class="metric-grid">${metric("待质检", String(pending.length), "条", "实时", "amber", "clock")}${metric("已完成", String(reviewed), "条", "实时", "green", "check")}${metric("质检完成率", calls.length ? `${Math.round(reviewed / calls.length * 100)}` : "0", "%", "实时", "blue", "target")}</section>
-    <section class="data-panel"><div class="data-toolbar"><div class="panel-title"><h2>通话录音质检</h2><span>当前通话记录未接入录音文件，先完成结果复核</span></div><span class="pill gray">${calls.length} 条通话</span></div><div class="table-wrap">${calls.length ? `<table class="data-table"><thead><tr><th>客户</th><th>坐席</th><th>通话结果</th><th>时长</th><th>备注</th><th>录音</th><th>质检状态</th><th>操作</th></tr></thead><tbody>${calls.map(call => { const checked = Boolean(state.callReviews[call.id]); return `<tr><td><strong>${escapeHtml(call.customer)}</strong></td><td>${escapeHtml(call.agent || call.owner)}</td><td><span class="pill ${call.status === "已接通" ? "green" : "red"}">${escapeHtml(call.status)}</span></td><td>${formatDuration(call.durationSeconds)}</td><td>${escapeHtml(call.note || "暂无备注")}</td><td><span class="pill gray">暂无录音</span></td><td><span class="pill ${checked ? "green" : "amber"}">${checked ? "已完成" : "待质检"}</span></td><td><button class="button ${checked ? "ghost" : "primary"}" type="button" data-call-review="${call.id}">${checked ? "取消标记" : "完成质检"}</button></td></tr>`; }).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("phone")}</span><strong>暂无通话录音</strong><p>完成通话记录后，会在这里进行质检。</p></div>`}</div></section>
+    <section class="data-panel"><div class="data-toolbar"><div class="panel-title"><h2>通话录音质检</h2><span>上传并核对录音、转写和总结后完成质检</span></div><span class="pill gray">${calls.length} 条通话</span></div><div class="table-wrap">${calls.length ? `<table class="data-table"><thead><tr><th>客户</th><th>坐席</th><th>通话结果</th><th>时长</th><th>备注</th><th>录音</th><th>质检状态</th><th>操作</th></tr></thead><tbody>${calls.map(call => { const checked = Boolean(state.callReviews[call.id]); return `<tr><td><strong>${escapeHtml(call.customer)}</strong></td><td>${escapeHtml(call.agent || call.owner)}</td><td><span class="pill ${call.status === "已接通" ? "green" : "red"}">${escapeHtml(call.status)}</span></td><td>${formatDuration(call.durationSeconds)}</td><td>${escapeHtml(call.note || "暂无备注")}</td><td><button class="button ghost" type="button" data-call-recording="${escapeHtml(String(call.id))}">录音管理</button></td><td><span class="pill ${checked ? "green" : "amber"}">${checked ? "已完成" : "待质检"}</span></td><td><button class="button ${checked ? "ghost" : "primary"}" type="button" data-call-review="${call.id}">${checked ? "取消标记" : "完成质检"}</button></td></tr>`; }).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("phone")}</span><strong>暂无通话录音</strong><p>完成通话记录后，会在这里进行质检。</p></div>`}</div></section>
   </div></section>`;
 }
 
@@ -4120,7 +4125,7 @@ function analyticsSummary() {
 }
 
 function analyticsNav(active) {
-  const sections = ["邀约记录", "通话沟通记录", "分账记录", "库存记录", "消息统计", "通话统计", "约会列表"];
+  const sections = ["邀约记录", "通话沟通记录", "分账记录", "库存记录", "消息统计", "通话统计", "约会列表", "知识库"];
   return subnav(sections, active, sections);
 }
 
@@ -4222,6 +4227,7 @@ function ledgerRecordsView() {
 }
 
 function analyticsView() {
+  if (state.analyticsSection === "知识库") return knowledgeBaseView();
   if (state.analyticsSection === "邀约记录") return invitationRecordsView();
   if (state.analyticsSection === "分账记录") return ledgerRecordsView();
   if (state.analyticsSection === "客户分析") return customerAnalyticsView();
@@ -4399,6 +4405,7 @@ function render() {
   renderWorkspaceTabs();
   document.title = `${workspaceTabLabel(state.view, currentWorkspaceSection())} - 优爱 YOUAI`;
   bindViewEvents();
+  if (typeof bindKnowledgeBase === "function") bindKnowledgeBase();
   bindServerPaginationControls();
   positionCustomerFollowUpDatePopover();
   updateNotificationChrome();
@@ -7726,7 +7733,6 @@ function bindViewEvents() {
   document.querySelectorAll("[data-call-filter]").forEach(button => button.addEventListener("click", () => { state.callFilter = button.dataset.callFilter; render(); }));
   document.querySelectorAll("[data-call-task-filter]").forEach(button => button.addEventListener("click", () => { state.callTaskFilter = button.dataset.callTaskFilter; render(); }));
   document.querySelector("#callAgentFilter")?.addEventListener("change", event => { state.callAgentFilter = event.target.value; });
-  document.querySelector("#callAiPreview")?.addEventListener("change", event => { state.callAiPreview = event.target.checked; render(); });
   document.querySelector("#applyCallFilters")?.addEventListener("click", () => { state.callKeyword = document.querySelector("#callKeyword")?.value || ""; state.callNameKeyword = document.querySelector("#callNameKeyword")?.value || ""; state.callAgentFilter = document.querySelector("#callAgentFilter")?.value || "全部坐席"; state.callDirectionFilter = document.querySelector("#callDirectionFilter")?.value || "全部"; state.callStatusFilter = document.querySelector("#callStatusFilter")?.value || "全部"; state.callPage = 1; refreshCallsFromApi(); });
   document.querySelectorAll("#callKeyword, #callNameKeyword").forEach(input => input.addEventListener("keydown", event => { if (event.key === "Enter") document.querySelector("#applyCallFilters")?.click(); }));
   document.querySelector("#resetCallFilters")?.addEventListener("click", () => { state.callKeyword = ""; state.callNameKeyword = ""; state.callAgentFilter = "全部坐席"; state.callDirectionFilter = "全部"; state.callStatusFilter = "全部"; state.callPage = 1; refreshCallsFromApi(); });
@@ -7853,7 +7859,7 @@ function exportCallAgents() {
 
 function exportCallQuality() {
   const header = ["客户", "坐席", "通话结果", "通话时长", "备注", "录音", "质检状态"];
-  const csv = "\ufeff" + [header, ...calls.map(call => [call.customer, call.agent || call.owner, call.status, formatDuration(call.durationSeconds), call.note || "暂无备注", "暂无录音", state.callReviews[call.id] ? "已完成" : "待质检"])].map(row => row.map(value => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
+  const csv = "\ufeff" + [header, ...calls.map(call => [call.customer, call.agent || call.owner, call.status, formatDuration(call.durationSeconds), call.note || "暂无备注", "请在系统录音管理中查看", state.callReviews[call.id] ? "已完成" : "待质检"])].map(row => row.map(value => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
   const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); link.download = "优客云-录音质检.csv"; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 0);
   toast("录音质检结果已导出");
 }
@@ -8010,7 +8016,7 @@ const navHoverItems = {
   messages: ["消息管理", "短信记录"],
   orders: ["订单列表", "合同列表", "流水列表", "业绩上传", "退费列表", "业绩列表", "卡券管理"],
   system: ["用户管理", "菜单管理", "部门管理", "业务设置"],
-  analytics: ["邀约记录", "通话沟通记录", "分账记录", "库存记录", "消息统计", "通话统计", "约会列表"],
+  analytics: ["邀约记录", "通话沟通记录", "分账记录", "库存记录", "消息统计", "通话统计", "约会列表", "知识库"],
   finance: ["财务概览", "收款流水", "退款明细"]
 };
 const navHoverMenu = document.createElement("div");

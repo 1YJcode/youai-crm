@@ -22,6 +22,18 @@ import com.youai.crm.account.AccountUnavailableException;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<ApiError> handleHttpStatus(org.springframework.web.server.ResponseStatusException exception) {
+        return ResponseEntity.status(exception.getStatusCode()).body(new ApiError(Instant.now(),
+                exception.getStatusCode().value(), "REQUEST_REJECTED",
+                exception.getReason() == null ? "请求无法处理" : exception.getReason(), Map.of()));
+    }
+
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiError> handleUploadSize(org.springframework.web.multipart.MaxUploadSizeExceededException exception) {
+        return response(HttpStatus.PAYLOAD_TOO_LARGE, "FILE_TOO_LARGE", "上传文件超过大小限制", Map.of());
+    }
+
     @ExceptionHandler({OptimisticLockingFailureException.class, OptimisticLockException.class,
             PessimisticLockingFailureException.class})
     public ResponseEntity<ApiError> handleConcurrentUpdate(Exception exception) {

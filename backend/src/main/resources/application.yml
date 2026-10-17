@@ -15,6 +15,10 @@ management:
       application: ${spring.application.name}
 
 spring:
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
   application:
     name: youai-crm-backend
   datasource:
@@ -45,6 +49,12 @@ logging:
   level:
     root: INFO
     org.hibernate.SQL: WARN
+
+recording:
+  ai:
+    api-key: ${RECORDING_AI_API_KEY:}
+    transcription-model: ${RECORDING_AI_TRANSCRIPTION_MODEL:}
+    summary-model: ${RECORDING_AI_SUMMARY_MODEL:}
 
 security:
   initial-admin-password: ${INITIAL_ADMIN_PASSWORD:}

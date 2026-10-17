@@ -2910,3 +2910,32 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
   .profile-reference-page.followup-active .customer-followup-filter { flex-basis:100%; order:2; justify-content:flex-start; padding:6px 0 10px; }
 }
 @media (max-width:760px) { .customer-followup-filter { flex-wrap:wrap; } .customer-followup-keyword input { width:180px; } .profile-reference-page.followup-active .customer-followup-keyword input { width:100%; } }
+/* Authenticated call recording upload and playback. */
+.recording-dialog { width: min(640px, calc(100vw - 32px)); max-height: 90vh; overflow: auto; border: 1px solid #dde3eb; border-radius: 12px; padding: 24px; color: #273449; }
+.recording-dialog::backdrop { background: rgb(15 23 42 / 45%); }
+.recording-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.recording-dialog form { display: grid; gap: 16px; margin-top: 20px; }
+.recording-dialog label { display: block; line-height: 1.7; }
+.recording-dialog input[type=file] { display: block; margin-top: 8px; max-width: 100%; }
+.recording-dialog audio { width: 100%; }
+.recording-dialog p { line-height: 1.7; }
+.recording-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.7; }
+.recording-dialog textarea { display: block; width: 100%; box-sizing: border-box; margin: 8px 0 12px; padding: 10px; font: inherit; resize: vertical; }
+.knowledge-heading, .knowledge-pagination { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.knowledge-heading p { color:#718096; margin:8px 0 24px; }
+.knowledge-search { display:flex; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
+.knowledge-search input,.knowledge-search select { border:1px solid #dce3ed; border-radius:6px; padding:10px 12px; background:white; }
+.knowledge-search input { flex:1; min-width:180px; }
+.knowledge-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:18px; margin:20px 0; }
+.knowledge-card { text-align:left; padding:22px; border:1px solid #e1e7f0; border-radius:10px; background:white; cursor:pointer; color:inherit; }
+.knowledge-card:hover { border-color:#1677ff; box-shadow:0 4px 14px #14284c0c; }
+.knowledge-card h3 { margin:14px 0 10px; overflow-wrap:anywhere; }
+.knowledge-card p { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; color:#66758b; }
+.knowledge-card small { color:#8a96a7; }
+.knowledge-dialog { width:min(800px,calc(100vw - 32px)); max-height:90vh; overflow:auto; padding:24px; border:1px solid #dce3ed; border-radius:12px; color:#273449; }
+.knowledge-dialog::backdrop { background:rgb(15 23 42 / 45%); }
+.knowledge-dialog header { display:flex; justify-content:space-between; align-items:center; gap:16px; }
+.knowledge-dialog label { display:block; margin:16px 0; }
+.knowledge-dialog input,.knowledge-dialog textarea { display:block; width:100%; box-sizing:border-box; padding:10px; margin-top:8px; border:1px solid #dce3ed; border-radius:6px; font:inherit; line-height:1.7; }
+.knowledge-dialog textarea { resize:vertical; }
+.knowledge-dialog footer { display:flex; gap:12px; }
