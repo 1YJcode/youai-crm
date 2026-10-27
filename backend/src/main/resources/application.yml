@@ -17,8 +17,8 @@ management:
 spring:
   servlet:
     multipart:
-      max-file-size: 20MB
-      max-request-size: 21MB
+      max-file-size: 200MB
+      max-request-size: 201MB
   application:
     name: youai-crm-backend
   datasource:
@@ -50,7 +50,39 @@ logging:
     root: INFO
     org.hibernate.SQL: WARN
 
+rag:
+  notebook:
+    enabled: ${RAG_NOTEBOOK_ENABLED:false}
+    endpoint: ${RAG_NOTEBOOK_ENDPOINT:http://rag-notebook:8091}
+    token: ${RAG_INTERNAL_TOKEN:}
+
 recording:
+  deepseek:
+    automatic-backfill: ${CALL_DRAFT_AUTOMATIC_BACKFILL:true}
+    api-key: ${DEEPSEEK_API_KEY:}
+    model: ${DEEPSEEK_MODEL:deepseek-flash}
+    endpoint: ${DEEPSEEK_ENDPOINT:https://api.deepseek.com/chat/completions}
+  storage:
+    backend: ${RECORDING_STORAGE_BACKEND:file}
+    directory: ${RECORDING_STORAGE_DIRECTORY:./data/recordings}
+    s3:
+      bucket: ${RECORDING_S3_BUCKET:}
+      endpoint: ${RECORDING_S3_ENDPOINT:}
+      region: ${RECORDING_S3_REGION:us-east-1}
+      access-key: ${RECORDING_S3_ACCESS_KEY:}
+      secret-key: ${RECORDING_S3_SECRET_KEY:}
+      path-style: ${RECORDING_S3_PATH_STYLE:false}
+  queue:
+    concurrency: ${RECORDING_QUEUE_CONCURRENCY:1}
+    enabled: ${RECORDING_QUEUE_ENABLED:true}
+  local:
+    enabled: ${LOCAL_ASR_ENABLED:false}
+    endpoint: ${LOCAL_ASR_ENDPOINT:http://127.0.0.1:8766/transcribe}
+  qwen:
+    api-key: ${QWEN_ASR_API_KEY:}
+    model: ${QWEN_ASR_MODEL:qwen3-asr-flash}
+    endpoint: ${QWEN_ASR_ENDPOINT:https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}
+    ffmpeg: ${FFMPEG_PATH:ffmpeg}
   ai:
     api-key: ${RECORDING_AI_API_KEY:}
     transcription-model: ${RECORDING_AI_TRANSCRIPTION_MODEL:}

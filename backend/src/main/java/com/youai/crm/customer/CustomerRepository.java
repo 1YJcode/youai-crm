@@ -10,6 +10,17 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface CustomerRepository extends JpaRepository<Customer, Long>, JpaSpecificationExecutor<Customer> {
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Customer c where c.customerNo=:customerNo")
+    Optional<Customer> lockByCustomerNo(String customerNo);
+    interface Ownership {
+        String getCustomerNo();
+        Long getOwnerId();
+    }
+
+    @Query("select c.customerNo as customerNo, c.ownerId as ownerId from Customer c where c.customerNo in :customerNos")
+    List<Ownership> findOwnershipByCustomerNos(@Param("customerNos") java.util.Collection<String> customerNos);
+
     Optional<Customer> findByCustomerNo(String customerNo);
     Optional<Customer> findByPhone(String phone);
     long countByOwner(String owner);

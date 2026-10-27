@@ -1,0 +1,20 @@
+CREATE TABLE crm_customer_review (
+ id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ customer_no VARCHAR(32) NOT NULL,
+ fingerprint VARCHAR(64) NOT NULL,
+ state VARCHAR(24) NOT NULL,
+ customer_stage VARCHAR(32) NOT NULL,
+ sources_json LONGTEXT NOT NULL,
+ result_json LONGTEXT,
+ error VARCHAR(200),
+ token VARCHAR(36),
+ attempts INT NOT NULL,
+ created_at DATETIME(6) NOT NULL,
+ completed_at DATETIME(6),
+ lease_until DATETIME(6),
+ published_article_id BIGINT,
+ version BIGINT,
+ CONSTRAINT uk_customer_review_snapshot UNIQUE(customer_no,fingerprint),
+ INDEX idx_customer_review_queue(state,lease_until),
+ INDEX idx_customer_review_history(customer_no,id)
+);

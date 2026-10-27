@@ -9,3 +9,11 @@ backend/target
 app界面UI
 README.md
 docker-compose*.yml
+
+.env
+.env.*
+.local-asr
+.tmp_*
+data
+backend/data
+**/__pycache__

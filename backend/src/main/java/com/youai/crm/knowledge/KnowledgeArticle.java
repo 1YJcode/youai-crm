@@ -15,7 +15,23 @@ public class KnowledgeArticle {
     @Column(nullable=false, length=128) public String updatedBy;
     @Column(nullable=false) public LocalDateTime createdAt;
     @Column(nullable=false) public LocalDateTime updatedAt;
+    public Long sourceCallId;
+    @Column(length=255, unique=true) public String sourceKey;
+    @Column(length=36) public String recordingRevision;
+    @Column(length=16) public String recordingSource;
+    @Column(length=16) public String transcriptionProvider;
+    @Column(length=32) public String customerNo;
+    @Column(length=64) public String customerName;
+    public Long salesUserId;
+    @Column(length=64) public String salesName;
+    public LocalDateTime callStartedAt;
+    public LocalDateTime recordingUploadedAt;
+    public LocalDateTime transcribedAt;
+    public LocalDateTime analyzedAt;
+    @Column(length=24) public String aiStatus;
     @Version @Column(nullable=false) public Long version;
+    @Column(nullable=false) public boolean companyCase;
+    @Column(unique=true) public Long derivedFromId;
     @PrePersist void create() { createdAt=LocalDateTime.now(); updatedAt=createdAt; }
     @PreUpdate void update() { updatedAt=LocalDateTime.now(); }
 }

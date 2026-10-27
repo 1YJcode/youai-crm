@@ -146,6 +146,7 @@ public class DemoDataSeeder {
             call.setPhone(customer.getPhone());
             call.setOwner(customer.getOwner());
             call.setAgent(customer.getOwner());
+            call.setAgentUserId(customer.getOwnerId());
             call.setDirection("呼出");
             call.setStatus("已接通");
             call.setDurationSeconds(360);

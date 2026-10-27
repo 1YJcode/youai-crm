@@ -19,11 +19,13 @@ const path = require('node:path');
       URL.revokeObjectURL = url => {fixture.revoked++; revoke(url);};
       window.apiRequest = async (url, options = {}) => {
         const method = options.method || 'GET';
+        if (url === '/recording-uploads') return {direct:false};
+        if (url.endsWith('/playback')) return {url:null};
         if (url.endsWith('/review')) {
           if (method === 'PUT') {const body = JSON.parse(options.body); fixture.text = body.text; fixture.version++; return null;}
           return {revision: 'test-revision', started: '2026-10-17T09:00:00', version: fixture.version, text: fixture.text || '请周五回访', reviewer: 'tester', reviewedAt: fixture.version ? '2026-10-17T10:00:00' : null};
         }
-        if (url.endsWith('/analysis')) {
+        if (url.endsWith('/analysis') || url.includes('/transcriptions/')) {
           if (method === 'POST') {fixture.posts++; fixture.status = 'PROCESSING'; setTimeout(() => fixture.status = 'COMPLETED', 50);}
           return {configured: true, status: fixture.status, transcript: fixture.status === 'COMPLETED' ? '周五再联系' : null,
             summary: fixture.status === 'COMPLETED' ? '<img src=x onerror="window.injected=true">客户希望周五回访' : null};

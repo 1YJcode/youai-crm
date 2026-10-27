@@ -33,3 +33,9 @@ backend-*.log
 .env
 .env.*
 !.env.example
+
+.local-asr/
+# Private recording files are backed up separately from source code.
+/data/
+/backend/data/
+/services/rag-notebook/**/__pycache__/

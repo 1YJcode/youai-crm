@@ -10,6 +10,9 @@ import org.springframework.data.repository.query.Param;
 import java.time.LocalDateTime;
 
 public interface CallRecordRepository extends JpaRepository<CallRecord, Long>, JpaSpecificationExecutor<CallRecord> {
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from CallRecord c where c.id=:id")
+    java.util.Optional<CallRecord> lockById(Long id);
     List<CallRecord> findAllByOrderByStartedAtDesc();
 
     interface CustomerRecordCount {
