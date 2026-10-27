@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface FollowUpTaskRepository extends JpaRepository<FollowUpTask, Long>, JpaSpecificationExecutor<FollowUpTask> {
+    List<FollowUpTask> findByCustomerIdAndFollowedAtIsNotNullOrderByFollowedAtAscIdAsc(String customerId);
     List<FollowUpTask> findAllByOrderByDueAtAsc();
     long countByCompletedFalseAndDueAtBetween(LocalDateTime start, LocalDateTime end);
     long countByCompletedFalse();

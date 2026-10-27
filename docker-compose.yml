@@ -15,7 +15,7 @@ services:
       # MySQL 8.4 无法读取 5.7 的数据目录，因此使用独立数据卷。
       # 旧卷 youke_mysql_data（5.7 数据）保持不动，作为回滚路径保留。
       - youai_mysql84_data:/var/lib/mysql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    command: --max-allowed-packet=268435456 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
       interval: 5s
@@ -42,6 +42,27 @@ services:
       BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       SERVER_PORT: 8080
+      RECORDING_STORAGE_BACKEND: ${RECORDING_STORAGE_BACKEND:-file}
+      RECORDING_STORAGE_DIRECTORY: /data/recordings
+      RECORDING_S3_BUCKET: ${RECORDING_S3_BUCKET:-}
+      RECORDING_S3_ENDPOINT: ${RECORDING_S3_ENDPOINT:-}
+      RECORDING_S3_REGION: ${RECORDING_S3_REGION:-us-east-1}
+      RECORDING_S3_ACCESS_KEY: ${RECORDING_S3_ACCESS_KEY:-}
+      RECORDING_S3_SECRET_KEY: ${RECORDING_S3_SECRET_KEY:-}
+      RECORDING_S3_PATH_STYLE: ${RECORDING_S3_PATH_STYLE:-false}
+      RECORDING_QUEUE_CONCURRENCY: ${RECORDING_QUEUE_CONCURRENCY:-1}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      RAG_NOTEBOOK_ENABLED: ${RAG_NOTEBOOK_ENABLED:-true}
+      RAG_NOTEBOOK_ENDPOINT: http://rag-notebook:8091
+      RAG_INTERNAL_TOKEN: ${RAG_INTERNAL_TOKEN:-}
+      CALL_DRAFT_AUTOMATIC_BACKFILL: ${CALL_DRAFT_AUTOMATIC_BACKFILL:-true}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
+      DEEPSEEK_ENDPOINT: ${DEEPSEEK_ENDPOINT:-https://api.deepseek.com/chat/completions}
+      LOCAL_ASR_ENABLED: ${LOCAL_ASR_ENABLED:-false}
+      LOCAL_ASR_ENDPOINT: ${LOCAL_ASR_ENDPOINT:-http://host.docker.internal:8766/transcribe}
+      QWEN_ASR_API_KEY: ${QWEN_ASR_API_KEY:-}
+      QWEN_ASR_MODEL: ${QWEN_ASR_MODEL:-qwen3-asr-flash}
+      QWEN_ASR_ENDPOINT: ${QWEN_ASR_ENDPOINT:-https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}
       RECORDING_AI_API_KEY: ${RECORDING_AI_API_KEY:-}
       RECORDING_AI_TRANSCRIPTION_MODEL: ${RECORDING_AI_TRANSCRIPTION_MODEL:-}
       RECORDING_AI_SUMMARY_MODEL: ${RECORDING_AI_SUMMARY_MODEL:-}
@@ -51,6 +72,25 @@ services:
         condition: service_healthy
     ports:
       - "${BACKEND_HOST_PORT:-8080}:8080"
+    volumes:
+      - ${RECORDING_HOST_DIRECTORY:-./data/recordings}:/data/recordings
+
+  rag-notebook:
+    build:
+      context: .
+      dockerfile: services/rag-notebook/Dockerfile
+    restart: unless-stopped
+    cpus: ${RAG_CPUS:-1.0}
+    mem_limit: ${RAG_MEMORY_LIMIT:-1536m}
+    environment:
+      RAG_INTERNAL_TOKEN: ${RAG_INTERNAL_TOKEN:-}
+      RAG_EMBEDDING_API_KEY: ${RAG_EMBEDDING_API_KEY:-${QWEN_ASR_API_KEY:-}}
+      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-text-embedding-v4}
+      RAG_EMBEDDING_ENDPOINT: ${RAG_EMBEDDING_ENDPOINT:-https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings}
+      RAG_DATA_DIRECTORY: /data/rag
+      ANONYMIZED_TELEMETRY: "False"
+    volumes:
+      - ./data/rag:/data/rag
 
   frontend:
     build:

@@ -15,13 +15,84 @@ import static org.mockito.Mockito.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-@SpringBootTest
+@SpringBootTest(properties="spring.datasource.url=${TEST_DB_URL:jdbc:h2:mem:recording_analysis;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE}")
 @AutoConfigureMockMvc
 class RecordingAnalysisIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired CallRecordRepository calls;
     @Autowired CallRecordingRepository recordings;
     @MockitoBean RecordingAiClient ai;
+    @MockitoBean QwenTranscriptionClient qwen;
+    @MockitoBean LocalTranscriptionClient local;
+    @Autowired RecordingTranscriptionRepository transcriptions;
+
+    @Test
+    void dualTranscriptionsStaySeparateAndRequireCloudConsent() throws Exception {
+        Long id=calls.findAll().getFirst().getId();
+        recordings.saveAndFlush(new CallRecording(id,"audio/wav",new byte[]{1,2,3}));
+        when(local.configured()).thenReturn(true);
+        when(qwen.configured()).thenReturn(true);
+        when(local.transcribe(any(),anyString())).thenReturn("本地结果");
+        when(qwen.transcribe(any(),anyString())).thenReturn("云端结果");
+        String base="/api/calls/"+id+"/recording/transcriptions/";
+        try {
+            mvc.perform(post(base+"cloud").with(user("admin").roles("ADMIN")))
+                    .andExpect(status().isBadRequest());
+            verify(qwen,never()).transcribe(any(),anyString());
+            for(String provider:java.util.List.of("local","cloud")) {
+                mvc.perform(post(base+provider).with(user("admin").roles("ADMIN"))
+                        .contentType("application/json").content("{\"cloudConsent\":true}"))
+                        .andExpect(status().isAccepted());
+                long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(5);
+                while(!"COMPLETED".equals(transcriptions.findById(id+":"+provider).orElseThrow().status)
+                        && System.nanoTime()<deadline) Thread.sleep(25);
+                mvc.perform(get(base+provider).with(user("admin").roles("ADMIN")))
+                        .andExpect(jsonPath("$.status").value("COMPLETED"))
+                        .andExpect(jsonPath("$.transcript").value(provider.equals("local")?"本地结果":"云端结果"));
+            }
+            mvc.perform(get(base+"local")).andExpect(status().isUnauthorized());
+            recordings.saveAndFlush(new CallRecording(id,"audio/wav",new byte[]{4,5,6}));
+            for(String provider:java.util.List.of("local","cloud"))
+                mvc.perform(get(base+provider).with(user("admin").roles("ADMIN")))
+                        .andExpect(jsonPath("$.status").value("PENDING"))
+                        .andExpect(jsonPath("$.transcript").isEmpty());
+        } finally {
+            transcriptions.deleteById(id+":local"); transcriptions.deleteById(id+":cloud"); recordings.deleteById(id);
+        }
+    }
+
+    @Test
+    void localModePersistsTranscriptWithoutCallingCloud() throws Exception {
+        Long id = calls.findAll().getFirst().getId();
+        recordings.saveAndFlush(new CallRecording(id, "audio/wav", new byte[]{1,2,3}));
+        when(local.configured()).thenReturn(true);
+        when(qwen.configured()).thenReturn(true);
+        when(local.transcribe(any(), anyString())).thenReturn("[0s–3s] 本地原文");
+        try {
+            mvc.perform(post("/api/calls/{id}/recording/analysis", id).with(user("admin").roles("ADMIN")))
+                    .andExpect(status().isAccepted());
+            awaitStatus(id, "COMPLETED");
+            assertEquals("[0s–3s] 本地原文", recordings.findById(id).orElseThrow().getTranscript());
+            verify(qwen, never()).transcribe(any(), anyString());
+            verify(ai, never()).analyze(any(), anyString());
+        } finally { recordings.deleteById(id); }
+    }
+
+    @Test
+    void qwenTranscriptionPersistsWithoutCallingSummaryProvider() throws Exception {
+        Long id = calls.findAll().getFirst().getId();
+        recordings.saveAndFlush(new CallRecording(id, "audio/wav", new byte[]{1,2,3}));
+        when(qwen.configured()).thenReturn(true);
+        when(qwen.transcribe(any(), anyString())).thenReturn("千问原文");
+        try {
+            mvc.perform(post("/api/calls/{id}/recording/analysis", id).with(user("admin").roles("ADMIN")))
+                    .andExpect(status().isAccepted());
+            awaitStatus(id, "COMPLETED");
+            assertEquals("千问原文", recordings.findById(id).orElseThrow().getTranscript());
+            assertNull(recordings.findById(id).orElseThrow().getSummary());
+            verify(ai, never()).analyze(any(), anyString());
+        } finally { recordings.deleteById(id); }
+    }
 
     @Test
     void completesPersistsAndRejectsUnauthenticatedReads() throws Exception {

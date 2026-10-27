@@ -286,6 +286,10 @@ const state = {
   customerSection: "客户列表",
   customerDetailId: null,
   customerDetailTab: "profile",
+  customerCalls: [],
+  customerCallsMeta: null,
+  customerCallsLoading: false,
+  customerCallsError: "",
   customerEditorDrafts: {},
   customerFollowUpFilterType: "",
   customerFollowUpFrom: "",
@@ -603,6 +607,7 @@ function followupTemplateFieldView(templateName = "") {
   return `<label class="form-span-2 followup-template-field"><span>模板</span><div class="followup-template-ui" data-followup-template-ui data-selected-template="${escapeHtml(selectedTemplate)}">
     <input type="hidden" name="template" value="${escapeHtml(selectedTemplate)}">
     <div class="followup-template-toolbar"><button class="followup-template-toggle" type="button" data-followup-template-toggle aria-expanded="${selectedTemplate ? "false" : "true"}">${selectedTemplate ? "更换模板" : "收起模板"}</button><div class="followup-template-selected" data-followup-template-selected>${selectedTemplate ? `<button type="button" data-followup-template-remove aria-label="移除模板">${escapeHtml(selectedTemplate)} <span aria-hidden="true">×</span></button>` : ""}</div></div>
+    <div class="followup-template-mode" role="group" aria-label="模板内容"><button type="button" data-template-mode="original" aria-pressed="false">原模板</button><button type="button" data-template-mode="ai" aria-pressed="true">AI草稿</button><small data-template-mode-hint>按原模板字段自动填写</small></div>
     <div class="followup-template-options" data-followup-template-options ${selectedTemplate ? "hidden" : ""}>${followupPromptTemplates.map(template => `<button type="button" class="followup-template-option" data-followup-template="${escapeHtml(template.name)}">${escapeHtml(template.name)}</button>`).join("")}</div>
   </div></label>`;
 }
@@ -941,6 +946,8 @@ function clearAuth() {
   state.auth.token = "";
   state.auth.refreshToken = "";
   state.auth.user = null;
+  state.customerCalls = [];
+  state.customerCallsMeta = null;
   resetCustomerImportState();
   loadCustomerTableColumns();
   localStorage.removeItem("youai.crm.accessToken");
@@ -962,6 +969,7 @@ function customerOwnerSelectionNames(selection = {}) {
 
 function saveAuth(auth) {
   const accountChanged = String(state.auth.user?.id) !== String(auth.user?.id);
+  if (accountChanged) { state.customerCalls = []; state.customerCallsMeta = null; }
   if (accountChanged && typeof closeCallRecording === "function") closeCallRecording();
   if (accountChanged && typeof closeKnowledgeDialog === "function") closeKnowledgeDialog();
   const wasAdmin = isAdmin();
@@ -1410,7 +1418,7 @@ function normalizeMessage(message) {
 }
 
 function normalizeCall(call) {
-  return { ...call, phone: formatPhone(call.phone), started: formatRelativeDate(call.startedAt), durationSeconds: Number(call.durationSeconds || 0) };
+  return { ...call, phone: formatPhone(call.phone), started: formatRelativeDate(call.recordingSource === "UPLOAD" && call.uploadedAt ? call.uploadedAt : call.startedAt), durationSeconds: Number(call.durationSeconds || 0) };
 }
 
 function normalizeMessageTemplate(template) {
@@ -1686,7 +1694,7 @@ function bindServerPaginationControls() {
   };
   addSizeSelect(".order-reference-pagination", "orderPageSize", [10, 20, 50, 100], "orderPageSize", "orderPage", refreshOrdersFromApi);
   addSizeSelect(".task-pagination", "taskPageSize", [20, 50, 100], "taskPageSize", "taskPage", refreshTasksFromApi);
-  addSizeSelect(".call-pagination", "callPageSize", [10, 20, 50, 100], "callPageSize", "callPage", refreshCallsFromApi);
+  addSizeSelect(".call-record-panel .call-pagination", "callPageSize", [10, 20, 50, 100], "callPageSize", "callPage", refreshCallsFromApi);
 }
 
 async function hydrateFromApi() {
@@ -1730,13 +1738,14 @@ async function hydrateFromApi() {
     state.systemNotifications = Array.isArray(systemNotificationData) ? systemNotificationData.map(item => ({
       id: item.id,
       type: "系统消息",
-      title: item.title,
+      title: item.title+(item.completed?"（已完成）":""),
       detail: item.content,
       owner: "系统",
       at: item.createdAt,
       tone: "green",
       customerId: item.customerNo,
-      read: Boolean(item.read)
+      read: Boolean(item.read)||Boolean(item.completed),
+      callId:item.callId,kind:item.kind,completed:Boolean(item.completed)
     })) : [];
     state.systemNotifications.filter(item => item.read).forEach(item => { state.notificationRead[item.id] = true; });
     state.callReviews = callReviewData;
@@ -1932,6 +1941,9 @@ function activateWorkspaceTab(id) {
   closeBusinessModal();
   state.view = tab.view;
   setWorkspaceSection(tab.view, tab.section);
+  if (String(state.customerDetailId) !== String(tab.detailId || "")) {
+    state.customerCalls = []; state.customerCallsMeta = null; state.customerDetailTab = "profile";
+  }
   state.customerDetailId = tab.detailId || null;
   state.importDetailId = tab.importDetailId || null;
   state.activeWorkspaceTabId = tab.id;
@@ -3451,7 +3463,7 @@ function customerDetailView(id) {
   const noteText = [customerNote === "暂无备注" && customerRemark ? "" : customerNote, customerRemark].filter(Boolean).join("\n");
   const noteTime = customer.updatedAt || customer.createdAt;
   const profile = `<div class="profile-reference-overview">${portrait}<section class="profile-reference-basic"><h3>基本信息</h3><dl class="profile-reference-basic-grid">${basicRows.flat().join("")}</dl></section><section class="profile-reference-mating"><h3>择偶信息</h3><dl>${matingInfo.map(([label, item]) => cell(label, item)).join("")}</dl></section></div><section class="profile-reference-notes"><h3>备注</h3><dl><div><dt>备注信息</dt><dd><span>${value(noteText)}</span>${noteTime ? `<time>${value(formatDateTime(noteTime))}</time>` : ""}</dd></div></dl></section><section class="profile-reference-photos"><h3>图片</h3><p>暂无照片</p></section>`;
-  const customerTools = `<div class="customer-detail-tools"><button type="button" data-customer-opening>开场白</button><button type="button" data-customer-followup>写跟进</button></div>`;
+  const customerTools = `<div class="customer-detail-tools"><button type="button" data-customer-opening>开场白</button><button type="button" data-customer-followup="${value(customer.id)}">写跟进</button></div>`;
   const moreActions = ["增加协作", "转为库存", "移入公海", "发邀请券", "添加至重点客户", "注销用户"];
   const moreMenu = `<div class="customer-more-actions"><button class="button secondary customer-more-trigger" type="button" data-customer-more-toggle="${value(customer.id)}" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">${icon("more")}</button><div class="customer-more-menu" data-customer-more-menu="${value(customer.id)}" role="menu">${moreActions.map((label, index) => `<button type="button" role="menuitem" data-customer-more-action="${value(index)}" data-customer-id="${value(customer.id)}">${value(label)}</button>`).join("")}</div></div>`;
   const followFilter = `<div class="customer-followup-filter"><select id="customerFollowUpTypeFilter" aria-label="类型"><option value="" ${!state.customerFollowUpFilterType ? "selected" : ""} disabled hidden>类型</option><option value="all" ${state.customerFollowUpFilterType === "all" ? "selected" : ""}>全部</option><option value="sales" ${state.customerFollowUpFilterType === "sales" ? "selected" : ""}>销售</option><option value="invitation" ${state.customerFollowUpFilterType === "invitation" ? "selected" : ""}>邀约</option><option value="service" ${state.customerFollowUpFilterType === "service" ? "selected" : ""}>服务</option><option value="system" ${state.customerFollowUpFilterType === "system" ? "selected" : ""}>系统</option><option value="custom" ${state.customerFollowUpFilterType === "custom" ? "selected" : ""}>自定义</option><optgroup label="企微宝"><option value="wechat_customer_lost" ${state.customerFollowUpFilterType === "wechat_customer_lost" ? "selected" : ""}>客户流失</option><option value="wechat_add_friend" ${state.customerFollowUpFilterType === "wechat_add_friend" ? "selected" : ""}>添加客户好友</option></optgroup></select><div class="customer-followup-date-range"><div class="date-range-picker-wrap"><button class="date-range-display" id="openCustomerFollowUpDateRange" type="button" aria-label="选择跟进记录时间范围"><span>${escapeHtml(state.customerFollowUpFrom || "开始日期")}</span><b>→</b><span>${escapeHtml(state.customerFollowUpTo || "结束日期")}</span><span class="date-range-picker">${icon("calendar")}</span></button>${state.customerFollowUpDatePickerOpen ? customerFollowUpDateRangePickerView() : ""}</div></div><div class="customer-followup-keyword"><input id="customerFollowUpKeyword" value="${escapeHtml(state.customerFollowUpKeyword)}" placeholder="输入关键词" aria-label="跟进关键词"></div><button class="customer-followup-search" id="applyCustomerFollowUpFilter" type="button" aria-label="搜索关键字" title="搜索">${icon("search")}</button></div>`;
@@ -3461,9 +3473,9 @@ function customerDetailView(id) {
     const annotationComment = String(annotation.comment || "").trim();
     const category = row.category === "system" ? "system" : "operation";
     const formattedTime = formatCustomerFollowUpTimestamp(row.occurredAt);
-    return `<article class="customer-follow-record ${annotation.favorite ? "is-favorite" : ""}"><span class="customer-follow-record-marker" aria-hidden="true"></span><div class="customer-follow-record-body"><div class="customer-follow-record-title"><strong>${value(row.title)}</strong><span class="customer-follow-category ${category}">${value(row.channel || row.recordType)}</span>${row.customerStatus ? `<span class="customer-follow-status">客户状态：${value(row.customerStatus)}</span>` : ""}</div><div class="customer-follow-record-content">${followupContentEditorHtml(row.content)}</div><div class="customer-follow-record-meta"><span><i>操作人：</i><b>${value(row.owner)}</b></span><time datetime="${value(row.occurredAt)}"><i>跟进时间：</i><b>${value(formattedTime)}</b></time>${row.completed ? '<span class="customer-follow-completed">已完成</span>' : ""}</div>${annotationComment ? `<div class="customer-follow-comment-preview">${value(annotationComment)}</div>` : ""}</div><div class="customer-follow-record-actions"><time class="customer-follow-filled-time">填写时间：${value(formattedTime)}</time><button class="customer-follow-star ${annotation.favorite ? "active" : ""}" type="button" data-followup-annotation-action="favorite" data-followup-customer="${value(customer.id)}" data-followup-record-id="${value(row.id)}" data-followup-record-type="${value(row.recordType)}" aria-label="${annotation.favorite ? "取消收藏" : "收藏记录"}" aria-pressed="${annotation.favorite ? "true" : "false"}">${icon("star")}</button><button class="customer-follow-comment" type="button" data-followup-annotation-action="comment" data-followup-customer="${value(customer.id)}" data-followup-record-id="${value(row.id)}" data-followup-record-type="${value(row.recordType)}">评论</button></div></article>`;
+    return `<article class="customer-follow-record ${annotation.favorite ? "is-favorite" : ""}"><span class="customer-follow-record-marker" aria-hidden="true"></span><div class="customer-follow-record-body"><div class="customer-follow-record-title"><strong>${value(row.title)}</strong><span class="customer-follow-category ${category}">${value(row.channel || row.recordType)}</span>${row.customerStatus ? `<span class="customer-follow-status">客户状态：${value(row.customerStatus)}</span>` : ""}</div><div class="customer-follow-record-content">${followupContentEditorHtml(row.content)}</div>${callFollowupSourceMarkup(row.source)}<div class="customer-follow-record-meta"><span><i>操作人：</i><b>${value(row.owner)}</b></span><time datetime="${value(row.occurredAt)}"><i>跟进时间：</i><b>${value(formattedTime)}</b></time>${row.completed ? '<span class="customer-follow-completed">已完成</span>' : ""}</div>${annotationComment ? `<div class="customer-follow-comment-preview">${value(annotationComment)}</div>` : ""}</div><div class="customer-follow-record-actions"><time class="customer-follow-filled-time">填写时间：${value(formattedTime)}</time><button class="customer-follow-star ${annotation.favorite ? "active" : ""}" type="button" data-followup-annotation-action="favorite" data-followup-customer="${value(customer.id)}" data-followup-record-id="${value(row.id)}" data-followup-record-type="${value(row.recordType)}" aria-label="${annotation.favorite ? "取消收藏" : "收藏记录"}" aria-pressed="${annotation.favorite ? "true" : "false"}">${icon("star")}</button><button class="customer-follow-comment" type="button" data-followup-annotation-action="comment" data-followup-customer="${value(customer.id)}" data-followup-record-id="${value(row.id)}" data-followup-record-type="${value(row.recordType)}">评论</button></div></article>`;
   }).join("")}</div></section>`).join("");
-  const follow = `<section class="customer-follow-detail" aria-label="跟进记录"><div class="customer-follow-timeline">${followTimeline || '<div class="customer-follow-empty"><span class="empty-icon">' + icon("clock") + '</span><strong>暂无客户操作记录</strong><p>完成跟进、通话或消息后，记录会显示在这里。</p><button class="button primary" type="button" data-customer-followup>' + icon("plus") + '写跟进</button></div>'}</div></section>`;
+  const follow = `<section class="customer-follow-detail" aria-label="跟进记录"><div class="customer-follow-timeline">${followTimeline || '<div class="customer-follow-empty"><span class="empty-icon">' + icon("clock") + '</span><strong>暂无客户操作记录</strong><p>完成跟进、通话或消息后，记录会显示在这里。</p><button class="button primary" type="button" data-customer-followup="' + value(customer.id) + '">' + icon("plus") + '写跟进</button></div>'}</div></section>`;
   const profileGender = customer.gender || "—";
   const profileAge = customer.age ? `${customer.age}岁` : "—岁";
   const profileEducation = customer.education || "—";
@@ -3478,8 +3490,8 @@ function customerDetailView(id) {
   const profileTabEdit = state.customerDetailTab === "profile" && canEditCustomer(customer)
     ? `<button class="customer-profile-tab-edit" type="button" data-edit-profile-customer="${value(customer.id)}">编辑</button>`
     : "";
-  const activeTabTools = state.customerDetailTab === "follow" ? followFilter : profileTabEdit;
-  return `<section class="page customer-profile-page profile-reference-page ${state.customerDetailTab === "follow" ? "followup-active" : ""}">${profileHeader}<div class="customer-profile-tabs"><button class="${state.customerDetailTab === "profile" ? "active" : ""}" type="button" data-customer-detail-tab="profile">资料详情</button><button class="${state.customerDetailTab === "follow" ? "active" : ""}" type="button" data-customer-detail-tab="follow">跟进记录 (${records.length})</button><button type="button" disabled>约会安排</button><button type="button" disabled>推荐记录</button>${activeTabTools}</div><div class="profile-reference-content">${state.customerDetailTab === "follow" ? follow : profile}</div>${customerTools}</section>`;
+  const activeTabTools = ["calls", "transcript"].includes(state.customerDetailTab) ? `<button class="customer-profile-tab-edit" type="button" data-upload-recording="${value(customer.id)}">上传录音</button>` : state.customerDetailTab === "follow" ? followFilter : profileTabEdit;
+  return `<section class="page customer-profile-page profile-reference-page ${state.customerDetailTab === "follow" ? "followup-active" : ""}">${profileHeader}<div class="customer-profile-tabs"><button class="${state.customerDetailTab === "profile" ? "active" : ""}" type="button" data-customer-detail-tab="profile">资料详情</button><button class="${state.customerDetailTab === "follow" ? "active" : ""}" type="button" data-customer-detail-tab="follow">跟进记录 (${records.length})</button><button class="${state.customerDetailTab === "calls" ? "active" : ""}" type="button" data-customer-detail-tab="calls">通话记录</button><button class="${state.customerDetailTab === "transcript" ? "active" : ""}" type="button" data-customer-detail-tab="transcript">转写档案</button><button class="${state.customerDetailTab === "ai-analysis" ? "active" : ""}" type="button" data-customer-detail-tab="ai-analysis">AI客户复盘</button><button type="button" disabled>约会安排</button><button type="button" disabled>推荐记录</button>${activeTabTools}</div><div class="profile-reference-content">${state.customerDetailTab === "ai-analysis" ? customerAnalysisView(customer) : state.customerDetailTab === "transcript" ? customerTranscriptView(customer) : state.customerDetailTab === "calls" ? customerCallsView(customer) : state.customerDetailTab === "follow" ? follow : profile}</div>${customerTools}</section>`;
 }
 
 function tasksView() {
@@ -3524,7 +3536,7 @@ function callRecordsView() {
     <label><b>ID/手机号：</b><input id="callKeyword" value="${escapeHtml(state.callKeyword)}" placeholder="请输入用户Id或者手机号"></label><label><b>昵称/姓名：</b><input id="callNameKeyword" value="${escapeHtml(state.callNameKeyword)}" placeholder="请输入用户昵称或姓名"></label><label><b>呼出时间：</b><span class="call-date-range"><input type="date" aria-label="开始日期"><i>→</i><input type="date" aria-label="结束日期"></span></label>
     <label><b>处理人：</b><select id="callAgentFilter"><option value="全部坐席">请选择</option>${agents.map(agent => `<option ${agent === state.callAgentFilter ? "selected" : ""}>${escapeHtml(agent)}</option>`).join("")}</select></label><label><b>呼叫类型：</b><select id="callDirectionFilter"><option>全部</option><option ${state.callDirectionFilter === "呼出" ? "selected" : ""}>呼出</option><option ${state.callDirectionFilter === "呼入" ? "selected" : ""}>呼入</option></select></label><label><b>通话状态：</b><select id="callStatusFilter"><option>全部</option><option ${state.callStatusFilter === "已接通" ? "selected" : ""}>已接通</option><option ${state.callStatusFilter === "未接通" ? "selected" : ""}>未接通</option><option ${state.callStatusFilter === "待回拨" ? "selected" : ""}>待回拨</option></select></label>
     <label><b>呼叫时长：</b><select><option>请选择</option></select></label><label><b>通话时长：</b><select><option>请选择</option></select></label><div class="call-filter-actions"><button class="button primary" id="applyCallFilters" type="button">${icon("search")}查询</button><button class="button secondary" id="resetCallFilters" type="button">${icon("repeat")}重置</button></div>
-  </section><section class="call-record-panel"><div class="call-record-tools"><span>在“录音管理”中上传、播放并查看 AI 整理结果</span><button class="button primary" type="button">通话相关数据</button></div><div class="table-wrap"><table class="call-record-table"><thead><tr><th>用户ID</th><th>真实姓名</th><th>呼出时间</th><th>呼叫类型</th><th>处理人</th><th>中间号码</th><th>通话状态</th><th>呼叫时长</th><th>通话时长 ↕</th><th>AI分析状态 ◉</th><th>操作</th></tr></thead><tbody>${records.map(call => `<tr><td><button class="call-id-link">${escapeHtml((call.customerId || String(call.id)).replace(/\D/g, "").slice(-10) || String(call.id))}</button></td><td>${escapeHtml(call.customer || "-")}</td><td>${escapeHtml(call.started || "-")}</td><td>${escapeHtml(call.direction || "-")}</td><td>${escapeHtml(call.agent || call.owner || "-")}</td><td>99915400${String(call.id).slice(-1)}</td><td>${call.status === "未接通" ? "客户未接听" : escapeHtml(call.status || "-")}</td><td>${formatDuration(call.durationSeconds || 0)}</td><td>${call.status === "已接通" ? formatDuration(call.durationSeconds || 0) : "00:00"}</td><td>录音内查看</td><td><button class="button ghost" type="button" data-call-recording="${escapeHtml(String(call.id))}">录音管理</button></td></tr>`).join("") || `<tr><td colspan="11" class="call-empty">暂无通话记录</td></tr>`}</tbody></table></div><footer class="call-pagination"><span>${pageStart}-${pageEnd} 共${totalElements}条</span><button data-call-page="${currentPage - 1}" ${currentPage <= 1 ? "disabled" : ""}>‹</button>${visiblePages.map(page => `<button data-call-page="${page}" class="${page === currentPage ? "active" : ""}">${page}</button>`).join("")}<button data-call-page="${currentPage + 1}" ${currentPage >= totalPages ? "disabled" : ""}>›</button><select id="callPageSize"><option value="10" ${state.callPageSize===10?"selected":""}>10 条/页</option><option value="20" ${state.callPageSize===20?"selected":""}>20 条/页</option><option value="50" ${state.callPageSize===50?"selected":""}>50 条/页</option><option value="100" ${state.callPageSize===100?"selected":""}>100 条/页</option></select></footer></section>
+  </section><section class="call-record-panel"><div class="call-record-tools"><span>在“录音管理”中上传、播放并查看 AI 整理结果</span><button class="button primary" type="button" data-upload-recording="">上传录音</button></div><div class="table-wrap"><table class="call-record-table"><thead><tr><th>用户ID</th><th>真实姓名</th><th>时间</th><th>呼叫类型</th><th>通话销售</th><th>录音来源</th><th>通话状态</th><th>客户归属</th><th>呼叫时长</th><th>通话时长 ↕</th><th>AI分析状态 ◉</th><th>操作</th></tr></thead><tbody>${records.map(call => `<tr><td><button class="call-id-link">${escapeHtml((call.customerId || String(call.id)).replace(/\D/g, "").slice(-10) || String(call.id))}</button></td><td>${escapeHtml(call.customer || "-")}</td><td>${call.recordingSource === "UPLOAD" && call.uploadedAt ? "上传：" : "通话："}${escapeHtml(call.started || "-")}</td><td>${escapeHtml(call.direction || "-")}</td><td>${escapeHtml(call.agent || call.owner || "-")}</td><td>${call.recordingSource === "UPLOAD" ? "上传录音" : "系统录音"}</td><td>${call.status === "未接通" ? "客户未接听" : escapeHtml(call.status || "-")}</td><td><span class="pill ${call.customerOwnershipStatus === "TRANSFERRED" ? "gray" : "green"}">${call.customerOwnershipStatus === "TRANSFERRED" ? "已转出" : "跟进中"}</span></td><td>${formatDuration(call.durationSeconds || 0)}</td><td>${call.status === "已接通" ? formatDuration(call.durationSeconds || 0) : "00:00"}</td><td>${call.canAccessRecording === false ? "无访问权限" : "录音内查看"}</td><td><button class="button ghost" type="button" data-call-recording="${escapeHtml(String(call.id))}" ${call.canAccessRecording === false ? 'disabled title="客户已转出，无录音访问权限"' : ""}>录音管理</button></td></tr>`).join("") || `<tr><td colspan="12" class="call-empty">暂无通话记录</td></tr>`}</tbody></table></div><footer class="call-pagination"><span>${pageStart}-${pageEnd} 共${totalElements}条</span><button data-call-page="${currentPage - 1}" ${currentPage <= 1 ? "disabled" : ""}>‹</button>${visiblePages.map(page => `<button data-call-page="${page}" class="${page === currentPage ? "active" : ""}">${page}</button>`).join("")}<button data-call-page="${currentPage + 1}" ${currentPage >= totalPages ? "disabled" : ""}>›</button><select id="callPageSize"><option value="10" ${state.callPageSize===10?"selected":""}>10 条/页</option><option value="20" ${state.callPageSize===20?"selected":""}>20 条/页</option><option value="50" ${state.callPageSize===50?"selected":""}>50 条/页</option><option value="100" ${state.callPageSize===100?"selected":""}>100 条/页</option></select></footer></section>
   </div></section>`;
 }
 
@@ -3576,7 +3588,7 @@ function callQualityView() {
   return `<section class="page">${callNav("录音质检")}<div class="page-content">
     ${pageHeading(`<button class="button secondary" id="exportCallQuality" type="button">${icon("download")}导出质检结果</button>`)}
     <section class="metric-grid">${metric("待质检", String(pending.length), "条", "实时", "amber", "clock")}${metric("已完成", String(reviewed), "条", "实时", "green", "check")}${metric("质检完成率", calls.length ? `${Math.round(reviewed / calls.length * 100)}` : "0", "%", "实时", "blue", "target")}</section>
-    <section class="data-panel"><div class="data-toolbar"><div class="panel-title"><h2>通话录音质检</h2><span>上传并核对录音、转写和总结后完成质检</span></div><span class="pill gray">${calls.length} 条通话</span></div><div class="table-wrap">${calls.length ? `<table class="data-table"><thead><tr><th>客户</th><th>坐席</th><th>通话结果</th><th>时长</th><th>备注</th><th>录音</th><th>质检状态</th><th>操作</th></tr></thead><tbody>${calls.map(call => { const checked = Boolean(state.callReviews[call.id]); return `<tr><td><strong>${escapeHtml(call.customer)}</strong></td><td>${escapeHtml(call.agent || call.owner)}</td><td><span class="pill ${call.status === "已接通" ? "green" : "red"}">${escapeHtml(call.status)}</span></td><td>${formatDuration(call.durationSeconds)}</td><td>${escapeHtml(call.note || "暂无备注")}</td><td><button class="button ghost" type="button" data-call-recording="${escapeHtml(String(call.id))}">录音管理</button></td><td><span class="pill ${checked ? "green" : "amber"}">${checked ? "已完成" : "待质检"}</span></td><td><button class="button ${checked ? "ghost" : "primary"}" type="button" data-call-review="${call.id}">${checked ? "取消标记" : "完成质检"}</button></td></tr>`; }).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("phone")}</span><strong>暂无通话录音</strong><p>完成通话记录后，会在这里进行质检。</p></div>`}</div></section>
+    <section class="data-panel"><div class="data-toolbar"><div class="panel-title"><h2>通话录音质检</h2><span>上传并核对录音、转写和总结后完成质检</span></div><span class="pill gray">${calls.length} 条通话</span></div><div class="table-wrap">${calls.length ? `<table class="data-table"><thead><tr><th>客户</th><th>坐席</th><th>通话结果</th><th>时长</th><th>备注</th><th>录音</th><th>质检状态</th><th>操作</th></tr></thead><tbody>${calls.map(call => { const checked = Boolean(state.callReviews[call.id]); return `<tr><td><strong>${escapeHtml(call.customer)}</strong></td><td>${escapeHtml(call.agent || call.owner)}</td><td><span class="pill ${call.status === "已接通" ? "green" : "red"}">${escapeHtml(call.status)}</span></td><td>${formatDuration(call.durationSeconds)}</td><td>${escapeHtml(call.note || "暂无备注")}</td><td><button class="button ghost" type="button" data-call-recording="${escapeHtml(String(call.id))}" ${call.canAccessRecording === false ? 'disabled title="客户已转出，无录音访问权限"' : ""}>录音管理</button></td><td><span class="pill ${checked ? "green" : "amber"}">${checked ? "已完成" : "待质检"}</span></td><td><button class="button ${checked ? "ghost" : "primary"}" type="button" data-call-review="${call.id}">${checked ? "取消标记" : "完成质检"}</button></td></tr>`; }).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("phone")}</span><strong>暂无通话录音</strong><p>完成通话记录后，会在这里进行质检。</p></div>`}</div></section>
   </div></section>`;
 }
 
@@ -3735,6 +3747,7 @@ function customerAssignedListVisible() {
 }
 
 async function refreshAssignedCustomers() {
+  requestCallDailySummary();
   if (!state.auth.token || customerSyncPromise) return;
   const authToken = state.auth.token;
   const requestId = customerSearchRequestId;
@@ -3753,13 +3766,14 @@ async function refreshAssignedCustomers() {
     const nextSystemNotifications = Array.isArray(notificationData) ? notificationData.map(item => ({
       id: item.id,
       type: "系统消息",
-      title: item.title,
+      title: item.title+(item.completed?"（已完成）":""),
       detail: item.content,
       owner: "系统",
       at: item.createdAt,
       tone: "green",
       customerId: item.customerNo,
-      read: Boolean(item.read)
+      read: Boolean(item.read)||Boolean(item.completed),
+      callId:item.callId,kind:item.kind,completed:Boolean(item.completed)
     })) : [];
     const previousCustomers = nextCustomers ? customers.map(item => `${item.id}:${item.owner}:${item.updatedAt || ""}`).join("|") : null;
     const previousNotifications = state.systemNotifications.map(item => `${item.id}:${item.read ? "1" : "0"}`).join("|");
@@ -3782,7 +3796,16 @@ function startCustomerSyncMonitor() {
   customerSyncTimer = window.setInterval(refreshAssignedCustomers, 30 * 1000);
 }
 
+let callDailySummaryAccount=null;
+function requestCallDailySummary(){
+  const account=state.auth.user?.id;
+  const key=account+':'+new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(new Date());
+  if(!account||!state.auth.token||callDailySummaryAccount===key)return;
+  callDailySummaryAccount=key;
+  apiRequest('/call-followup-work/daily-summary',{method:'POST'}).then(r=>{if(state.auth.user?.id!==account)return;if(r.created){toast(`还有 ${r.pending} 通电话待写跟进，可在系统通知查看待办`);refreshAssignedCustomers();}}).catch(()=>{if(callDailySummaryAccount===key)callDailySummaryAccount=null;});
+}
 function startFollowupAlertMonitor() {
+  requestCallDailySummary();
   if (followupAlertTimer) return;
   startCustomerSyncMonitor();
   checkUpcomingFollowupAlerts();
@@ -3854,6 +3877,13 @@ async function markAllSystemNotificationsRead() {
 
 async function openSystemNotification(row) {
   await markSystemNotification(row.id);
+  if(row.kind==='CALL_SUMMARY'){await openCallWorkInbox();return;}
+  if(row.callId){
+    if(row.completed){await openCustomer(row.customerId);return;}
+    const pending=await apiRequest(`/call-followup-work?customerNo=${encodeURIComponent(row.customerId)}`);
+    const w=pending.find(w=>String(w.callId)===String(row.callId));
+    if(w)openCallWorkForm(w);else {toast('本次通话已完成跟进或已转交');await refreshAssignedCustomers();}return;
+  }
   if (row.taskId) {
     const task = tasks.find(item => String(item.id) === String(row.taskId));
     if (task) openBusinessModal("task", task);
@@ -3880,9 +3910,9 @@ function systemNotificationsView() {
   const unread = allRows.filter(row => !state.notificationRead[row.id]);
   const rows = allRows.filter(row => state.notificationFilter === "all" || (state.notificationFilter === "unread" && !state.notificationRead[row.id]) || (state.notificationFilter === "read" && state.notificationRead[row.id]));
   return `<section class="page">${subnav(["消息管理", "短信记录"], "短信记录", ["消息管理", "短信记录"])}<div class="page-content">
-    ${pageHeading(`<button class="button secondary" id="exportSystemNotifications" type="button">${icon("download")}导出通知</button><button class="button primary" id="markAllSystemNotifications" type="button">${icon("check")}全部已读</button>`)}
+    ${pageHeading(`<button class="button primary" type="button" id="callWorkInbox">待写通话跟进</button><button class="button secondary" id="exportSystemNotifications" type="button">${icon("download")}导出通知</button><button class="button primary" id="markAllSystemNotifications" type="button">${icon("check")}全部已读</button>`)}
     <section class="metric-grid">${metric("通知总数", String(allRows.length), "条", "实时", "blue", "bell")}${metric("未读通知", String(unread.length), "条", "实时", "amber", "target")}${metric("已读通知", String(allRows.length - unread.length), "条", "实时", "green", "check")}</section>
-    <section class="data-panel notification-panel"><div class="data-toolbar"><div class="data-tabs"><button class="data-tab ${state.notificationFilter === "all" ? "active" : ""}" data-notification-filter="all">全部 <span class="count">${allRows.length}</span></button><button class="data-tab ${state.notificationFilter === "unread" ? "active" : ""}" data-notification-filter="unread">未读 <span class="count">${unread.length}</span></button><button class="data-tab ${state.notificationFilter === "read" ? "active" : ""}" data-notification-filter="read">已读</button></div><span class="pill gray">${rows.length} 条记录</span></div><div class="system-notification-list">${rows.length ? rows.map(row => { const read = Boolean(state.notificationRead[row.id]); return `<article class="system-notification ${read ? "read" : "unread"}" data-system-notification="${escapeHtml(row.id)}"><span class="notification-icon ${row.tone}">${icon(row.type === "任务提醒" ? "task" : row.type === "客户消息" ? "message" : row.type === "通话提醒" ? "phone" : "users")}</span><div class="system-notification-body"><div class="system-notification-top"><strong>${escapeHtml(row.title)}</strong><time>${escapeHtml(formatRelativeDate(row.at))}</time></div><p>${escapeHtml(row.detail)}</p><small>${escapeHtml(row.type)} · ${escapeHtml(row.owner || "系统")}</small></div><div class="system-notification-actions">${read ? `<span class="pill gray">已读</span>` : `<span class="pill amber">未读</span>`}<button class="button ghost" type="button" data-open-notification="${escapeHtml(row.id)}">${row.taskId ? "查看任务" : row.conversationId ? "查看消息" : row.customerId ? "查看客户" : "标记已读"}</button></div></article>`; }).join("") : `<div class="empty-state"><span class="empty-icon">${icon("bell")}</span><strong>暂无系统通知</strong><p>新的任务、未读消息和回拨提醒会显示在这里。</p></div>`}</div></section>
+    <section class="data-panel notification-panel"><div class="data-toolbar"><div class="data-tabs"><button class="data-tab ${state.notificationFilter === "all" ? "active" : ""}" data-notification-filter="all">全部 <span class="count">${allRows.length}</span></button><button class="data-tab ${state.notificationFilter === "unread" ? "active" : ""}" data-notification-filter="unread">未读 <span class="count">${unread.length}</span></button><button class="data-tab ${state.notificationFilter === "read" ? "active" : ""}" data-notification-filter="read">已读</button></div><span class="pill gray">${rows.length} 条记录</span></div><div class="system-notification-list">${rows.length ? rows.map(row => { const read = Boolean(state.notificationRead[row.id]); return `<article class="system-notification ${read ? "read" : "unread"}" data-system-notification="${escapeHtml(row.id)}"><span class="notification-icon ${row.tone}">${icon(row.type === "任务提醒" ? "task" : row.type === "客户消息" ? "message" : row.type === "通话提醒" ? "phone" : "users")}</span><div class="system-notification-body"><div class="system-notification-top"><strong>${escapeHtml(row.title)}</strong><time>${escapeHtml(formatRelativeDate(row.at))}</time></div><p>${escapeHtml(row.detail)}</p><small>${escapeHtml(row.type)} · ${escapeHtml(row.owner || "系统")}</small></div><div class="system-notification-actions">${read ? `<span class="pill gray">已读</span>` : `<span class="pill amber">未读</span>`}<button class="button ghost" type="button" data-open-notification="${escapeHtml(row.id)}">${row.kind==="CALL_SUMMARY"?"查看待办":row.callId?(row.completed?"查看客户":"写本次跟进"):row.taskId ? "查看任务" : row.conversationId ? "查看消息" : row.customerId ? "查看客户" : "标记已读"}</button></div></article>`; }).join("") : `<div class="empty-state"><span class="empty-icon">${icon("bell")}</span><strong>暂无系统通知</strong><p>新的任务、未读消息和回拨提醒会显示在这里。</p></div>`}</div></section>
   </div></section>`;
 }
 
@@ -4406,6 +4436,7 @@ function render() {
   document.title = `${workspaceTabLabel(state.view, currentWorkspaceSection())} - 优爱 YOUAI`;
   bindViewEvents();
   if (typeof bindKnowledgeBase === "function") bindKnowledgeBase();
+  if (typeof bindCustomerAnalysis === "function") bindCustomerAnalysis();
   bindServerPaginationControls();
   positionCustomerFollowUpDatePopover();
   updateNotificationChrome();
@@ -4819,7 +4850,8 @@ function businessModalFields(type, record) {
     const dueAt = toDateTimeLocal(record?.dueAt) || toDateTimeLocal(new Date(Date.now() + 24 * 60 * 60 * 1000));
     if (record?.corner) {
       const followupContent = record?.title || followupTemplateContent(record?.template || "");
-      return `<input type="hidden" name="recordId" value=""><input type="hidden" name="reminderTaskId" value="${escapeHtml(record.reminderTaskId || "")}"><input type="hidden" name="customer" value="${escapeHtml(record.customer || "")}"><input type="hidden" name="customerId" value="${escapeHtml(record.customerId || "")}"><div class="form-grid followup-entry-fields">
+      return `<input type="hidden" name="recordId" value=""><input type="hidden" name="reminderTaskId" value="${escapeHtml(record.reminderTaskId || "")}"><input type="hidden" name="customer" value="${escapeHtml(record.customer || "")}">${record.customerId?`<input type="hidden" name="customerId" value="${escapeHtml(record.customerId)}">`:''}<div class="form-grid followup-entry-fields">
+        ${!record.customerId?`<label class="form-span-2"><span>跟进客户 *</span><select name="customerId" required><option value="">请选择跟进客户</option>${[...new Map([...customers,...state.poolCustomers,...state.whiteboardCustomers].map(c=>[String(c.id),c])).values()].map(c=>`<option value="${escapeHtml(c.id)}" data-customer-name="${escapeHtml(c.name)}">${escapeHtml(c.name)} · ${escapeHtml(c.id)}</option>`).join('')}</select></label>`:''}
         <label><span>类型 *</span><select name="type" required><option value="" selected>请选择</option>${customerFollowUpTypes.map(value => `<option value="${value}">${value}</option>`).join("")}</select></label>
         <label><span>时间 *</span><input name="dueAt" type="datetime-local" required value="${dueAt}"></label>
         ${followupTemplateFieldView(record?.template || "")}
@@ -4922,6 +4954,8 @@ function openBusinessModal(type, record = null) {
   backdrop.classList.toggle("customer-pool-backdrop", type === "customer-pool");
   form.dataset.type = type;
   form.dataset.corner = type === "task" && Boolean(record?.corner) ? "true" : "false";
+  if(record?.sourceCallId)form.dataset.initialCallId=record.sourceCallId;else delete form.dataset.initialCallId;
+  for(const key of ["callWorkId","aiSegmentId","aiVersion","aiTemplate"])delete form.dataset[key];
   document.querySelector("#businessModalEyebrow").textContent = labels[type][0];
   document.querySelector("#businessModalTitle").textContent = labels[type][1];
   setSafeHtml(form, businessModalFields(type, record));
@@ -5026,7 +5060,7 @@ function openBusinessModal(type, record = null) {
     const templateToggle = templateControl?.querySelector("[data-followup-template-toggle]");
     const selectedTemplateInput = templateControl?.querySelector('input[name="template"]');
     const selectedTemplateChip = templateControl?.querySelector("[data-followup-template-selected]");
-    const setFollowupTemplate = templateName => {
+    const setFollowupTemplate = (templateName,draftContent) => {
       const selected = followupPromptTemplates.some(template => template.name === templateName) ? templateName : "";
       templateControl.dataset.selectedTemplate = selected;
       selectedTemplateInput.value = selected;
@@ -5048,7 +5082,7 @@ function openBusinessModal(type, record = null) {
       templateToggle.setAttribute("aria-expanded", String(!selected));
       contentEditor.setAttribute("contenteditable", String(!selected));
       if (selected) {
-        contentEditor.innerHTML = followupContentEditorHtml(followupTemplateContent(selected), selected, true);
+        contentEditor.innerHTML = followupContentEditorHtml(draftContent??followupTemplateContent(selected), selected, true);
         syncFollowupContent();
         focusFollowupContentEnd(contentEditor);
       } else {
@@ -5062,10 +5096,14 @@ function openBusinessModal(type, record = null) {
     templateControl?.addEventListener("click", event => {
       const option = event.target.closest("[data-followup-template]");
       if (option) {
+        if(form.useAiFollowupTemplate?.(option.dataset.followupTemplate))return;
+        if(form.elements.title.value.trim()&&!window.confirm('选择空白模板将替换当前跟进内容，是否继续？'))return;
+        form.clearAiDraftSource?.();
         setFollowupTemplate(option.dataset.followupTemplate);
         return;
       }
       if (event.target.closest("[data-followup-template-remove]")) {
+        form.clearAiDraftSource?.();
         setFollowupTemplate("");
         return;
       }
@@ -5085,6 +5123,16 @@ function openBusinessModal(type, record = null) {
       nextTaskFields.classList.toggle("is-collapsed", !nextTaskToggle.checked);
       nextDueAt.required = nextTaskToggle.checked;
       nextTitle.required = nextTaskToggle.checked;
+    });
+    mountCallFollowup(form,setFollowupTemplate,syncFollowupContent);
+    const followupCustomer=form.querySelector('select[name=customerId]');
+    followupCustomer?.addEventListener('change',()=>{
+      if(form.elements.title.value.trim()&&!window.confirm('切换客户会清空当前跟进草稿，是否继续？')){followupCustomer.value=followupCustomer.dataset.previous||'';return;}
+      followupCustomer.dataset.previous=followupCustomer.value;
+      form.elements.customer.value=followupCustomer.selectedOptions[0]?.dataset.customerName||'';
+      for(const key of ['callWorkId','aiSegmentId','aiVersion','aiTemplate','initialCallId'])delete form.dataset[key];
+      setFollowupTemplate('');form.elements.title.value='';contentEditor.replaceChildren();syncFollowupContent();
+      mountCallFollowup(form,setFollowupTemplate,syncFollowupContent);
     });
   }
   if (type === "customer-assignment") {
@@ -5570,6 +5618,8 @@ async function openCustomer(id) {
   }
   state.view = "customers";
   state.customerContactReveals = {};
+  state.customerCalls = [];
+  state.customerCallsMeta = null;
   state.customerDetailId = customer.id;
   state.customerDetailTab = "profile";
   state.customerFollowUpFilterType = "";
@@ -6181,6 +6231,7 @@ async function submitBusinessForm(event) {
   if (richContent && titleField) titleField.value = followupContentEditorText(richContent);
   const data = Object.fromEntries(new FormData(form));
   const submit = form.querySelector("button[type=submit]");
+  if(type==='task'&&form.dataset.corner==='true'&&form.dataset.callWorkLoading==='true'){toast('正在读取本次通话，请稍候再提交');return;}
   if (type === "task" && form.dataset.corner === "true" && !String(data.title || "").trim()) {
     toast("请填写跟进内容");
     return;
@@ -6188,6 +6239,7 @@ async function submitBusinessForm(event) {
   if (submit) submit.disabled = true;
   try {
     requireBackend();
+    if(type==='task'&&form.dataset.corner==='true')await form.prepareCallFollowup?.();
     if (type === "customer-pool") {
       const customerIds = [...new Set(String(data.customerIds || "").split(/[,，\s]+/).map(value => value.trim()).filter(Boolean))];
       const selected = customerIds
@@ -6239,7 +6291,9 @@ async function submitBusinessForm(event) {
       const id = data.recordId;
       const existingTask = id ? tasks.find(item => String(item.id) === String(id)) : null;
       const payload = { title: data.title, customer: data.customer, customerId: data.customerId || existingTask?.customerId || null, customerStatus: data.customerStatus || existingTask?.customerStatus || null, owner: data.owner || currentOwner(), dueAt: data.dueAt, type: data.type, priority: data.priority, completed: form.dataset.corner === "true" ? true : data.completed === "on" };
-      const result = await apiRequest(id ? `/tasks/${id}` : "/tasks", { method: id ? "PUT" : "POST", body: JSON.stringify(payload) });
+      const callWorkId=form.dataset.callWorkId;
+      const nextTask=!id&&data.createNextTask==='on'?{title:data.nextTitle,customer:data.customer,customerId:data.customerId,owner:data.owner||currentOwner(),dueAt:data.nextDueAt,type:'电话跟进',priority:'普通',completed:false}:null;
+      const result = callWorkId?await apiRequest(`/call-followup-work/${callWorkId}/submit`,{method:'POST',body:JSON.stringify({followUp:payload,nextTask,reminderTaskId:data.reminderTaskId||null,segmentId:form.dataset.aiSegmentId||null,analysisVersion:form.dataset.aiVersion||null,template:form.dataset.aiTemplate||null})}):await apiRequest(id ? `/tasks/${id}` : "/tasks", { method: id ? "PUT" : "POST", body: JSON.stringify(payload) });
       const normalized = normalizeTask(result);
       const index = tasks.findIndex(item => String(item.id) === String(normalized.id));
       if (index >= 0) tasks[index] = normalized; else tasks.unshift(normalized);
@@ -6251,11 +6305,11 @@ async function submitBusinessForm(event) {
           if (normalized.customerStatus) customer.stage = normalized.customerStatus;
         }
       }
-      if (!id && data.createNextTask === "on") {
+      if (!id && !callWorkId && data.createNextTask === "on") {
         const nextResult = await apiRequest("/tasks", { method: "POST", body: JSON.stringify({ title: data.nextTitle, customer: data.customer, customerId: data.customerId || null, owner: data.owner || currentOwner(), dueAt: data.nextDueAt, type: "电话跟进", priority: "普通", completed: false }) });
         tasks.unshift(normalizeTask(nextResult));
       }
-      if (data.reminderTaskId && String(data.reminderTaskId) !== String(normalized.id)) {
+      if (!callWorkId && data.reminderTaskId && String(data.reminderTaskId) !== String(normalized.id)) {
         const reminderResult = await apiRequest(`/tasks/${encodeURIComponent(data.reminderTaskId)}/completion`, { method: "PATCH", body: JSON.stringify({ completed: true }) });
         const reminderSaved = normalizeTask(reminderResult);
         const reminderIndex = tasks.findIndex(item => String(item.id) === String(reminderSaved.id));
@@ -6263,6 +6317,7 @@ async function submitBusinessForm(event) {
         state.notificationRead[`task-${data.reminderTaskId}`] = true;
         localStorage.setItem("youai.crm.notificationRead", JSON.stringify(state.notificationRead));
       }
+      if(callWorkId){await refreshAssignedCustomers();if(nextTask){const refreshed=await apiRequest("/tasks?size=100");tasks=pageContent(refreshed).content.map(normalizeTask);}}
       await refreshCustomerFollowUpCounts([normalized.customerId, existingTask?.customerId]);
       if (normalized.customerId && String(state.customerDetailId) === String(normalized.customerId)) {
         await loadCustomerFollowUps(normalized.customerId, false);
@@ -6366,7 +6421,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-message-name]").forEach(button => { button.innerHTML = `${icon("message")}消息`; });
   document.querySelectorAll("[data-allocate-profile-customer]").forEach(button => { button.innerHTML = `${icon("sliders")}资源调配`; });
   document.querySelectorAll("[data-next-customer]").forEach(button => { button.innerHTML = `${icon("play")}${button.dataset.nextCustomerLabel || "下个客户"}`; });
-  document.querySelectorAll("[data-customer-detail-tab]").forEach(button => button.addEventListener("click", async () => { state.customerDetailTab = button.dataset.customerDetailTab; render(); if (state.customerDetailTab === "follow" && state.customerDetailId) await loadCustomerFollowUps(state.customerDetailId); }));
+  document.querySelectorAll("[data-customer-detail-tab]").forEach(button => button.addEventListener("click", async () => { state.customerDetailTab = button.dataset.customerDetailTab; render(); if (state.customerDetailTab === "follow" && state.customerDetailId) await loadCustomerFollowUps(state.customerDetailId); if (state.customerDetailTab === "calls" && state.customerDetailId) await loadCustomerCalls(state.customerDetailId); if (state.customerDetailTab === "transcript" && state.customerDetailId) await loadCustomerTranscript(state.customerDetailId); }));
   document.querySelector("#openCustomerFollowUpDateRange")?.addEventListener("click", event => {
     event.preventDefault();
     event.stopPropagation();
@@ -7552,10 +7607,15 @@ function bindViewEvents() {
     try { await setCustomerPool(customer, false); toast(`${customer.name} 已领取到我的客户`); render(); } catch (error) { toast(`领取客户失败：${error.message}`); }
   }));
   document.querySelector("[data-customer-opening]")?.addEventListener("click", () => openBusinessModal("conversation", { customer: customers.find(item => String(item.id) === String(state.customerDetailId))?.name || "" }));
-  document.querySelector("[data-customer-followup]")?.addEventListener("click", () => {
-    const customer = customers.find(item => String(item.id) === String(state.customerDetailId));
-    openBusinessModal("task", { customer: customer?.name || "", customerId: customer?.id || "", corner: true });
-  });
+  document.querySelectorAll("[data-customer-followup]").forEach(button=>button.addEventListener("click", async event => {
+    const customerId=event.currentTarget.dataset.customerFollowup||state.customerDetailId;
+    if(!customerId){openBusinessModal('task',{corner:true});return;}
+    const account=state.auth.user?.id;
+    try{
+      const customer=[...customers,...state.poolCustomers,...state.whiteboardCustomers].find(c=>String(c.id)===String(customerId))||normalizeCustomer(await apiRequest(`/customers/${encodeURIComponent(customerId)}`));
+      if(state.auth.user?.id===account)openBusinessModal("task",{customer:customer.name,customerId:customer.id,corner:true});
+    }catch(error){toast(error.message);}
+  }));
   document.querySelectorAll("[data-open-customer]").forEach(button => button.addEventListener("click", event => {
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed && selection.toString().trim()) { event.preventDefault(); event.stopPropagation(); return; }
@@ -7717,6 +7777,7 @@ function bindViewEvents() {
   document.querySelector("#markAllRead")?.addEventListener("click", markAllMessagesRead);
   document.querySelectorAll("[data-notification-filter]").forEach(button => button.addEventListener("click", () => { state.notificationFilter = button.dataset.notificationFilter; render(); }));
   document.querySelector("#markAllSystemNotifications")?.addEventListener("click", markAllSystemNotificationsRead);
+  document.querySelector("#callWorkInbox")?.addEventListener("click",openCallWorkInbox);
   document.querySelector("#exportSystemNotifications")?.addEventListener("click", exportSystemNotifications);
   document.querySelectorAll("[data-open-notification]").forEach(button => button.addEventListener("click", async event => {
     const row = systemNotificationRows().find(item => item.id === event.currentTarget.dataset.openNotification);
@@ -7826,8 +7887,8 @@ function exportPerformance() {
 }
 
 function exportCalls() {
-  const header = ["客户", "手机号", "方向", "状态", "通话时长(秒)", "坐席", "开始时间", "备注"];
-  const csv = "\ufeff" + [header, ...calls.map(call => [call.customer, call.phone, call.direction, call.status, call.durationSeconds, call.agent, call.started, call.note || ""])].map(row => row.map(value => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
+  const header = ["客户", "手机号", "方向", "状态", "通话时长(秒)", "坐席", "开始时间", "备注", "客户归属", "录音来源"];
+  const csv = "\ufeff" + [header, ...calls.map(call => [call.customer, call.phone, call.direction, call.status, call.durationSeconds, call.agent, call.started, call.note || "", call.customerOwnershipStatus === "TRANSFERRED" ? "已转出" : "跟进中", call.recordingSource === "UPLOAD" ? "上传录音" : "系统录音"])].map(row => row.map(value => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
   const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); link.download = "优客云-通话记录.csv"; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 0);
   toast(`已导出 ${calls.length} 条通话记录`);
 }

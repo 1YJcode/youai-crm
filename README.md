@@ -4,10 +4,18 @@
 
 新增功能：
 
+- 客户详情 → 通话记录：按客户查看历史通话及 AI 分析，直接上传录音并记录实际通话销售；呼叫中心同步查看同一份记录。
 - 呼叫中心 → 通话记录 → 录音管理：上传及播放录音、后台转写与总结、人工编辑确认。AI 服务默认关闭，需在后端配置；电话平台自动录音尚未接入。详见 [录音与 AI 整理](docs/call-recording-ai.md)。
+- 大量录音存储：新音频保存到独立持久目录或私有 S3 兼容对象存储，文字保存在数据库；支持直传、转写排队与重启恢复、历史版本及旧录音校验迁移。详见 [录音存储与备份](docs/recording-storage.md)。
 - 数据中心 → 知识库：分类、全文关键词搜索、文章查看及管理员维护。详见 [知识库说明](docs/knowledge-base.md)。
+- 客户私有资料与公司案例分离：录音及原始转写仅当前客户归属人和管理员可见；可单独整理发布公司学习案例，其他员工不能通过案例访问原始资料。详见 [通话案例权限](docs/recording-knowledge-cases.md)。
+- 客户详情 → 转写档案：每客户一份持续追加的档案，每段保留录音、时间、销售、客户和时长，可选多段整理公司案例。详见 [客户转写档案](docs/customer-transcript.md)。
 
-更新后端启动时会自动执行新增的 V28–V31 迁移。升级已有数据库前应先备份；业务数据、录音和本地配置不随 Git 推送。
+上传录音可自动转写、使用 DeepSeek 分析并生成跟进草稿，销售确认后保存正式跟进。配置与使用见 [通话分析与跟进](docs/deepseek-call-pipeline.md)。
+
+每次新上传录音独立建立待写跟进，支持悬浮预览 AI 草稿、选用编辑及30分钟/24小时提醒。详见 [通话跟进待办](docs/call-followup-work.md)。
+
+更新后端启动时会自动执行新增迁移（当前至 V45）。录音自动生成标题和全部模板，原模板按钮可预览选用，跟进记录可追溯录音版本及提交人。升级已有数据库前应先备份；业务数据、录音和本地配置不随 Git 推送。
 
 ## 本地运行
 
@@ -209,3 +217,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-mysql.ps1 -My
 - `GET /api/dashboard`：工作台汇总数据
 
 任务列表支持 `owner`、`status`、`completed` 查询参数；订单列表支持 `keyword`、`paymentStatus`、`serviceStatus` 查询参数；通话列表支持 `status` 查询参数。所有业务接口都需要在请求头携带 `Authorization: Bearer <accessToken>`。
+
+RAG-Notebook 检索接入：知识库问答、AI通话分析和带来源的销售建议，配置及权限说明见 [RAG接入](docs/rag-notebook-integration.md)。
+
+婚恋客户累计复盘、销售改进对照和成交后案例审核发布，见 [客户复盘说明](docs/customer-review.md)。

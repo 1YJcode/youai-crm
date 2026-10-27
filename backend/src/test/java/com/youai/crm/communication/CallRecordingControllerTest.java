@@ -15,30 +15,36 @@ class CallRecordingControllerTest {
     private final CallRecordingRepository recordings = mock(CallRecordingRepository.class);
     private final CustomerAccessPolicy access = mock(CustomerAccessPolicy.class);
     private final TestingAuthenticationToken user = new TestingAuthenticationToken("sales", "unused");
-    private final CallRecordingController controller = new CallRecordingController(calls, recordings, access);
+    private final RecordingStorage storage = mock(RecordingStorage.class);
+    private final CallRecordingController controller = new CallRecordingController(calls, recordings, access, storage,
+            mock(RecordingHistory.class),mock(RecordingArchiveRepository.class),mock(RecordingAutomation.class));
 
     private void call() {
         var call = new CallRecord(); call.setCustomerNo("1001");
         when(calls.findById(1L)).thenReturn(Optional.of(call));
+        when(calls.lockById(1L)).thenReturn(Optional.of(call));
     }
 
     @Test
     void storesAudioAndReadsWithCurrentCustomerPermission() throws Exception {
         call();
         byte[] audio = RecordingFixtures.wav();
+        when(storage.backend()).thenReturn("file");
+        when(storage.read(any())).thenReturn(audio);
+        when(storage.resource(any())).thenReturn(new org.springframework.core.io.ByteArrayResource(audio));
         when(recordings.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         var info = controller.upload(1L, new MockMultipartFile("file", "../../fake.html", "text/html", audio), user);
         assertEquals("audio/wav", info.mediaType());
         assertEquals(audio.length, info.size());
         when(recordings.findById(1L)).thenReturn(Optional.of(new CallRecording(1L, info.mediaType(), audio)));
-        var result = controller.download(1L, user);
-        assertArrayEquals(audio, result.getBody());
+        var result = controller.download(1L, user, null);
+        assertArrayEquals(audio, result.getBody().getInputStream().readAllBytes());
         assertEquals("no-store", result.getHeaders().getCacheControl());
-        verify(access, times(2)).requireAccess("1001", user);
+        verify(access, times(3)).requireAccess("1001", user);
         // A transfer revokes access even when a recording still exists.
         doThrow(new AccessDeniedException("transferred")).when(access).requireAccess("1001", user);
-        assertThrows(AccessDeniedException.class, () -> controller.download(1L, user));
-        verify(recordings, times(1)).findById(1L);
+        assertThrows(AccessDeniedException.class, () -> controller.download(1L, user, null));
+        verify(recordings, times(2)).findById(1L);
     }
 
     @Test

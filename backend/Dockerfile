@@ -9,6 +9,8 @@ RUN mvn -B -s /root/.m2/settings.xml -f backend/pom.xml package -DskipTests
 
 FROM eclipse-temurin:21-jre
 
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY --from=build /workspace/backend/target/youai-crm-backend-*.jar app.jar
 EXPOSE 8080

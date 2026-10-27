@@ -1,0 +1,16 @@
+ALTER TABLE crm_knowledge_article ADD COLUMN source_call_id BIGINT NULL;
+ALTER TABLE crm_knowledge_article ADD COLUMN source_key VARCHAR(255) NULL;
+ALTER TABLE crm_knowledge_article ADD COLUMN recording_revision VARCHAR(36) NULL;
+ALTER TABLE crm_knowledge_article ADD COLUMN recording_source VARCHAR(16) NULL;
+ALTER TABLE crm_knowledge_article ADD COLUMN transcription_provider VARCHAR(16) NULL;
+ALTER TABLE crm_knowledge_article ADD COLUMN customer_no VARCHAR(32) NULL;
+ALTER TABLE crm_knowledge_article ADD COLUMN customer_name VARCHAR(64) NULL;
+ALTER TABLE crm_knowledge_article ADD COLUMN sales_user_id BIGINT NULL;
+ALTER TABLE crm_knowledge_article ADD COLUMN sales_name VARCHAR(64) NULL;
+ALTER TABLE crm_knowledge_article ADD COLUMN call_started_at DATETIME(6) NULL;
+ALTER TABLE crm_knowledge_article ADD COLUMN recording_uploaded_at DATETIME(6) NULL;
+ALTER TABLE crm_knowledge_article ADD COLUMN transcribed_at DATETIME(6) NULL;
+ALTER TABLE crm_knowledge_article ADD COLUMN analyzed_at DATETIME(6) NULL;
+ALTER TABLE crm_knowledge_article ADD COLUMN ai_status VARCHAR(24) NULL;
+CREATE UNIQUE INDEX uk_knowledge_source_key ON crm_knowledge_article(source_key);
+CREATE INDEX idx_knowledge_customer ON crm_knowledge_article(customer_no);

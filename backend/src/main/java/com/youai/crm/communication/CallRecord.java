@@ -48,6 +48,28 @@ public class CallRecord {
     @Column(name = "started_at", nullable = false)
     private LocalDateTime startedAt;
 
+    @Column(name = "recording_source", nullable = false, length = 16)
+    private String recordingSource = "SYSTEM";
+
+    @Column(name = "agent_user_id")
+    private Long agentUserId;
+
+    @Column(name = "uploaded_by_user_id")
+    private Long uploadedByUserId;
+
+    public String getRecordingSource() { return recordingSource; }
+    public void setRecordingSource(String value) { recordingSource = value; }
+    public Long getAgentUserId() { return agentUserId; }
+    public void setAgentUserId(Long value) { agentUserId = value; }
+    public Long getUploadedByUserId() { return uploadedByUserId; }
+    public void setUploadedByUserId(Long value) { uploadedByUserId = value; }
+
+    @Column(name = "uploaded_at")
+    private LocalDateTime uploadedAt;
+
+    public LocalDateTime getUploadedAt() { return uploadedAt; }
+    public void setUploadedAt(LocalDateTime value) { uploadedAt = value; }
+
     @PrePersist
     void onCreate() {
         if (startedAt == null) startedAt = LocalDateTime.now();

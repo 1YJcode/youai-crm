@@ -24,6 +24,7 @@ import org.springframework.util.StringUtils;
 @Service
 @Transactional
 public class CustomerFollowUpService {
+    @org.springframework.beans.factory.annotation.Autowired private com.youai.crm.communication.CallFollowupWorkService callWork;
 
     private final CustomerService customerService;
     private final CustomerRepository customerRepository;
@@ -36,6 +37,8 @@ public class CustomerFollowUpService {
     private final CustomerAssignmentEventRepository assignmentEventRepository;
     private final CustomerOperationEventRepository operationEventRepository;
         private final AccessPolicy accessPolicy;
+    private final com.youai.crm.communication.CallIntelligenceRepository intelligence;
+    private final CustomerAccessPolicy customerAccess;
 
     public CustomerFollowUpService(
             CustomerService customerService,
@@ -48,7 +51,7 @@ public class CustomerFollowUpService {
             CustomerRegistrationEventRepository registrationEventRepository,
             CustomerAssignmentEventRepository assignmentEventRepository,
             CustomerOperationEventRepository operationEventRepository,
-            AccessPolicy accessPolicy) {
+            AccessPolicy accessPolicy,com.youai.crm.communication.CallIntelligenceRepository intelligence,CustomerAccessPolicy customerAccess) {
         this.customerService = customerService;
         this.customerRepository = customerRepository;
         this.taskRepository = taskRepository;
@@ -60,6 +63,7 @@ public class CustomerFollowUpService {
         this.assignmentEventRepository = assignmentEventRepository;
         this.operationEventRepository = operationEventRepository;
         this.accessPolicy = accessPolicy;
+        this.intelligence=intelligence;this.customerAccess=customerAccess;
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
@@ -74,12 +78,14 @@ public class CustomerFollowUpService {
                 .orElseThrow(() -> new com.youai.crm.common.NotFoundException("未找到客户：" + customer.id()))
                 .getId();
         List<FollowUpRecordResponse> records = new ArrayList<>();
+        java.util.Set<Long> privateAiFollowUps=customerAccess.canAccess(customerNo,authentication)?java.util.Set.of():new java.util.HashSet<>(intelligence.confirmedFollowUps(customerNo));
 
         taskRepository.findAll().stream()
+                .filter(task->!privateAiFollowUps.contains(task.getId()))
                 .filter(task -> sameCustomer(task, customer))
                 .filter(task -> Objects.equals(task.getCustomerId(), customer.id())
                         || accessPolicy.canAccessOwner(task.getOwner(), authentication))
-                .map(task -> taskRecord(task, customer))
+                .map(task -> taskRecord(task, customer).withSource(customerAccess.canAccess(customerNo,authentication)?callWork.sourceForTask(task.getId(),authentication):null))
                 .filter(record -> matches(record, normalizedType, normalizedKeyword, fromAt, toAt))
                 .forEach(records::add);
 

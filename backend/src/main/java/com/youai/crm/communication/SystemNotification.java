@@ -12,6 +12,12 @@ import jakarta.persistence.Table;
 @Entity
 @Table(name = "crm_system_notification")
 public class SystemNotification {
+    @Column(name="call_id") private Long callId;
+    @Column(name="notification_kind",length=32) private String notificationKind;
+    public Long getCallId(){return callId;}
+    public void setCallId(Long value){callId=value;}
+    public String getNotificationKind(){return notificationKind;}
+    public void setNotificationKind(String value){notificationKind=value;}
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     @Column(nullable = false, length = 64) private String username;
