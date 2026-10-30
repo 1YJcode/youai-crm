@@ -50,6 +50,8 @@ function setup(overrides = {}, respond = () => page()) {
     whiteboardCustomers: [], poolCustomers: [], systemNotifications: [], notificationRead: {},
     ...overrides
   };
+  state.customerTagFilters = state.customerTagFilter ? [state.customerTagFilter] : [];
+  state.poolTagFilters = [];
   const feedback = { attributes: {}, status: null };
   const scenes = ['all', 'new-unfollowed'].map(key => {
     const classes = new Set(key === 'all' ? ['active'] : []);
@@ -88,12 +90,13 @@ function setup(overrides = {}, respond = () => page()) {
     normalizeCustomer: customer => ({ ...customer }),
     customerOwnerSelectionNames: () => [], selectedCustomerStatuses: () => [],
     selectedCustomerEducations: () => [], selectedCustomerUncontactedDaysThreshold: () => null,
+    requestCallDailySummary: () => {},
     isAdmin: () => false,
     console: { warn: (...args) => warnings.push(args) },
     localStorage: { setItem() {} }, toast: message => errors.push(message),
     render: () => { context.renderCount += 1; }, renderCount: 0
   });
-  const names = ['localDateValue', 'pageContent', 'parseCustomerDate', 'daysSince',
+  const names = ['selectedCustomerTagFilters', 'appendCustomerTagFilterParams', 'localDateValue', 'pageContent', 'parseCustomerDate', 'daysSince',
     'customerFollowUpCount', 'customerMatchesScene', 'customerSceneItems', 'updateCustomerSearchFeedback', 'refreshCustomerSearchFromApi',
     'refreshVisibleCustomerList', 'refreshAssignedCustomers', 'mergeCustomerRecord', 'refreshCustomerFollowUpCounts'];
   // Include the production visibility predicate when the implementation shares one.

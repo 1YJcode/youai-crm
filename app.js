@@ -1581,7 +1581,7 @@ async function refreshCustomerSearchFromApi({ silent = false } = {}) {
     } else {
       customers = [...new Map([...state.whiteboardCustomers, ...normalized].map(customer => [String(customer.id), customer])).values()];
     }
-    render();
+    render({ skipUnchanged: silent });
     if (reopenStatusMenu) {
       const nextLevelFilter = document.querySelector("#levelFilter");
       nextLevelFilter?.focus({ preventScroll: true });
@@ -1654,7 +1654,9 @@ function bindServerPaginationControls() {
   const bindPager = (selector, pageKey, sizeKey, refresh) => {
     document.querySelectorAll(selector).forEach(button => button.addEventListener("click", () => {
       if (button.disabled) return;
-      state[pageKey] = Math.max(1, Number(button.dataset[pageKey.replace("Page", "") + "Page"] || button.dataset.customerPage || button.dataset.orderPage || button.dataset.taskPage || button.dataset.callPage));
+      const nextPage = Math.max(1, Number(button.dataset[pageKey.replace("Page", "") + "Page"] || button.dataset.customerPage || button.dataset.orderPage || button.dataset.taskPage || button.dataset.callPage));
+      if (state[pageKey] === nextPage) return;
+      state[pageKey] = nextPage;
       refresh();
     }));
     const select = document.querySelector(`#${pageKey}Size`);
@@ -1669,6 +1671,7 @@ function bindServerPaginationControls() {
     if (button.disabled) return;
     const page = Math.max(1, Number(button.dataset.customerPage));
     const pageKey = document.querySelector(".pool-page") ? "poolCustomerPage" : "customerPage";
+    if (state[pageKey] === page) return;
     state[pageKey] = page;
     refreshCustomerSearchFromApi();
   }));
@@ -1918,11 +1921,12 @@ function ensureCurrentWorkspaceTab() {
 function renderWorkspaceTabs() {
   const bar = document.querySelector("#workspaceTabs");
   if (!bar) return;
-  bar.innerHTML = state.workspaceTabs.filter(tab => canAccessView(tab.view)).map(tab => {
+  const html = state.workspaceTabs.filter(tab => canAccessView(tab.view)).map(tab => {
     const label = tab.importDetailId ? "导入详情" : tab.detailId ? (() => { const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(tab.detailId)); return customer ? `${customer.name}[${customer.id}]` : `客户详情[${tab.detailId}]`; })() : tab.label;
     tab.label = label;
     return `<div class="workspace-tab ${tab.id === state.activeWorkspaceTabId ? "active" : ""}" role="button" tabindex="0" data-workspace-tab="${escapeHtml(tab.id)}" ${tab.id === state.activeWorkspaceTabId ? 'aria-current="page"' : ""}><span>${escapeHtml(label)}</span>${tab.view === "dashboard" ? "" : `<button type="button" class="workspace-tab-close" data-close-workspace-tab="${escapeHtml(tab.id)}" aria-label="关闭 ${escapeHtml(label)}">${icon("close")}</button>`}</div>`;
   }).join("");
+  if (bar.innerHTML !== html) bar.innerHTML = html;
   bar.querySelector(`[data-workspace-tab="${CSS.escape(state.activeWorkspaceTabId)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
@@ -1930,7 +1934,7 @@ function activateWorkspaceTab(id) {
   loadWorkspaceTabs();
   enforceCustomerImportAccess();
   const tab = state.workspaceTabs.find(item => item.id === id);
-  if (!tab) return;
+  if (!tab || state.activeWorkspaceTabId === id) return;
   if (!canAccessView(tab.view)) {
     navigate(tab.view);
     return;
@@ -1952,7 +1956,7 @@ function activateWorkspaceTab(id) {
   render();
   restoreCustomerEditor(tab.id);
   refreshVisibleCustomerList();
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({ top: 0, behavior: "instant" });
 }
 
 function closeWorkspaceTab(id) {
@@ -3786,7 +3790,7 @@ async function refreshAssignedCustomers() {
     localStorage.setItem("youai.crm.notificationRead", JSON.stringify(state.notificationRead));
     const nextCustomerSignature = nextCustomers ? nextCustomers.map(item => `${item.id}:${item.owner}:${item.updatedAt || ""}`).join("|") : null;
     const nextNotificationSignature = nextSystemNotifications.map(item => `${item.id}:${item.read ? "1" : "0"}`).join("|");
-    if (previousCustomers !== nextCustomerSignature || previousNotifications !== nextNotificationSignature) render();
+    if (previousCustomers !== nextCustomerSignature || previousNotifications !== nextNotificationSignature) render({ skipUnchanged: true });
   }).catch(() => {}).finally(() => { customerSyncPromise = null; });
   await customerSyncPromise;
 }
@@ -4412,7 +4416,26 @@ function restoreTableScrollPositions(positions) {
   requestAnimationFrame(restore);
 }
 
-function render() {
+let lastRenderedViewHtml = null;
+let lastRenderedViewRoot = null;
+let lastRenderedViewFirstChild = null;
+let lastRenderedViewDom = null;
+let lastRenderedViewContext = null;
+
+function backgroundViewIsBusy(root) {
+  const active = document.activeElement;
+  const dirty = root && [...root.querySelectorAll("input, textarea, select")].some(field => {
+    if (field.tagName === "SELECT") return [...field.options].some(option => option.selected !== option.defaultSelected);
+    if (field.type === "checkbox" || field.type === "radio") return field.checked !== field.defaultChecked;
+    return field.value !== field.defaultValue;
+  });
+  return Boolean(root && (dirty ||
+    root.contains(active) && active.matches("input, textarea, select, [contenteditable=true]")
+    || root.querySelector("dialog[open], [role=dialog], .modal-backdrop, .status-filter.open")
+  ));
+}
+
+function render({ skipUnchanged = false } = {}) {
   enforceCustomerImportAccess();
   if (!viewMeta[state.view]) state.view = "dashboard";
   const nextView = accessibleView(state.view);
@@ -4424,7 +4447,43 @@ function render() {
   const scrollContext = tableScrollContext();
   const tableScrollPositions = captureTableScrollPositions(scrollContext);
   const views = { dashboard: dashboardView, customers: customersView, tasks: tasksView, calls: callsView, messages: messagesView, orders: ordersView, system: systemView, analytics: analyticsView, finance: financeView };
-  setSafeHtml(document.querySelector("#app"), views[state.view]());
+  const root = document.querySelector("#app");
+  const nextHtml = views[state.view]();
+  const viewContext = JSON.stringify([state.auth.user?.id, state.view,
+    currentWorkspaceSection(), state.customerDetailId, state.importDetailId]);
+  // Background updates must not destroy a draft or dismiss an open editor.
+  // The next foreground action renders the latest state.
+  if (skipUnchanged && viewContext === lastRenderedViewContext && backgroundViewIsBusy(root)) {
+    updateNotificationChrome();
+    updateCustomerSearchFeedback();
+    return;
+  }
+  // API refreshes often return the same data. Keep the existing DOM and its
+  // event handlers, focus and scroll position when the view has not changed.
+  if (lastRenderedViewRoot === root && lastRenderedViewHtml === nextHtml
+      && viewContext === lastRenderedViewContext
+      && root.firstChild === lastRenderedViewFirstChild && root.innerHTML === lastRenderedViewDom) {
+    updateNotificationChrome();
+    updateCustomerSearchFeedback();
+    return;
+  }
+  const active = document.activeElement;
+  const sameView = viewContext === lastRenderedViewContext;
+  const focusId = sameView && root.contains(active) ? active.id : "";
+  const selection = focusId && typeof active.selectionStart === "number"
+    ? [active.selectionStart, active.selectionEnd] : null;
+  const viewport = { x: window.scrollX, y: window.scrollY };
+  // Reuse the filter controls after binding the replacement results. Keeping
+  // their original nodes also keeps exactly one copy of each event handler.
+  const stableControls = sameView && state.view === "customers" && !state.customerDetailId
+    ? [".customer-scene-bar", ".filter-panel", ".customer-reference-tabs"].map(selector => ({selector, node: root.querySelector(selector)})) : [];
+  const stablePanels = sameView ? [...root.querySelectorAll(".data-panel")]
+    .map((node, index) => ({ node, index })) : [];
+  setSafeHtml(root, nextHtml);
+  lastRenderedViewRoot = root;
+  lastRenderedViewHtml = nextHtml;
+  lastRenderedViewFirstChild = root.firstChild;
+  lastRenderedViewContext = viewContext;
   if (document.querySelector(".pool-scene-bar")) renderSharedPoolNavigation();
   if (state.view === "customers") {
     renderImportedCustomerFields();
@@ -4443,6 +4502,36 @@ function render() {
   updateCustomerSearchFeedback();
   restoreTableScrollPositions(tableScrollPositions);
   lastRenderedTableScrollContext = scrollContext;
+  if (focusId) {
+    const replacement = document.getElementById(focusId);
+    if (replacement && root.contains(replacement)) {
+      replacement.focus({ preventScroll: true });
+      if (selection && typeof replacement.setSelectionRange === "function") {
+        try { replacement.setSelectionRange(...selection); } catch (_) { /* Non-text input. */ }
+      }
+    }
+  }
+  const nextPanels = [...root.querySelectorAll(".data-panel")];
+  for (const {node, index} of stablePanels) {
+    const next = nextPanels[index];
+    if (next && node.isEqualNode(next)) next.replaceWith(node);
+  }
+  for (const {selector, node} of stableControls) {
+    const next = root.querySelector(selector);
+    if (!node || !next) continue;
+    if (selector === ".customer-scene-bar") {
+      const oldButtons = [...node.querySelectorAll("[data-customer-scene]")];
+      const newButtons = [...next.querySelectorAll("[data-customer-scene]")];
+      if (oldButtons.length !== newButtons.length) continue;
+      oldButtons.forEach((button, index) => {
+        button.className = newButtons[index].className;
+        button.innerHTML = newButtons[index].innerHTML;
+      });
+    }
+    if (node.isEqualNode(next)) next.replaceWith(node);
+  }
+  lastRenderedViewDom = root.innerHTML;
+  if (sameView) window.scrollTo({ left: viewport.x, top: viewport.y, behavior: "instant" });
 }
 
 function renderSharedPoolNavigation() {
@@ -4570,7 +4659,7 @@ function navigate(view) {
   render();
   refreshVisibleCustomerList();
   document.querySelector("#app").focus({ preventScroll: true });
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({ top: 0, behavior: "instant" });
 }
 
 let customerAvatarSelection = 0;
@@ -6421,7 +6510,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-message-name]").forEach(button => { button.innerHTML = `${icon("message")}消息`; });
   document.querySelectorAll("[data-allocate-profile-customer]").forEach(button => { button.innerHTML = `${icon("sliders")}资源调配`; });
   document.querySelectorAll("[data-next-customer]").forEach(button => { button.innerHTML = `${icon("play")}${button.dataset.nextCustomerLabel || "下个客户"}`; });
-  document.querySelectorAll("[data-customer-detail-tab]").forEach(button => button.addEventListener("click", async () => { state.customerDetailTab = button.dataset.customerDetailTab; render(); if (state.customerDetailTab === "follow" && state.customerDetailId) await loadCustomerFollowUps(state.customerDetailId); if (state.customerDetailTab === "calls" && state.customerDetailId) await loadCustomerCalls(state.customerDetailId); if (state.customerDetailTab === "transcript" && state.customerDetailId) await loadCustomerTranscript(state.customerDetailId); }));
+  document.querySelectorAll("[data-customer-detail-tab]").forEach(button => button.addEventListener("click", async () => { if (state.customerDetailTab === button.dataset.customerDetailTab) return; state.customerDetailTab = button.dataset.customerDetailTab; render(); if (state.customerDetailTab === "follow" && state.customerDetailId) await loadCustomerFollowUps(state.customerDetailId); if (state.customerDetailTab === "calls" && state.customerDetailId) await loadCustomerCalls(state.customerDetailId); if (state.customerDetailTab === "transcript" && state.customerDetailId) await loadCustomerTranscript(state.customerDetailId); }));
   document.querySelector("#openCustomerFollowUpDateRange")?.addEventListener("click", event => {
     event.preventDefault();
     event.stopPropagation();
@@ -6597,6 +6686,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-route]").forEach(button => button.addEventListener("click", () => navigate(button.dataset.route)));
   document.querySelectorAll("[data-subnav-value]").forEach(button => button.addEventListener("click", () => {
     if (!requireCustomerSectionAccess(button.dataset.subnavValue)) return;
+    if (currentWorkspaceSection() === button.dataset.subnavValue) return;
     if (state.view === "dashboard") { state.dashboardTab = button.dataset.subnavValue; render(); }
     if (state.view === "customers") { state.customerSection = button.dataset.subnavValue; state.customerDetailId = null; state.importDetailId = null; state.customerPage = 1; state.whiteboardCustomerPage = 1; render(); refreshVisibleCustomerList(); }
     if (state.view === "tasks") {
@@ -6664,13 +6754,13 @@ function bindViewEvents() {
 
   const customerSearch = document.querySelector("#customerSearch");
   customerSearch?.addEventListener("input", event => { state.customerSearch = event.target.value; });
-  customerSearch?.addEventListener("keydown", event => { if (event.key === "Enter") { state.customerPage = 1; state.whiteboardCustomerPage = 1; render(); refreshCustomerSearchFromApi(); } });
+  customerSearch?.addEventListener("keydown", event => { if (event.key === "Enter") { state.customerPage = 1; state.whiteboardCustomerPage = 1; refreshCustomerSearchFromApi(); } });
   document.querySelector("#whiteboardNameSearch")?.addEventListener("input", event => { state.whiteboardNameSearch = event.target.value; });
-  document.querySelector("#whiteboardNameSearch")?.addEventListener("keydown", event => { if (event.key === "Enter") { state.whiteboardCustomerPage = 1; render(); refreshCustomerSearchFromApi(); } });
-  document.querySelector("#whiteboardStatusFilter")?.addEventListener("change", event => { state.whiteboardStatus = event.target.value; state.whiteboardCustomerPage = 1; render(); refreshCustomerSearchFromApi(); });
+  document.querySelector("#whiteboardNameSearch")?.addEventListener("keydown", event => { if (event.key === "Enter") { state.whiteboardCustomerPage = 1; refreshCustomerSearchFromApi(); } });
+  document.querySelector("#whiteboardStatusFilter")?.addEventListener("change", event => { state.whiteboardStatus = event.target.value; state.whiteboardCustomerPage = 1; refreshCustomerSearchFromApi(); });
   const customerNameSearch = document.querySelector("#customerNameSearch");
   customerNameSearch?.addEventListener("input", event => { state.customerNameSearch = event.target.value; });
-  customerNameSearch?.addEventListener("keydown", event => { if (event.key === "Enter") { state.customerPage = 1; state.poolCustomerPage = 1; render(); refreshCustomerSearchFromApi(); } });
+  customerNameSearch?.addEventListener("keydown", event => { if (event.key === "Enter") { state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); } });
   const stageFilter = document.querySelector("#stageFilter");
   stageFilter?.addEventListener("click", event => {
     event.preventDefault();
@@ -7285,8 +7375,8 @@ function bindViewEvents() {
     customerSourceCombobox?.classList.remove("open");
     customerSourceInput.setAttribute("aria-expanded", "false");
   }, 0));
-  document.querySelector("#whiteboardApplyFilters")?.addEventListener("click", () => { state.whiteboardCustomerPage = 1; render(); refreshCustomerSearchFromApi(); });
-  document.querySelector("#whiteboardResetFilters")?.addEventListener("click", () => { state.customerSearch = ""; state.whiteboardNameSearch = ""; state.whiteboardStatus = "全部"; state.whiteboardSelectedTags = []; state.whiteboardCustomerPage = 1; render(); refreshCustomerSearchFromApi(); });
+  document.querySelector("#whiteboardApplyFilters")?.addEventListener("click", () => { state.whiteboardCustomerPage = 1; refreshCustomerSearchFromApi(); });
+  document.querySelector("#whiteboardResetFilters")?.addEventListener("click", () => { state.customerSearch = ""; state.whiteboardNameSearch = ""; state.whiteboardStatus = "全部"; state.whiteboardSelectedTags = []; state.whiteboardCustomerPage = 1; refreshCustomerSearchFromApi(); });
   document.querySelector("#openInventoryTags")?.addEventListener("click", () => { state.whiteboardTagModalOpen = true; render(); });
   document.querySelector("#openInventoryAdvanced")?.addEventListener("click", () => { state.whiteboardAdvancedOpen = true; render(); });
   document.querySelector("#openServiceAdvanced")?.addEventListener("click", () => { state.serviceAdvancedOpen = true; render(); });
@@ -7364,8 +7454,16 @@ function bindViewEvents() {
     state.customerDateRangePicking = "start";
     render();
   });
-  document.querySelectorAll("[data-customer-scene]").forEach(button => button.addEventListener("click", () => { state.customerScene = button.dataset.customerScene; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
-  document.querySelectorAll("[data-quick-filter]").forEach(button => button.addEventListener("click", () => { state.quickFilter = button.dataset.quickFilter; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
+  document.querySelectorAll("[data-customer-scene]").forEach(button => button.addEventListener("click", () => {
+    // Selecting the current scene is not a refresh action. In particular,
+    // repeated clicks must not rebuild the customer table or restart loading.
+    if (state.customerScene === button.dataset.customerScene) return;
+    state.customerScene = button.dataset.customerScene;
+    state.customerPage = 1;
+    state.poolCustomerPage = 1;
+    refreshCustomerSearchFromApi();
+  }));
+  document.querySelectorAll("[data-quick-filter]").forEach(button => button.addEventListener("click", () => { if (state.quickFilter === button.dataset.quickFilter) return; state.quickFilter = button.dataset.quickFilter; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
   document.querySelectorAll("[data-customer-tag]").forEach(button => button.addEventListener("click", () => {
     const isPool = button.dataset.customerTagList === "pool";
     const key = isPool ? "poolTagFilters" : "customerTagFilters";
@@ -7375,7 +7473,7 @@ function bindViewEvents() {
     render();
     refreshCustomerSearchFromApi();
   }));
-  document.querySelectorAll("[data-customer-scope]").forEach(button => button.addEventListener("click", () => { state.customerScope = button.dataset.customerScope; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
+  document.querySelectorAll("[data-customer-scope]").forEach(button => button.addEventListener("click", () => { if (state.customerScope === button.dataset.customerScope) return; state.customerScope = button.dataset.customerScope; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
   document.querySelectorAll("[data-customer-sort]").forEach(button => button.addEventListener("click", event => {
     event.stopPropagation();
     const key = event.currentTarget.dataset.customerSort;
@@ -7388,9 +7486,9 @@ function bindViewEvents() {
     state.poolCustomerPage = 1;
     refreshCustomerSearchFromApi();
   }));
-  document.querySelectorAll("[data-sincere-scope]").forEach(button => button.addEventListener("click", () => { state.sincereScope = button.dataset.sincereScope; render(); }));
-  document.querySelectorAll("[data-service-scope]").forEach(button => button.addEventListener("click", () => { state.serviceScope = button.dataset.serviceScope; render(); }));
-  document.querySelectorAll("[data-service-scenario]").forEach(button => button.addEventListener("click", () => { state.serviceScenario = button.dataset.serviceScenario; render(); }));
+  document.querySelectorAll("[data-sincere-scope]").forEach(button => button.addEventListener("click", () => { if (state.sincereScope === button.dataset.sincereScope) return; state.sincereScope = button.dataset.sincereScope; render(); }));
+  document.querySelectorAll("[data-service-scope]").forEach(button => button.addEventListener("click", () => { if (state.serviceScope === button.dataset.serviceScope) return; state.serviceScope = button.dataset.serviceScope; render(); }));
+  document.querySelectorAll("[data-service-scenario]").forEach(button => button.addEventListener("click", () => { if (state.serviceScenario === button.dataset.serviceScenario) return; state.serviceScenario = button.dataset.serviceScenario; render(); }));
   document.querySelector("#openCustomerHeader")?.addEventListener("click", () => {
     state.customerHeaderDraftColumns = [...state.customerVisibleColumns];
     state.customerHeaderModalOpen = true;
@@ -7475,7 +7573,7 @@ function bindViewEvents() {
     state.customerAdvancedDraftSource = ""; state.customerAdvancedDraftNativePlace = ""; state.customerAdvancedDraftWorkLocation = ""; state.customerAdvancedDraftOccupation = ""; state.customerAdvancedDraftHousing = ""; state.customerAdvancedDraftCar = ""; state.customerAdvancedDraftPersonality = ""; state.customerAdvancedDraftInterest = ""; state.customerAdvancedDraftNote = ""; state.customerAdvancedDraftIncomeMin = ""; state.customerAdvancedDraftIncomeMax = ""; state.customerAdvancedDraftNextFollowPreset = "";
     state.customerAdvancedOwnerSelection = { nodes: [] }; state.customerAdvancedDraftOwnerSelection = { nodes: [] }; state.customerAdvancedOwnerCascadeOpen = false; state.customerAdvancedOwnerSearch = ""; state.customerAdvancedOwnerExpandedNodes = ["store:youai-tianjin", "group:sales"];
     state.customerAdvancedDraftDateRanges = { registration: { start: "", end: "" }, lastLogin: { start: "", end: "" }, firstAllocation: { start: "", end: "" }, lastFollowUp: { start: "", end: "" }, nextFollow: { start: "", end: "" } }; state.customerAdvancedDateRanges = JSON.parse(JSON.stringify(state.customerAdvancedDraftDateRanges));
-    state.customerAdvancedDatePickerOpen = false; state.customerAdvancedDatePickerField = ""; state.customerAdvancedDatePickerDraftStart = ""; state.customerAdvancedDatePickerDraftEnd = ""; state.customerAdvancedDatePickerViewMonth = ""; state.customerAdvancedDatePickerPicking = "start"; state.customerAdvancedDraftUncontactedDays = "all"; state.customerAdvancedDraftUncontactedDaysCustom = ""; state.customerAdvancedDialStatus = "all"; state.customerAdvancedDraftDialStatus = "all"; state.customerPoolEntryType = ""; state.customerAdvancedDraftPoolEntryType = ""; state.customerAvatarFilter = "all"; state.customerAdvancedDraftAvatar = "all"; state.quickFilter = "全部客户"; state.customerPage = 1; state.poolCustomerPage = 1; render(); refreshCustomerSearchFromApi();
+    state.customerAdvancedDatePickerOpen = false; state.customerAdvancedDatePickerField = ""; state.customerAdvancedDatePickerDraftStart = ""; state.customerAdvancedDatePickerDraftEnd = ""; state.customerAdvancedDatePickerViewMonth = ""; state.customerAdvancedDatePickerPicking = "start"; state.customerAdvancedDraftUncontactedDays = "all"; state.customerAdvancedDraftUncontactedDaysCustom = ""; state.customerAdvancedDialStatus = "all"; state.customerAdvancedDraftDialStatus = "all"; state.customerPoolEntryType = ""; state.customerAdvancedDraftPoolEntryType = ""; state.customerAvatarFilter = "all"; state.customerAdvancedDraftAvatar = "all"; state.quickFilter = "全部客户"; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi();
   });
   document.querySelectorAll("[data-select-customer]").forEach(input => input.addEventListener("change", () => { state.selectedCustomerIds = input.checked ? [...new Set([...state.selectedCustomerIds, input.dataset.selectCustomer])] : state.selectedCustomerIds.filter(id => id !== input.dataset.selectCustomer); render(); }));
   document.querySelector("#selectPageCustomers")?.addEventListener("change", event => { const ids = [...document.querySelectorAll("[data-select-customer]")].map(input => input.dataset.selectCustomer); state.selectedCustomerIds = event.target.checked ? [...new Set([...state.selectedCustomerIds, ...ids])] : state.selectedCustomerIds.filter(id => !ids.includes(id)); render(); });
@@ -7775,7 +7873,7 @@ function bindViewEvents() {
   document.querySelector("#messageForm")?.addEventListener("submit", sendActiveMessage);
   document.querySelector("#messageInput")?.addEventListener("keydown", event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); document.querySelector("#messageForm").requestSubmit(); } });
   document.querySelector("#markAllRead")?.addEventListener("click", markAllMessagesRead);
-  document.querySelectorAll("[data-notification-filter]").forEach(button => button.addEventListener("click", () => { state.notificationFilter = button.dataset.notificationFilter; render(); }));
+  document.querySelectorAll("[data-notification-filter]").forEach(button => button.addEventListener("click", () => { if (state.notificationFilter === button.dataset.notificationFilter) return; state.notificationFilter = button.dataset.notificationFilter; render(); }));
   document.querySelector("#markAllSystemNotifications")?.addEventListener("click", markAllSystemNotificationsRead);
   document.querySelector("#callWorkInbox")?.addEventListener("click",openCallWorkInbox);
   document.querySelector("#exportSystemNotifications")?.addEventListener("click", exportSystemNotifications);
@@ -7791,8 +7889,8 @@ function bindViewEvents() {
   document.querySelectorAll("[data-edit-message-template]").forEach(button => button.addEventListener("click", () => editMessageTemplate(button.dataset.editMessageTemplate)));
   document.querySelectorAll("[data-delete-message-template]").forEach(button => button.addEventListener("click", () => deleteMessageTemplate(button.dataset.deleteMessageTemplate)));
   document.querySelectorAll("[data-use-message-template]").forEach(button => button.addEventListener("click", () => useMessageTemplate(button.dataset.useMessageTemplate)));
-  document.querySelectorAll("[data-call-filter]").forEach(button => button.addEventListener("click", () => { state.callFilter = button.dataset.callFilter; render(); }));
-  document.querySelectorAll("[data-call-task-filter]").forEach(button => button.addEventListener("click", () => { state.callTaskFilter = button.dataset.callTaskFilter; render(); }));
+  document.querySelectorAll("[data-call-filter]").forEach(button => button.addEventListener("click", () => { if (state.callFilter === button.dataset.callFilter) return; state.callFilter = button.dataset.callFilter; render(); }));
+  document.querySelectorAll("[data-call-task-filter]").forEach(button => button.addEventListener("click", () => { if (state.callTaskFilter === button.dataset.callTaskFilter) return; state.callTaskFilter = button.dataset.callTaskFilter; render(); }));
   document.querySelector("#callAgentFilter")?.addEventListener("change", event => { state.callAgentFilter = event.target.value; });
   document.querySelector("#applyCallFilters")?.addEventListener("click", () => { state.callKeyword = document.querySelector("#callKeyword")?.value || ""; state.callNameKeyword = document.querySelector("#callNameKeyword")?.value || ""; state.callAgentFilter = document.querySelector("#callAgentFilter")?.value || "全部坐席"; state.callDirectionFilter = document.querySelector("#callDirectionFilter")?.value || "全部"; state.callStatusFilter = document.querySelector("#callStatusFilter")?.value || "全部"; state.callPage = 1; refreshCallsFromApi(); });
   document.querySelectorAll("#callKeyword, #callNameKeyword").forEach(input => input.addEventListener("keydown", event => { if (event.key === "Enter") document.querySelector("#applyCallFilters")?.click(); }));
