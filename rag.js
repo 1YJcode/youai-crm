@@ -1,3 +1,20 @@
+function highlightSourceQuote(dialog, content, quote) {
+  const pre=dialog.querySelector('pre');pre.textContent=content||'';
+  // Keep original offsets while tolerating punctuation and spacing differences.
+  const normalize=text=>{let value='',offsets=[];for(let i=0;i<text.length;i++){const c=text[i];if(/[\p{L}\p{N}]/u.test(c)){value+=c.toLowerCase();offsets.push(i);}}return {value,offsets};};
+  const source=normalize(content||''),needle=normalize(quote||'').value;
+  const at=needle?source.value.indexOf(needle):-1;
+  const status=document.createElement('p');status.setAttribute('role','status');
+  dialog.insertBefore(status,pre);
+  if(at<0){status.textContent='未能在原文中精确定位此引用，请结合上下文核对。';return;}
+  const start=source.offsets[at],end=source.offsets[at+needle.length-1]+1;
+  const mark=document.createElement('mark');mark.textContent=content.slice(start,end);
+  mark.style.cssText='background:#fff0a6;color:inherit;text-decoration:underline;text-decoration-color:#c57900;text-decoration-thickness:2px;text-underline-offset:4px;scroll-margin-block:90px';
+  pre.replaceChildren(document.createTextNode(content.slice(0,start)),mark,document.createTextNode(content.slice(end)));
+  status.textContent='已标记本条引用在原文中的位置';
+  requestAnimationFrame(()=>{if(dialog.isConnected&&dialog.open)mark.scrollIntoView({block:'center'});});
+}
+
 let ragMemory={account:null,drafts:{},answers:{}};
 function ragSession(){if(ragMemory.account!==state.auth.user?.id||!state.auth.token){ragMemory={account:state.auth.user?.id,drafts:{},answers:{}};document.querySelectorAll('[data-rag-owner]').forEach(dialog=>dialog.remove());}return ragMemory;}
 setInterval(()=>ragSession(),1000);
@@ -15,7 +32,7 @@ function renderRagAnswer(container,result){
     button.onclick=async()=>{const account=state.auth.user?.id;try{if(citation.articleId){const source=await apiRequest(`/knowledge/${citation.articleId}`);if(account===state.auth.user?.id)openKnowledgeArticle(source,()=>{});}else{
       const params=new URLSearchParams({id:citation.sourceId,customerNo:citation.customerNo,version:citation.version}),source=await apiRequest(`/knowledge/rag-source?${params}`);if(account!==state.auth.user?.id)return;
       const dialog=document.createElement('dialog');dialog.className='knowledge-dialog rag-source-dialog';dialog.dataset.ragOwner=account;dialog.innerHTML='<header><h2></h2><button type="button" class="button secondary" data-close>关闭</button></header><pre></pre><button type="button" class="button secondary" data-audio>回听对应录音</button>';
-      dialog.querySelector('h2').textContent=source.title;dialog.querySelector('pre').textContent=source.content;dialog.querySelector('[data-close]').onclick=()=>dialog.remove();dialog.oncancel=()=>dialog.remove();dialog.querySelector('[data-audio]').onclick=async()=>{try{const segment=await apiRequest(`/customers/${encodeURIComponent(citation.customerNo)}/transcript/segments/${citation.segmentId}`);if(account===state.auth.user?.id)playTranscriptSegment(segment);}catch(e){toast(e.message);}};document.body.append(dialog);dialog.showModal();
+      dialog.querySelector('h2').textContent=source.title;dialog.querySelector('pre').textContent=source.content;dialog.querySelector('[data-close]').onclick=()=>dialog.remove();dialog.oncancel=()=>dialog.remove();dialog.addEventListener('click',event=>{if(event.target!==dialog)return;const rect=dialog.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)dialog.remove();});dialog.querySelector('[data-audio]').onclick=async()=>{try{const segment=await apiRequest(`/customers/${encodeURIComponent(citation.customerNo)}/transcript/segments/${citation.segmentId}`);if(account===state.auth.user?.id)playTranscriptSegment(segment);}catch(e){toast(e.message);}};document.body.append(dialog);dialog.showModal();highlightSourceQuote(dialog,source.content,citation.quote);
     }}catch(e){toast(e.message);}};
     article.append(title,quote,button);container.append(article);
   });

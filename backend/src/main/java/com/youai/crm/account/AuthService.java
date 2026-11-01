@@ -179,6 +179,9 @@ public class AuthService {
                         .orElseThrow(() -> new IllegalArgumentException("角色不存在：" + requestedCode)));
             }
         }
+        if (roles.stream().anyMatch(role -> "ADMIN".equals(role.getCode()))) {
+            roles.removeIf(role -> "SALES".equals(role.getCode()));
+        }
         user.setRoles(roles);
         user.setEnabled(true);
         return UserResponse.from(userRepository.save(user));
@@ -223,6 +226,9 @@ public class AuthService {
         user.setUsername(username);
         user.setDisplayName(request.displayName().trim());
         user.setPhone(request.phone() == null ? "" : request.phone().trim());
+        if (roles.stream().anyMatch(role -> "ADMIN".equals(role.getCode()))) {
+            roles.removeIf(role -> "SALES".equals(role.getCode()));
+        }
         user.setRoles(roles);
         return UserResponse.from(userRepository.save(user));
     }

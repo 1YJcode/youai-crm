@@ -1598,7 +1598,7 @@ async function refreshCustomerSearchFromApi({ silent = false } = {}) {
 }
 
 function refreshVisibleCustomerList() {
-  if (state.view === "customers" && !state.customerDetailId && ["客户列表", "白板列表"].includes(state.customerSection)) {
+  if (state.view === "customers" && !state.customerDetailId && ["客户列表", "公海列表", "白板列表"].includes(state.customerSection)) {
     state.whiteboardCustomerPage = state.customerSection === "白板列表" ? state.whiteboardCustomerPage : 1;
     refreshCustomerSearchFromApi();
   }
@@ -1759,6 +1759,8 @@ async function hydrateFromApi() {
     localStorage.setItem("youai.crm.callReviews", JSON.stringify(state.callReviews));
     conversations = conversationData.map(normalizeConversation);
     state.poolCustomers = poolPageData.content.map(normalizeCustomer);
+    state.poolCustomerPageMeta = poolPageData;
+    state.poolCustomerPage = poolPageData.page + 1;
     state.customerPoolRule = {
       enabled: customerPoolRuleData?.enabled !== false,
       days: Math.max(1, Number(customerPoolRuleData?.days || 7))
@@ -1930,7 +1932,7 @@ function renderWorkspaceTabs() {
   bar.querySelector(`[data-workspace-tab="${CSS.escape(state.activeWorkspaceTabId)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
-function activateWorkspaceTab(id) {
+async function activateWorkspaceTab(id) {
   loadWorkspaceTabs();
   enforceCustomerImportAccess();
   const tab = state.workspaceTabs.find(item => item.id === id);
@@ -1938,6 +1940,18 @@ function activateWorkspaceTab(id) {
   if (!canAccessView(tab.view)) {
     navigate(tab.view);
     return;
+  }
+  if (tab.view === "customers" && tab.detailId && ![...customers, ...state.poolCustomers].some(customer => String(customer.id) === String(tab.detailId))) {
+    const account = state.auth.user?.id;
+    const previousTabId = state.activeWorkspaceTabId;
+    try {
+      const customer = normalizeCustomer(await apiRequest(`/customers/${encodeURIComponent(tab.detailId)}`));
+      if (account !== state.auth.user?.id || state.activeWorkspaceTabId !== previousTabId || !state.workspaceTabs.includes(tab)) return;
+      if (![...customers, ...state.poolCustomers].some(item => String(item.id) === String(customer.id))) customers.push(customer);
+    } catch (error) {
+      toast(`客户详情加载失败：${error.message}`);
+      return;
+    }
   }
   preserveActiveCustomerEditor();
   closeDrawer();
@@ -2623,8 +2637,12 @@ function customerMatchesScene(customer, scene) {
   return true;
 }
 
+function visibleCustomerLibraryRows(rows) {
+  return isAdmin() ? rows : rows.filter(customer => !["公海", "白板"].includes(customer.owner));
+}
+
 function customerSceneItems({ isPool = false } = {}) {
-  const source = isPool ? state.poolCustomers : customers.filter(customer => !["公海", "白板"].includes(customer.owner));
+  const source = isPool ? state.poolCustomers : visibleCustomerLibraryRows(customers);
   return [
     ["all", "全部", false], ["today-new", "今日新分", true], ["today-follow", "今日待跟进", true],
     ["new-unfollowed", "新分未跟进", true], ["two-days-unfollowed", "两日未跟进", true],
@@ -2794,7 +2812,7 @@ function customerTagFilterButtons(isPool) {
 function customerListView({ isPool = false } = {}) {
   const selectedStatuses = selectedCustomerStatuses();
   const meta = (isPool ? state.poolCustomerPageMeta : state.customerPageMeta) || { page: 0, size: state.customerPageSize, totalElements: 0, totalPages: 1 };
-  const sourceRows = isPool ? state.poolCustomers : customers.filter(customer => !["白板", "公海"].includes(customer.owner));
+  const sourceRows = isPool ? state.poolCustomers : visibleCustomerLibraryRows(customers);
   const rows = sortedCustomerRows(sourceRows.filter(customer => {
     if (!isPool && !customerStatusMatches(customer, selectedStatuses)) return false;
     if (isPool && !customerMatchesDeepTalkDuration(customer, state.poolDeepTalkDuration)) return false;
@@ -4462,7 +4480,7 @@ function render({ skipUnchanged = false } = {}) {
   // event handlers, focus and scroll position when the view has not changed.
   if (lastRenderedViewRoot === root && lastRenderedViewHtml === nextHtml
       && viewContext === lastRenderedViewContext
-      && root.firstChild === lastRenderedViewFirstChild && root.innerHTML === lastRenderedViewDom) {
+      && root.firstChild === lastRenderedViewFirstChild) {
     updateNotificationChrome();
     updateCustomerSearchFeedback();
     return;
@@ -5297,7 +5315,7 @@ function openSystemUserEditor(id) {
   };
   const drawer = document.querySelector("#detailDrawer");
   const backdrop = document.querySelector("#drawerBackdrop");
-  drawer.innerHTML = `<header class="drawer-header"><div><h2>编辑</h2></div><button class="icon-button" data-close-drawer aria-label="关闭">${icon("close")}</button></header><div class="drawer-body system-user-editor"><div class="system-editor-id">ID：${escapeHtml(user.id)}</div><form id="systemUserEditForm" class="system-user-editor-form"><label><span><i>*</i>用户账号：</span><input name="account" value="${escapeHtml(user.account)}" required></label><label><span><i>*</i>手机号码：</span><input name="phone" value="${escapeHtml(user.phone)}" required></label><label><span><i>*</i>用户姓名：</span><input name="name" value="${escapeHtml(user.name)}" required></label><label><span>职务：</span><div class="editor-inline"><span class="editor-tag">销售 ×</span><button type="button" class="button primary">${icon("search")}选择</button></div></label><label><span><i>*</i>角色分配：</span><div class="editor-role-picker"><div class="editor-tags" data-role-tags>${roleTagMarkup(user.roles)}</div><button type="button" class="button primary" data-role-picker-toggle>${icon("search")}选择</button><div class="system-role-menu" data-role-menu hidden>${roleOptions}</div></div></label><label><span><i>*</i>部门分配：</span><div class="editor-inline"><input value="${escapeHtml(user.department || "销售部")}" readonly><button type="button" class="button secondary">${icon("search")}选择</button></div></label><label><span>身份：</span><div class="editor-radios"><label><input type="radio" name="identity" checked>普通用户</label><label><input type="radio" name="identity">上级</label></div></label><label><span>头像：</span><div class="avatar-upload"><strong>＋</strong><small>上传</small></div></label><label><span>生日：</span><input type="date" name="birthday"></label><label><span>性别：</span><select name="gender"><option>请选择性别</option><option ${user.gender === "男" ? "selected" : ""}>男</option><option ${user.gender === "女" ? "selected" : ""}>女</option></select></label><label><span>邮箱：</span><input name="email" placeholder="请输入邮箱"></label><label><span>工作流引擎：</span><div class="editor-radios"><label><input type="radio" name="workflow" checked>同步</label><label><input type="radio" name="workflow">不同步</label></div></label></form></div><footer class="drawer-footer"><button type="button" class="button secondary" data-close-drawer>取消</button><button type="submit" form="systemUserEditForm" class="button primary">提交</button></footer>`;
+  drawer.innerHTML = `<header class="drawer-header"><div><h2>编辑</h2></div><button class="icon-button" data-close-drawer aria-label="关闭">${icon("close")}</button></header><div class="drawer-body system-user-editor"><div class="system-editor-id">ID：${escapeHtml(user.id)}</div><form id="systemUserEditForm" class="system-user-editor-form"><label><span><i>*</i>用户账号：</span><input name="account" value="${escapeHtml(user.account)}" required></label><label><span><i>*</i>手机号码：</span><input name="phone" value="${escapeHtml(user.phone)}" required></label><label><span><i>*</i>用户姓名：</span><input name="name" value="${escapeHtml(user.name)}" required></label><label><span>职务：</span><div class="editor-inline"><span class="editor-tag">${customerOwnerIsAdminUser(user) ? "管理员" : "销售"}</span><button type="button" class="button primary">${icon("search")}选择</button></div></label><label><span><i>*</i>角色分配：</span><div class="editor-role-picker"><div class="editor-tags" data-role-tags>${roleTagMarkup(user.roles)}</div><button type="button" class="button primary" data-role-picker-toggle>${icon("search")}选择</button><div class="system-role-menu" data-role-menu hidden>${roleOptions}</div></div></label><label><span><i>*</i>部门分配：</span><div class="editor-inline"><input value="${escapeHtml(user.department || "销售部")}" readonly><button type="button" class="button secondary">${icon("search")}选择</button></div></label><label><span>身份：</span><div class="editor-radios"><label><input type="radio" name="identity" checked>普通用户</label><label><input type="radio" name="identity">上级</label></div></label><label><span>头像：</span><div class="avatar-upload"><strong>＋</strong><small>上传</small></div></label><label><span>生日：</span><input type="date" name="birthday"></label><label><span>性别：</span><select name="gender"><option>请选择性别</option><option ${user.gender === "男" ? "selected" : ""}>男</option><option ${user.gender === "女" ? "selected" : ""}>女</option></select></label><label><span>邮箱：</span><input name="email" placeholder="请输入邮箱"></label><label><span>工作流引擎：</span><div class="editor-radios"><label><input type="radio" name="workflow" checked>同步</label><label><input type="radio" name="workflow">不同步</label></div></label></form></div><footer class="drawer-footer"><button type="button" class="button secondary" data-close-drawer>取消</button><button type="submit" form="systemUserEditForm" class="button primary">提交</button></footer>`;
   backdrop.hidden = false;
   drawer.classList.add("system-user-drawer");
   drawer.classList.add("open");
@@ -6754,7 +6772,7 @@ function bindViewEvents() {
 
   const customerSearch = document.querySelector("#customerSearch");
   customerSearch?.addEventListener("input", event => { state.customerSearch = event.target.value; });
-  customerSearch?.addEventListener("keydown", event => { if (event.key === "Enter") { state.customerPage = 1; state.whiteboardCustomerPage = 1; refreshCustomerSearchFromApi(); } });
+  customerSearch?.addEventListener("keydown", event => { if (event.key === "Enter") { state.customerPage = 1; state.poolCustomerPage = 1; state.whiteboardCustomerPage = 1; refreshCustomerSearchFromApi(); } });
   document.querySelector("#whiteboardNameSearch")?.addEventListener("input", event => { state.whiteboardNameSearch = event.target.value; });
   document.querySelector("#whiteboardNameSearch")?.addEventListener("keydown", event => { if (event.key === "Enter") { state.whiteboardCustomerPage = 1; refreshCustomerSearchFromApi(); } });
   document.querySelector("#whiteboardStatusFilter")?.addEventListener("change", event => { state.whiteboardStatus = event.target.value; state.whiteboardCustomerPage = 1; refreshCustomerSearchFromApi(); });

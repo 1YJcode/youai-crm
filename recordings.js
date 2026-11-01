@@ -87,17 +87,25 @@ function transcriptTimingMarkup(segment) {
   return `<dl class="transcript-source-timing"><div><dt>${segment.timeKind==='CALL'?'通话时间':'上传时间'}</dt><dd>${escapeHtml(formatDateTime(segment.sourceTime))}</dd></div><div><dt>录音通话时长</dt><dd>${formatTranscriptDuration(segment.durationSeconds)}</dd></div></dl>`;
 }
 
+function renderCustomerTranscriptPanel() {
+  const panel = document.querySelector('.customer-transcript');
+  const customer = customers.find(row => String(row.id) === String(state.customerDetailId));
+  if (panel && customer && state.customerDetailTab === 'transcript') {
+    panel.outerHTML = customerTranscriptView(customer);
+  }
+}
+
 async function loadCustomerTranscript(customerId,page=0) {
   const account=state.auth.user?.id,request=++customerTranscriptRequest;
   if(state.customerTranscriptCustomerId!==String(customerId) || state.customerTranscriptAccountId!==account) state.customerTranscriptSelection=[];
   state.customerTranscriptCustomerId=String(customerId);state.customerTranscriptAccountId=account;
-  state.customerTranscript=null;state.customerTranscriptLoading=true;state.customerTranscriptError='';render();
+  state.customerTranscript=null;state.customerTranscriptLoading=true;state.customerTranscriptError='';renderCustomerTranscriptPanel();
   const valid=()=>request===customerTranscriptRequest && state.auth.user?.id===account && String(state.customerDetailId)===String(customerId) && state.customerDetailTab==='transcript';
   try {
     const data=await apiRequest(`/customers/${encodeURIComponent(customerId)}/transcript?page=${page}`);
     if(valid())state.customerTranscript=data;
   } catch(error){if(valid())state.customerTranscriptError=error.message;}
-  finally{if(valid()){state.customerTranscriptLoading=false;render();}}
+  finally{if(valid()){state.customerTranscriptLoading=false;renderCustomerTranscriptPanel();}}
 }
 function customerTranscriptView(customer) {
   const valid=state.customerTranscriptCustomerId===String(customer.id) && state.customerTranscriptAccountId===state.auth.user?.id;
@@ -125,7 +133,7 @@ async function playTranscriptSegment(segment) {
   const valid=()=>!closed && state.auth.user?.id===account && Boolean(state.auth.token);
   const cleanup=()=>{if(closed)return;closed=true;clearInterval(watcher);audio.pause();audio.removeAttribute('src');audio.load();if(url)URL.revokeObjectURL(url);dialog.remove();closeCallRecording=null;};
   const watcher=setInterval(()=>{if(!valid())cleanup();},500);closeCallRecording=cleanup;
-  dialog.querySelector('[data-close]').onclick=cleanup;dialog.oncancel=cleanup;dialog.onclose=cleanup;
+  dialog.querySelector('[data-close]').onclick=cleanup;dialog.oncancel=cleanup;dialog.onclose=cleanup;dialog.addEventListener('click',event=>{if(event.target!==dialog)return;const rect=dialog.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)cleanup();});
   document.body.append(dialog);dialog.showModal();
   try {
     const blob=await apiRequest(`/calls/${segment.callId}/recording?revision=${encodeURIComponent(segment.recordingRevision)}`,{responseType:'blob',timeoutMs:60000});

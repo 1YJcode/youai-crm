@@ -31,11 +31,18 @@ public class CustomerOwnershipService {
     }
 
     public void assign(Customer customer, CrmUser user) {
+        if (user.getRoles().stream().anyMatch(role -> "ADMIN".equals(role.getCode()))) {
+            throw new IllegalArgumentException("管理员不能作为销售负责人");
+        }
         customer.setOwner(user.getDisplayName());
         customer.setOwnerId(user.getId());
     }
 
     public void assignCurrent(Customer customer, Authentication authentication) {
+        if (access.isAdmin(authentication)) {
+            assign(customer, "白板");
+            return;
+        }
         customer.setOwner(access.currentDisplayName(authentication));
         customer.setOwnerId(access.currentUserId(authentication));
     }

@@ -65,10 +65,8 @@ public class CustomerQueryService {
                 predicates.add(builder.equal(root.get("owner"), WHITEBOARD));
             } else if (Boolean.TRUE.equals(inPool)) {
                 predicates.add(builder.equal(root.get("owner"), PUBLIC_POOL));
-            } else {
-                // The normal customer endpoint represents assigned sales-library
-                // resources. Public-pool and unassigned whiteboard records have
-                // dedicated list views and must never leak into this result.
+            } else if (!admin) {
+                // Sales lists exclude unassigned resources. Administrators search all libraries.
                 predicates.add(builder.notEqual(root.get("owner"), WHITEBOARD));
                 predicates.add(builder.notEqual(root.get("owner"), PUBLIC_POOL));
             }

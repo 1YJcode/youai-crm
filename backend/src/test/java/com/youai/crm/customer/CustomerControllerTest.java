@@ -298,7 +298,7 @@ class CustomerControllerTest {
 
     @Test
     @WithMockUser(username = "admin", roles = "ADMIN")
-    void keepsWhiteboardCustomersOutOfCustomerListAndInWhiteboardList() throws Exception {
+    void administratorSearchesAcrossLibrariesWhileSalesRemainScoped() throws Exception {
         String marker = "白板隔离测试" + System.nanoTime();
         String phoneSuffix = String.format("%08d", Math.abs(System.nanoTime() % 100_000_000L));
         String assignedBody = "{\"name\":\"" + marker + "-销售\",\"phone\":\"138" + phoneSuffix
@@ -313,6 +313,9 @@ class CustomerControllerTest {
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get("/api/customers").param("keyword", marker))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(2));
+        mockMvc.perform(get("/api/customers").with(user("linxi").roles("SALES")).param("keyword", marker))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].owner").value("林夕"));
@@ -447,6 +450,10 @@ class CustomerControllerTest {
                 .andExpect(jsonPath("$.owner").value("公海"));
 
         mockMvc.perform(get("/api/customers").param("keyword", "公海领取测试客户"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1));
+        mockMvc.perform(get("/api/customers").with(user("linxi").roles("SALES"))
+                        .param("keyword", "公海领取测试客户"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(0));
         mockMvc.perform(get("/api/customers/pool").with(user("chenchen").roles("SALES")))
