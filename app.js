@@ -1483,14 +1483,14 @@ function updateCustomerSearchFeedback() {
   if (status) status.hidden = !state.customerSearchPending;
 }
 
-async function refreshCustomerSearchFromApi({ silent = false } = {}) {
+async function refreshCustomerSearchFromApi({ silent = false, section = null } = {}) {
   if (!state.auth.token) return;
   const requestId = ++customerSearchRequestId;
   const authToken = state.auth.token;
   const reopenStatusMenu = Boolean(document.querySelector("#levelFilter")?.closest(".status-filter")?.classList.contains("open"));
   const params = new URLSearchParams();
-  const isPoolPage = Boolean(document.querySelector(".pool-page"));
-  const isWhiteboardPage = Boolean(document.querySelector(".whiteboard-page"));
+  const isPoolPage = section ? section === "公海列表" : Boolean(document.querySelector(".pool-page"));
+  const isWhiteboardPage = section ? section === "白板列表" : Boolean(document.querySelector(".whiteboard-page"));
   if (isWhiteboardPage && !isAdmin()) {
     state.whiteboardCustomers = [];
     state.whiteboardCustomerPageMeta = { page: 0, size: state.customerPageSize, totalElements: 0, totalPages: 1 };
@@ -1587,7 +1587,9 @@ async function refreshCustomerSearchFromApi({ silent = false } = {}) {
       nextLevelFilter?.focus({ preventScroll: true });
       nextLevelFilter?.closest(".status-filter")?.classList.add("open");
     }
+    return normalized;
   } catch (error) {
+    if (section) throw error;
     if (requestId === customerSearchRequestId && authToken === state.auth.token && !silent) toast(error.message);
   } finally {
     if (requestId === customerSearchRequestId) {
@@ -1873,7 +1875,7 @@ function loadWorkspaceTabs() {
       section: tab.section,
       detailId: tab.detailId || null,
       importDetailId: tab.importDetailId || null,
-      label: tab.importDetailId ? "导入详情" : tab.detailId ? (() => { const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(tab.detailId)); return customer ? `${customer.name}[${customer.id}]` : `客户详情[${tab.detailId}]`; })() : workspaceTabLabel(tab.view, tab.section)
+      label: tab.importDetailId ? "导入详情" : tab.detailId ? (() => { const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(tab.detailId)); return customer ? `${customer.name}[${customer.id}]` : (tab.label || `客户详情[${tab.detailId}]`); })() : workspaceTabLabel(tab.view, tab.section)
     })) : [];
     state.activeWorkspaceTabId = localStorage.getItem("youai.crm.activeWorkspaceTab") || "";
   } catch (_) {
@@ -1924,12 +1926,24 @@ function renderWorkspaceTabs() {
   const bar = document.querySelector("#workspaceTabs");
   if (!bar) return;
   const html = state.workspaceTabs.filter(tab => canAccessView(tab.view)).map(tab => {
-    const label = tab.importDetailId ? "导入详情" : tab.detailId ? (() => { const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(tab.detailId)); return customer ? `${customer.name}[${customer.id}]` : `客户详情[${tab.detailId}]`; })() : tab.label;
+    const label = tab.importDetailId ? "导入详情" : tab.detailId ? (() => { const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(tab.detailId)); return customer ? `${customer.name}[${customer.id}]` : (tab.label || `客户详情[${tab.detailId}]`); })() : tab.label;
     tab.label = label;
     return `<div class="workspace-tab ${tab.id === state.activeWorkspaceTabId ? "active" : ""}" role="button" tabindex="0" data-workspace-tab="${escapeHtml(tab.id)}" ${tab.id === state.activeWorkspaceTabId ? 'aria-current="page"' : ""}><span>${escapeHtml(label)}</span>${tab.view === "dashboard" ? "" : `<button type="button" class="workspace-tab-close" data-close-workspace-tab="${escapeHtml(tab.id)}" aria-label="关闭 ${escapeHtml(label)}">${icon("close")}</button>`}</div>`;
   }).join("");
+  saveWorkspaceTabs();
   if (bar.innerHTML !== html) bar.innerHTML = html;
   bar.querySelector(`[data-workspace-tab="${CSS.escape(state.activeWorkspaceTabId)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+async function loadWorkspaceCustomer(tab) {
+  // Pool previews must use the pool endpoint, which returns masked contact fields.
+  if (tab.section === "公海列表") {
+    const result = pageContent(await apiRequest(`/customers/pool?keyword=${encodeURIComponent(tab.detailId)}&page=0&size=20`));
+    const customer = result.content.find(item => String(item.customerNo || item.id) === String(tab.detailId));
+    if (!customer) throw new Error("该客户已不在公海或您无权查看");
+    return normalizeCustomer(customer);
+  }
+  return normalizeCustomer(await apiRequest(`/customers/${encodeURIComponent(tab.detailId)}`));
 }
 
 async function activateWorkspaceTab(id) {
@@ -1945,7 +1959,7 @@ async function activateWorkspaceTab(id) {
     const account = state.auth.user?.id;
     const previousTabId = state.activeWorkspaceTabId;
     try {
-      const customer = normalizeCustomer(await apiRequest(`/customers/${encodeURIComponent(tab.detailId)}`));
+      const customer = await loadWorkspaceCustomer(tab);
       if (account !== state.auth.user?.id || state.activeWorkspaceTabId !== previousTabId || !state.workspaceTabs.includes(tab)) return;
       if (![...customers, ...state.poolCustomers].some(item => String(item.id) === String(customer.id))) customers.push(customer);
     } catch (error) {
@@ -7794,12 +7808,38 @@ function bindViewEvents() {
     }
     if (action === 5) { toast("注销用户功能暂未接入"); }
   }));
-  document.querySelector("[data-next-customer]")?.addEventListener("click", event => {
-    const records = state.customerSection === "白板列表" ? customers.filter(item => item.owner === "白板") : customers;
-    const current = records.findIndex(item => String(item.id) === String(event.currentTarget.dataset.nextCustomer));
-    const next = records.length ? records[(current + 1 + records.length) % records.length] : null;
-    if (next) openCustomer(next.id);
-  });
+  document.querySelectorAll("[data-next-customer]").forEach(button => button.addEventListener("click", async event => {
+    if (state.nextCustomerPending) return;
+    state.nextCustomerPending = true;
+    const currentId = String(event.currentTarget.dataset.nextCustomer);
+    const section = state.customerSection;
+    const isPool = section === "公海列表";
+    const isWhiteboard = section === "白板列表";
+    const pageKey = isPool ? "poolCustomerPage" : isWhiteboard ? "whiteboardCustomerPage" : "customerPage";
+    const meta = state[isPool ? "poolCustomerPageMeta" : isWhiteboard ? "whiteboardCustomerPageMeta" : "customerPageMeta"];
+    const records = sortedCustomerRows(isPool ? state.poolCustomers : isWhiteboard ? state.whiteboardCustomers : visibleCustomerLibraryRows(customers));
+    const current = records.findIndex(item => String(item.id) === currentId);
+    try {
+      let next = records.slice(current + 1).find(item => String(item.id) !== currentId);
+      if (!next && state.backendOnline && ["客户列表", "公海列表", "白板列表"].includes(section) && Number(meta?.page || 0) + 1 < Number(meta?.totalPages || 1)) {
+        const previousPage = state[pageKey];
+        state[pageKey] = Number(meta.page || 0) + 2;
+        try {
+          const loaded = await refreshCustomerSearchFromApi({ silent: true, section });
+          next = loaded?.find(item => String(item.id) !== currentId);
+        } catch (error) {
+          state[pageKey] = previousPage;
+          throw error;
+        }
+      }
+      if (next) await openCustomer(next.id);
+      else toast("当前列表没有下一个客户");
+    } catch (error) {
+      toast(`切换客户失败：${error.message}`);
+    } finally {
+      state.nextCustomerPending = false;
+    }
+  }));
   document.querySelector("[data-new-order-customer]")?.addEventListener("click", event => { const customer = customers.find(item => String(item.id) === String(event.currentTarget.dataset.newOrderCustomer)); if (customer) openBusinessModal("order", { customer: customer.name, owner: customer.owner }); });
   document.querySelectorAll("tr[data-customer-id]").forEach(row => row.addEventListener("click", event => {
     const selection = window.getSelection();
@@ -8246,6 +8286,34 @@ document.querySelector("#modalBackdrop").addEventListener("click", event => { if
 document.querySelector("#closeBusinessModal").addEventListener("click", closeBusinessModal);
 document.querySelector("#businessModalBackdrop").addEventListener("click", event => { if (event.target.id === "businessModalBackdrop") closeBusinessModal(); });
 document.querySelector("#drawerBackdrop").addEventListener("click", closeDrawer);
+async function verifyCustomerPhone(event) {
+  const button = event.currentTarget;
+  const form = document.querySelector("#customerForm");
+  const input = form.querySelector('[name="phone"]');
+  const phone = input.value.trim();
+  const customerId = form.querySelector('[name="customerId"]')?.value || "";
+  if (!/^1[3-9][0-9]{9}$/.test(phone)) {
+    toast("请输入正确的11位手机号码", "error");
+    input.focus();
+    return;
+  }
+  if (button.disabled) return;
+  button.disabled = true;
+  button.textContent = "检测中…";
+  try {
+    requireBackend();
+    const result = await apiRequest("/customers/phone-check", { method: "POST", body: JSON.stringify({ phone, customerId }) });
+    if (input.value.trim() !== phone || (form.querySelector('[name="customerId"]')?.value || "") !== customerId) return;
+    toast(result.duplicate ? "该号码已存在客户记录，请勿重复新增" : "号码格式正确，未发现重复客户（不代表号码已开通或可接通）", result.duplicate ? "error" : undefined);
+  } catch (error) {
+    toast(`号码检测失败：${error.message}`, "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = "检测";
+  }
+}
+document.querySelector("[data-verify-phone]")?.addEventListener("click", verifyCustomerPhone);
+
 document.querySelector("#customerForm").addEventListener("submit", async event => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.currentTarget));
