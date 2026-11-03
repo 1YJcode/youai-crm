@@ -147,10 +147,24 @@ class CustomerSceneQueryTest {
         task(one, one.getCustomerNo());
         task(two, two.getCustomerNo());
         call(two);
+        for (String direction : List.of("asc", "desc")) {
+            mvc.perform(get("/api/customers").with(user("admin").roles("ADMIN"))
+                            .param("keyword", keyword).param("followUpSort", direction).param("size", "1"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content[0].id").value(
+                            "asc".equals(direction) ? zero.getCustomerNo() : two.getCustomerNo()));
+        }
         for (Customer item : List.of(zero, one, two)) {
             item.setOwner("公海");
             item.setOwnerId(null);
             customers.saveAndFlush(item);
+        }
+        for (String direction : List.of("asc", "desc")) {
+            mvc.perform(get("/api/customers/pool").with(user("admin").roles("ADMIN"))
+                            .param("keyword", keyword).param("followUpSort", direction).param("size", "1"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content[0].id").value(
+                            "asc".equals(direction) ? zero.getCustomerNo() : two.getCustomerNo()));
         }
         mvc.perform(get("/api/customers/pool").with(user("admin").roles("ADMIN"))
                         .param("keyword", keyword).param("followUpMin", "1").param("followUpMax", "2")

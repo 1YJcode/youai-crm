@@ -104,7 +104,7 @@ const defaultCustomerTableColumns = customerTableColumnDefinitions
 const customerFixedColumnKeys = ["id", "customer"];
 const customerTableColumnsStoragePrefix = "youai.crm.customerTableColumns.user.";
 const customerSortableColumnKeys = new Set([
-  "age", "education", "income", "city", "followUpCount", "uncontactedDays",
+  "gender", "age", "education", "income", "city", "followUpCount", "uncontactedDays",
   "firstAllocationAt", "lastFollowUpAt", "lastLoginAt"
 ]);
 const customerEducationSortOrder = ["小学", "初中", "高中", "中专", "大专", "本科", "硕士", "博士", "博士后"];
@@ -1508,6 +1508,9 @@ async function refreshCustomerSearchFromApi({ silent = false, section = null } =
   const pageKey = isPoolPage ? "poolCustomerPage" : isWhiteboardPage ? "whiteboardCustomerPage" : "customerPage";
   params.set("page", String(Math.max(0, (state[pageKey] || 1) - 1)));
   params.set("size", String(Math.min(Math.max(state.customerPageSize || 20, 1), 100)));
+  if (state.customerSort?.key === "followUpCount" && ["asc", "desc"].includes(state.customerSort.direction)) {
+    params.set("followUpSort", state.customerSort.direction);
+  }
   if (isPoolPage && state.poolFollowUpMin !== "") params.set("followUpMin", state.poolFollowUpMin);
   if (isPoolPage && state.poolFollowUpMax !== "") params.set("followUpMax", state.poolFollowUpMax);
   if (isPoolPage && state.poolDeepTalkDuration) params.set("deepTalkDuration", state.poolDeepTalkDuration);
@@ -2694,6 +2697,7 @@ function customerSortDate(value) {
 }
 
 function customerSortValue(customer, key) {
+  if (key === "gender") return { type: "string", value: String(customer.gender ?? "").trim() };
   if (key === "age") return { type: "number", value: customerSortNumber(customer.age) };
   if (key === "income") return { type: "number", value: customerSortNumber(customer.monthlyIncome || customer.annualIncome || customer.amount) };
   if (key === "followUpCount") return { type: "number", value: customerFollowUpCount(customer) };
@@ -2750,7 +2754,7 @@ function customerTableHeaderHtml(column) {
   const content = sortable
     ? `<button class="customer-sort-trigger" type="button" data-customer-sort="${escapeHtml(key)}" aria-label="按${headerLabel}${direction === "asc" ? "降序" : "升序"}" title="点击切换${headerLabel}排序">${headerLabel}${sortIndicator}</button>`
     : headerLabel;
-  return `<th${className ? ` class="${className}"` : ""}${key ? ` data-customer-column="${escapeHtml(key)}"` : ""}${active ? ` aria-sort="${direction === "asc" ? "ascending" : "descending"}` : ""}>${content}</th>`;
+  return `<th${className ? ` class="${className}"` : ""}${key ? ` data-customer-column="${escapeHtml(key)}"` : ""}${active ? ` aria-sort="${direction === "asc" ? "ascending" : "descending"}"` : ""}>${content}</th>`;
 }
 
 function customerTableDisplayValue(value) {
@@ -4497,7 +4501,8 @@ function render({ skipUnchanged = false } = {}) {
   const root = document.querySelector("#app");
   const nextHtml = views[state.view]();
   const viewContext = JSON.stringify([state.auth.user?.id, state.view,
-    currentWorkspaceSection(), state.customerDetailId, state.importDetailId]);
+    currentWorkspaceSection(), state.customerDetailId, state.importDetailId,
+    state.view === "customers" ? state.customerSort : null]);
   // Background updates must not destroy a draft or dismiss an open editor.
   // The next foreground action renders the latest state.
   if (skipUnchanged && viewContext === lastRenderedViewContext && backgroundViewIsBusy(root)) {
@@ -4675,7 +4680,7 @@ function renderImportedCustomerFields() {
     ? `<th class="select-column"><input id="selectPageCustomers" type="checkbox" aria-label="选择本页客户" ${allSelected ? "checked" : ""}></th>`
     : customerTableHeaderHtml(column)).join("");
   table.querySelectorAll("tbody tr[data-customer-id]").forEach(row => {
-    const customer = customers.find(item => String(item.id) === row.dataset.customerId) || publicPoolCustomers().find(item => String(item.id) === row.dataset.customerId);
+    const customer = (isPool ? state.poolCustomers : customers).find(item => String(item.id) === row.dataset.customerId);
     if (!customer) return;
     const cells = row.querySelectorAll(":scope > td");
     const operation = cells[cells.length - 1];
@@ -4686,7 +4691,7 @@ function renderImportedCustomerFields() {
       ? [customer.gender, customer.maritalStatus, customer.age, customer.education, customer.monthlyIncome || customer.annualIncome || customer.amount, customer.level, customer.city, customer.followUpCount || 0, customer.uncontactedDays, customer.previousOwner, formatDuration(customerDeepTalkDurationSeconds(customer)), customer.lastContact, customer.lastLogin, customer.poolEnteredAt ? formatDateTime(customer.poolEnteredAt) : "未知", (customer.tags || []).join("、") || "+ 增加标签", customer.source || customer.origin || customer.channel || customer.sourceName || "—"]
       : [customer.gender, customer.maritalStatus, customer.age, customer.education, customer.monthlyIncome || customer.annualIncome || customer.amount, customer.level, customer.city, customer.followUpCount || 0, customer.uncontactedDays, customer.owner, customer.inviter, customer.collaborator, customer.serviceOwner];
     const identity = `<td class="select-column"><input type="checkbox" data-select-customer="${escapeHtml(customer.id)}" aria-label="选择${escapeHtml(customer.name)}" ${state.selectedCustomerIds.includes(customer.id) ? "checked" : ""} onclick="event.stopPropagation()"></td><td>⚑</td><td><a class="table-link" onclick="event.stopPropagation()">${escapeHtml(customer.id)}</a></td><td><div class="customer-cell"><span class="person-avatar">${escapeHtml(customer.name[0])}</span><span><strong>${escapeHtml(customer.name)}</strong></span></div></td>`;
-    row.innerHTML = identity + values.map((value, index) => `<td${isPool && index === values.length - 1 ? ' class="pool-source-column"' : ""}>${escapeHtml(String(value || "—"))}</td>`).join("") + `<td class="operation-column"><div class="table-actions" onclick="event.stopPropagation()">${operationHtml}</div></td>`;
+    row.innerHTML = identity + values.map((value, index) => `<td${isPool && index === values.length - 1 ? ' class="pool-source-column"' : ""}>${escapeHtml(String(customerTableDisplayValue(value)))}</td>`).join("") + `<td class="operation-column"><div class="table-actions" onclick="event.stopPropagation()">${operationHtml}</div></td>`;
   });
 }
 

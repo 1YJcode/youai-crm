@@ -94,9 +94,10 @@ public class CustomerQueryService {
             addAdvancedPredicates(root, query, builder, predicates, queryValues, tag, authentication);
             return builder.and(predicates.toArray(Predicate[]::new));
         };
-        if (hasNumericRange(advanced)) {
+        if (hasNumericRange(advanced) || hasFollowUpSort(queryValues)) {
             List<Customer> filtered = repository.findAll(specification, safePageable.getSort()).stream()
                     .filter(customer -> numericFiltersMatch(customer, advanced)).toList();
+            filtered = sortByFollowUps(filtered, queryValues);
             int from = (int) Math.min((long) safePageable.getOffset(), filtered.size());
             int to = Math.min(from + safePageable.getPageSize(), filtered.size());
             List<Customer> pageCustomers = filtered.subList(from, to);
@@ -444,6 +445,7 @@ public class CustomerQueryService {
                 .filter(customer -> followUpMax == null || rangeCounts.getOrDefault(customer.getCustomerNo(), 0L) <= followUpMax)
                 .filter(customer -> matchesDeepTalkDuration(durations.getOrDefault(customer.getCustomerNo(), 0), deepTalkDuration))
                 .toList();
+        filtered = sortByFollowUps(filtered, queryValues);
         int from = (int) Math.min((long) safePageable.getOffset(), filtered.size());
         int to = Math.min(from + safePageable.getPageSize(), filtered.size());
         List<Customer> pageCustomers = filtered.subList(from, to);
@@ -455,6 +457,19 @@ public class CustomerQueryService {
                         followUpCounts.getOrDefault(customer.getCustomerNo(), 0L)))
                 .toList();
         return new PageImpl<>(content, safePageable, filtered.size());
+    }
+
+    private boolean hasFollowUpSort(Map<String, String> values) {
+        return "asc".equals(values.get("followUpSort")) || "desc".equals(values.get("followUpSort"));
+    }
+
+    private List<Customer> sortByFollowUps(List<Customer> rows, Map<String, String> values) {
+        if (!hasFollowUpSort(values)) return rows;
+        Map<String, Long> counts = responseMapper.followUpCounts(rows);
+        java.util.Comparator<Customer> comparator = java.util.Comparator.comparingLong(
+                customer -> counts.getOrDefault(customer.getCustomerNo(), 0L));
+        if ("desc".equals(values.get("followUpSort"))) comparator = comparator.reversed();
+        return rows.stream().sorted(comparator).toList();
     }
 
     private Long followUpBound(Map<String, String> values, String key) {
