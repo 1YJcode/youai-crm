@@ -7,10 +7,13 @@ import java.util.Map;
 @RestController @RequestMapping("/api/knowledge")
 public class RagKnowledgeController {
     private final RagKnowledgeService service;
-    public RagKnowledgeController(RagKnowledgeService service){this.service=service;}
+    private final RagIndexSynchronizer synchronizer;
+    public RagKnowledgeController(RagKnowledgeService service,RagIndexSynchronizer synchronizer){this.service=service;this.synchronizer=synchronizer;}
     public record Question(@NotBlank @Size(max=1200) String question,@Size(max=32) String customerNo,Long segmentId,boolean coaching){}
     @ModelAttribute public void noCache(jakarta.servlet.http.HttpServletResponse r){r.setHeader("Cache-Control","no-store");}
     @GetMapping("/rag-status") public Map<String,Object> status(){return Map.of("configured",service.configured(),"engine","RAG-Notebook");}
+    @GetMapping("/rag-sync-status") @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    public RagIndexSynchronizer.Status syncStatus(){return synchronizer.status();}
     @GetMapping("/rag-source") public RagKnowledgeService.Material source(@RequestParam String id,@RequestParam String customerNo,@RequestParam String version,Authentication auth){return service.source(id,customerNo,version,auth);}
     @PostMapping("/ask") public RagKnowledgeService.Answer ask(@Valid @RequestBody Question q,Authentication auth){
         try{return service.ask(q.question(),q.customerNo(),q.segmentId(),q.coaching(),auth);}

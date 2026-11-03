@@ -136,7 +136,7 @@ public class CustomerReviewService {
             String body=title+"\n"+content;for(String value:Arrays.asList(customer.getName(),customer.getNickname(),customer.getPhone(),customer.getWechat(),customer.getIdCard(),no))if(value!=null&&value.length()>=2&&body.contains(value))throw new IllegalArgumentException("案例仍含客户姓名、联系方式或编号，请先脱敏");
             if(body.matches("(?s).*1[3-9][0-9]{9}.*")||body.matches("(?s).*[0-9]{17}[0-9Xx].*"))throw new IllegalArgumentException("案例仍含疑似电话或证件号码，请先脱敏");
             var sourceIds=new ArrayList<Long>();try{for(var s:json.readTree(r.sourcesJson))if("CALL".equals(s.path("type").asText()))sourceIds.add(s.path("segmentId").asLong());}catch(Exception e){throw new IllegalStateException(e);}
-            var first=segments.findById(sourceIds.getFirst()).orElseThrow();var a=new KnowledgeArticle();a.companyCase=true;a.sourceKey="customer-success:"+no;
+            var first=segments.findById(sourceIds.getFirst()).orElseThrow();var a=new KnowledgeArticle();a.companyCase=true;a.publicationStatus="PENDING";a.sourceKey="customer-success:"+no;
             a.sourceCallId=first.callId;a.customerNo=no;a.title=title.trim();a.category="婚恋成交复盘";a.content=content.trim();a.createdBy=auth.getName();a.updatedBy=auth.getName();articles.saveAndFlush(a);
             sourceIds.forEach(s->links.save(new KnowledgeSegmentSource(a.id,s)));links.flush();r.publishedArticleId=a.id;return a.id;
         });

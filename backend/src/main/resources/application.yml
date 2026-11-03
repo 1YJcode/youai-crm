@@ -55,6 +55,10 @@ rag:
     enabled: ${RAG_NOTEBOOK_ENABLED:false}
     endpoint: ${RAG_NOTEBOOK_ENDPOINT:http://rag-notebook:8091}
     token: ${RAG_INTERNAL_TOKEN:}
+    sync:
+      enabled: ${RAG_INDEX_SYNC_ENABLED:true}
+      initial-ms: ${RAG_INDEX_SYNC_INITIAL_MS:5000}
+      poll-ms: ${RAG_INDEX_SYNC_POLL_MS:15000}
 
 recording:
   deepseek:

@@ -103,9 +103,20 @@ async function loadCustomerTranscript(customerId,page=0) {
   const valid=()=>request===customerTranscriptRequest && state.auth.user?.id===account && String(state.customerDetailId)===String(customerId) && state.customerDetailTab==='transcript';
   try {
     const data=await apiRequest(`/customers/${encodeURIComponent(customerId)}/transcript?page=${page}`);
-    if(valid())state.customerTranscript=data;
+    if(valid()) {
+      state.customerTranscript=data;
+      renderCustomerTranscriptPanel();
+      await Promise.allSettled((data.segments?.content||[]).map(async segment=>{
+        const result=await apiRequest(`/transcript-segments/${segment.id}/intelligence`);
+        if(!valid())return;
+        const analysis=result.analysis;
+        segment.summaryTitle=analysis?.title?.trim()||analysis?.summary?.trim()||'';
+        const heading=document.querySelector(`[data-transcript-title="${segment.id}"]`);
+        if(heading)heading.textContent=segment.summaryTitle||'对话摘要尚未生成';
+      }));
+    }
   } catch(error){if(valid())state.customerTranscriptError=error.message;}
-  finally{if(valid()){state.customerTranscriptLoading=false;renderCustomerTranscriptPanel();}}
+  finally{if(valid()){for(const segment of state.customerTranscript?.segments?.content||[])segment.summaryTitle=segment.summaryTitle||'对话摘要尚未生成';state.customerTranscriptLoading=false;renderCustomerTranscriptPanel();}}
 }
 function customerTranscriptView(customer) {
   const valid=state.customerTranscriptCustomerId===String(customer.id) && state.customerTranscriptAccountId===state.auth.user?.id;
@@ -116,11 +127,11 @@ function customerTranscriptView(customer) {
     ${state.customerTranscriptLoading?'<p role="status">正在读取转写档案…</p>':state.customerTranscriptError?`<p role="alert">${escapeHtml(state.customerTranscriptError)}</p>`:data?`
     <p>客户：${escapeHtml(data.customerName)}（${escapeHtml(data.customerNo)}） · 共 ${data.totalSegments} 段 · 已记录录音通话总时长：${formatTranscriptDuration(data.totalDurationSeconds)}${data.unknownDurationCount?` · ${data.unknownDurationCount} 段历史时长未记录`:''}</p>
     <div class="data-toolbar"><p>可选择多段内容整理公司案例；发布前仍需检查可共享内容。</p><button class="button secondary" data-transcript-case>整理所选段落（${selected.length}）</button></div>
-    ${(page?.content||[]).map(s=>`<article class="transcript-segment"><header><label><input type="checkbox" data-transcript-select="${s.id}" ${selected.includes(s.id)?'checked':''}>选择此段</label></header>
+    ${(page?.content||[]).map(s=>`<article class="transcript-segment"><header><label><input type="checkbox" data-transcript-select="${s.id}" ${selected.includes(s.id)?'checked':''}>选择此段</label></header><details class="transcript-fold"><summary><span><strong data-transcript-title="${s.id}">${escapeHtml(s.summaryTitle||'正在读取对话摘要…')}</strong><small>${escapeHtml(formatDateTime(s.sourceTime))} · ${sourceLabel(s.recordingSource)} · 通话 #${s.callId} · ${formatTranscriptDuration(s.durationSeconds)}</small></span><span class="transcript-fold-label"></span></summary><div class="transcript-fold-content">
       ${transcriptTimingMarkup(s)}
       <p>销售：${escapeHtml(s.salesName||'未记录')}${s.salesUserId!=null?`（账号 ${s.salesUserId}）`:''} · 客户：${escapeHtml(s.customerName)}（${escapeHtml(s.customerNo)}）</p>
       <p>来源：${sourceLabel(s.recordingSource)} · 通话 #${s.callId} · ${s.provider==='cloud'?'云端转写':s.provider==='local'?'本地转写':'历史转写'} · 转写完成时间：${s.transcribedAt?escapeHtml(formatDateTime(s.transcribedAt)):'历史时间未记录'}</p>
-      <small>录音版本：${escapeHtml(s.recordingRevision)}</small><pre>${escapeHtml(s.transcript)}</pre><div class="inline-actions"><button class="button secondary" data-transcript-audio="${s.id}">回听来源录音</button><button class="button primary" data-transcript-intelligence="${s.id}">AI分析与跟进模板</button></div></article>`).join('')||'<p>暂无已完成的转写。上传此客户的录音并完成转写后，内容会自动追加到这里。</p>'}
+      <small>录音版本：${escapeHtml(s.recordingRevision)}</small><pre>${escapeHtml(s.transcript)}</pre><div class="inline-actions"><button class="button secondary" data-transcript-audio="${s.id}">回听来源录音</button><button class="button primary" data-transcript-intelligence="${s.id}">AI分析与跟进模板</button></div></div></details></article>`).join('')||'<p>暂无已完成的转写。上传此客户的录音并完成转写后，内容会自动追加到这里。</p>'}
     ${page?.totalPages>1?`<footer class="call-pagination"><button data-transcript-page="${page.number-1}" ${page.number===0?'disabled':''}>上一页</button><span>${page.number+1} / ${page.totalPages}</span><button data-transcript-page="${page.number+1}" ${page.number+1>=page.totalPages?'disabled':''}>下一页</button></footer>`:''}`:''}</section>`;
 }
 async function playTranscriptSegment(segment) {

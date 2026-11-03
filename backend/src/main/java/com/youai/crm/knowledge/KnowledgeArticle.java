@@ -32,6 +32,12 @@ public class KnowledgeArticle {
     @Version @Column(nullable=false) public Long version;
     @Column(nullable=false) public boolean companyCase;
     @Column(unique=true) public Long derivedFromId;
+    @Column(nullable=false, length=24) public String publicationStatus="PUBLISHED";
+    @Column(length=128) public String reviewedBy;
+    public LocalDateTime reviewedAt;
+    @Column(length=1000) public String reviewNote;
+    public Long reviewedSourceVersion;
+    public boolean isPublished(){return "PUBLISHED".equals(publicationStatus);}
     @PrePersist void create() { createdAt=LocalDateTime.now(); updatedAt=createdAt; }
     @PreUpdate void update() { updatedAt=LocalDateTime.now(); }
 }

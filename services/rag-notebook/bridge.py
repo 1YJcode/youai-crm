@@ -32,6 +32,7 @@ ENDPOINT = os.getenv('RAG_EMBEDDING_ENDPOINT', 'https://dashscope.aliyuncs.com/c
 KEY = os.getenv('RAG_EMBEDDING_API_KEY', '')
 app = FastAPI(title='RAG-Notebook CRM internal adapter', docs_url=None, redoc_url=None)
 locks = defaultdict(asyncio.Lock)
+readers = defaultdict(int)
 splitter = RecursiveCharacterTextSplitter(chunk_size=900, chunk_overlap=120,
     separators=['\n\n', '\n', '。', '！', '？', '；', ' ', ''])
 
@@ -60,24 +61,32 @@ class CachedCloudEmbeddings(Embeddings):
                     result[i] = json.loads(row[0])
                 else:
                     missing.append(i)
-            for offset in range(0, len(missing), 10):
-                batch = missing[offset:offset + 10]
-                with httpx.Client(timeout=60, follow_redirects=False) as client:
-                    response = client.post(ENDPOINT, headers={'Authorization': 'Bearer ' + KEY},
-                        json={'model': MODEL, 'input': [texts[i] for i in batch], 'dimensions': 1024})
-                if response.status_code != 200:
-                    raise RuntimeError('Embedding service HTTP ' + str(response.status_code))
-                data = sorted(response.json()['data'], key=lambda item: item['index'])
-                if len(data) != len(batch):
-                    raise RuntimeError('Incomplete embedding result')
-                for index, item in zip(batch, data):
-                    vector = item['embedding']
-                    if len(vector) != 1024 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in vector):
-                        raise RuntimeError('Invalid embedding result')
-                    result[index] = vector
-                    db.execute('INSERT OR REPLACE INTO embedding_cache VALUES (?,?)', (keys[index], json.dumps(vector)))
-            db.commit()
+        for offset in range(0, len(missing), 10):
+            batch = missing[offset:offset + 10]
+            with httpx.Client(timeout=60, follow_redirects=False) as client:
+                response = client.post(ENDPOINT, headers={'Authorization': 'Bearer ' + KEY},
+                    json={'model': MODEL, 'input': [texts[i] for i in batch], 'dimensions': 1024})
+            if response.status_code != 200:
+                raise RuntimeError('Embedding service HTTP ' + str(response.status_code))
+            data = sorted(response.json()['data'], key=lambda item: item['index'])
+            if len(data) != len(batch):
+                raise RuntimeError('Incomplete embedding result')
+            for index, item in zip(batch, data):
+                vector = item['embedding']
+                if len(vector) != 1024 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in vector):
+                    raise RuntimeError('Invalid embedding result')
+                result[index] = vector
+            with self.lock, sqlite3.connect(DATA / 'embeddings.sqlite') as db:
+                db.executemany('INSERT OR REPLACE INTO embedding_cache VALUES (?,?)',
+                    [(keys[index], json.dumps(result[index])) for index in batch])
+                db.commit()
         return result
+
+    def forget(self, texts):
+        keys = [(hashlib.sha256((MODEL + ':1024:' + text).encode()).hexdigest(),) for text in texts]
+        with self.lock, sqlite3.connect(DATA / 'embeddings.sqlite') as db:
+            db.executemany('DELETE FROM embedding_cache WHERE id=?', keys)
+            db.commit()
 
     def embed_query(self, text):
         return self.embed_documents([text])[0]
@@ -86,7 +95,7 @@ class CachedCloudEmbeddings(Embeddings):
 embedding = CachedCloudEmbeddings()
 store = Chroma(collection_name='crm_rag_notebook', persist_directory=str(DATA / 'chroma'),
     embedding_function=embedding, collection_metadata={'hnsw:space': 'cosine'})
-retriever = HybridRetriever(store)
+retriever = HybridRetriever(store, cache_immutable_generations=True)
 
 
 class Source(BaseModel):
@@ -133,7 +142,7 @@ def snapshot(scope):
         store.add_documents(documents[offset:offset + 100], ids=ids[offset:offset + 100])
     ready.touch()
     old = store.get(where={'scope_id': scope.id}, include=['metadatas'])
-    obsolete = [key for key, meta in zip(old['ids'], old['metadatas']) if meta['user_id'] != generation]
+    obsolete = [key for key, meta in zip(old['ids'], old['metadatas']) if meta['user_id'] != generation and not readers.get(meta['user_id'], 0)]
     for offset in range(0, len(obsolete), 1000):
         store.delete(ids=obsolete[offset:offset + 1000])
     active.write_text(generation)
@@ -147,6 +156,8 @@ def health():
 
 @app.post('/v1/search', dependencies=[Depends(authenticated)])
 async def search(request: Search):
+    if os.getenv("RAG_LEGACY_ENABLED", "false").lower() != "true":
+        raise HTTPException(410, "Use the incremental V2 protocol")
     if sum(len(d.content) for scope in request.scopes for d in scope.documents) > 3_000_000:
         raise HTTPException(413, 'Knowledge scope is too large; narrow the customer selection')
     matches = []
@@ -157,9 +168,11 @@ async def search(request: Search):
                 if not scope.documents:
                     continue
                 engine = await retriever.get_retriever(request.query, generation)
+                # Pin this immutable generation before releasing the update lock.
+                readers[generation] += 1
+            try:
                 docs = await engine.ainvoke(request.query)
                 allowed = {(d.id, d.version) for d in scope.documents}
-                # Return only source IDs/versions from the authenticated caller's snapshot.
                 for rank, doc in enumerate(docs):
                     meta = doc.metadata
                     if (meta.get('source_id'), meta.get('source_version')) not in allowed:
@@ -167,8 +180,38 @@ async def search(request: Search):
                     matches.append({'id': meta['source_id'], 'version': meta['source_version'],
                         'title': meta['title'], 'content': doc.page_content, 'chunk': meta['chunk'],
                         'score': 1.0 / (rank + 1), 'scope': scope.id})
+            finally:
+                async with locks[scope.id]:
+                    readers[generation] -= 1
+                    if not readers[generation]:
+                        del readers[generation]
+                        active = DATA / (hashlib.sha256(scope.id.encode()).hexdigest() + '.active')
+                        if active.exists() and active.read_text() != generation:
+                            await asyncio.to_thread(store.delete, where={'user_id': generation})
+                            retriever._bm25_cache.pop(generation, None)
     except Exception as error:
         # Never emit source text, HTTP request headers or upstream response bodies.
         raise HTTPException(503, 'Knowledge retrieval unavailable: ' + type(error).__name__) from None
     matches.sort(key=lambda item: item['score'], reverse=True)
     return {'engine': 'RAG-Notebook', 'matches': matches[:request.top_k]}
+
+
+# V2 uses a separate collection, so legacy snapshots cannot delete incremental data.
+from incremental import install as install_incremental
+incremental_store = Chroma(collection_name='crm_rag_incremental', persist_directory=str(DATA / 'chroma'),
+    embedding_function=embedding, collection_metadata={'hnsw:space': 'cosine'})
+incremental_retriever = HybridRetriever(incremental_store, cache_immutable_generations=True)
+async def cleanup_legacy():
+    if os.getenv('RAG_LEGACY_ENABLED', 'false').lower() == 'true':
+        return
+    rows = await asyncio.to_thread(store.get, include=['documents'])
+    for offset in range(0, len(rows['ids']), 500):
+        await asyncio.to_thread(store.delete, ids=rows['ids'][offset:offset+500])
+    await asyncio.to_thread(embedding.forget, rows['documents'])
+    retriever._bm25_cache.clear()
+    for pattern in ('*.active', '*.ready'):
+        for marker in DATA.glob(pattern):
+            marker.unlink(missing_ok=True)
+
+install_incremental(app, authenticated, DATA, incremental_store, splitter, incremental_retriever,
+                    embedding.forget, cleanup_legacy)

@@ -15,6 +15,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class KnowledgeControllerTest {
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
+    @Autowired KnowledgeRepository articles;
+    @Test void unpublishedCasesRequireReviewAndWithdrawalRevokesAccess() throws Exception {
+        var a=new KnowledgeArticle();a.title="review fixture";a.category="case";a.content="private candidate";a.createdBy="admin";a.updatedBy="linxi";a.companyCase=true;a.publicationStatus="PENDING";articles.saveAndFlush(a);
+        mvc.perform(get("/api/knowledge/{id}",a.id).with(user("linxi").roles("SALES"))).andExpect(status().isForbidden());
+        mvc.perform(get("/api/knowledge").param("keyword","private candidate").with(user("linxi").roles("SALES"))).andExpect(jsonPath("$.totalElements").value(0));
+        String body=json.createObjectNode().put("version",a.version).put("action","APPROVE").toString();
+        mvc.perform(post("/api/knowledge/{id}/review",a.id).with(user("linxi").roles("SALES")).contentType("application/json").content(body)).andExpect(status().isForbidden());
+        var approved=json.readTree(mvc.perform(post("/api/knowledge/{id}/review",a.id).with(user("admin").roles("ADMIN")).contentType("application/json").content(body)).andExpect(status().isOk()).andExpect(jsonPath("$.publicationStatus").value("PUBLISHED")).andReturn().getResponse().getContentAsString());
+        mvc.perform(get("/api/knowledge/{id}",a.id).with(user("linxi").roles("SALES"))).andExpect(status().isOk());
+        mvc.perform(post("/api/knowledge/{id}/review",a.id).with(user("admin").roles("ADMIN")).contentType("application/json").content(body)).andExpect(status().isConflict());
+        body=json.createObjectNode().put("version",approved.path("version").asLong()).put("action","WITHDRAW").toString();
+        mvc.perform(post("/api/knowledge/{id}/review",a.id).with(user("admin").roles("ADMIN")).contentType("application/json").content(body)).andExpect(status().isOk());
+        mvc.perform(get("/api/knowledge/{id}",a.id).with(user("linxi").roles("SALES"))).andExpect(status().isForbidden());
+    }
     @Test void createsSearchesUpdatesAndDeletesWithVersionProtection() throws Exception {
         var created=json.readTree(mvc.perform(post("/api/knowledge").with(user("admin").roles("ADMIN"))
                 .contentType("application/json").content("{\"title\":\"知识测试\",\"category\":\"服务流程\",\"content\":\"回访关键词 100% 完成\"}"))

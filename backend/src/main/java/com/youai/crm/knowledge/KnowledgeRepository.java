@@ -5,6 +5,8 @@ import org.springframework.data.domain.*;
 import java.util.List;
 
 public interface KnowledgeRepository extends JpaRepository<KnowledgeArticle,Long>, JpaSpecificationExecutor<KnowledgeArticle> {
+    java.util.List<KnowledgeArticle> findByIdGreaterThanOrderByIdAsc(Long id, org.springframework.data.domain.Pageable page);
+
     java.util.Optional<KnowledgeArticle> findBySourceKey(String sourceKey);
     java.util.Optional<KnowledgeArticle> findByDerivedFromId(Long derivedFromId);
     @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)

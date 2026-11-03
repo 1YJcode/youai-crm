@@ -2,6 +2,8 @@ package com.youai.crm.communication;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.domain.*;
 public interface CustomerTranscriptSegmentRepository extends JpaRepository<CustomerTranscriptSegment,Long> {
+    java.util.List<CustomerTranscriptSegment> findByIdGreaterThanOrderByIdAsc(Long id, org.springframework.data.domain.Pageable page);
+
     @Query("select distinct s.customerNo from CustomerTranscriptSegment s,CallIntelligence i where i.segmentId=s.id and i.processingConsent=true")
     java.util.List<String> reviewCustomers();
     @Query("select s from CustomerTranscriptSegment s where s.customerNo=:customerNo and not exists (select n.id from CustomerTranscriptSegment n where n.callId=s.callId and n.id>s.id) order by s.sourceTime,s.id")

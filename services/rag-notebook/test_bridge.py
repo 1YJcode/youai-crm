@@ -4,6 +4,7 @@ import math
 import unittest
 from unittest.mock import patch, MagicMock
 
+os.environ.setdefault('RAG_LEGACY_ENABLED', 'true')
 os.environ.setdefault('RAG_INTERNAL_TOKEN', 'internal-test-token')
 os.environ.setdefault('RAG_EMBEDDING_API_KEY', 'test-key')
 os.environ.setdefault('RAG_DATA_DIRECTORY', '/tmp/rag-bridge-test')
@@ -52,6 +53,50 @@ class BridgeTest(unittest.TestCase):
         restored=self.search('customer:456','原案例处理顾虑','segment:4','1')
         self.assertTrue(restored.json()['matches'])
         self.assertTrue(all(m['version']=='1' for m in restored.json()['matches']))
+
+    def test_repeated_search_reuses_keyword_index(self):
+        from app.rag.retrievers.hybrid_retriever import BM25Retriever
+        bridge.retriever._bm25_cache.clear()
+        with patch.object(BM25Retriever, 'from_documents', wraps=BM25Retriever.from_documents) as build:
+            self.assertEqual(self.search('customer:cache', '客户预算顾虑').status_code, 200)
+            self.assertEqual(self.search('customer:cache', '客户预算顾虑').status_code, 200)
+            self.assertEqual(build.call_count, 1)
+            self.assertEqual(self.search('customer:cache', '新的预算顾虑', version='2').status_code, 200)
+            self.assertEqual(build.call_count, 2)
+
+    def test_queries_overlap_and_update_preserves_active_generation(self):
+        import asyncio
+        async def scenario():
+            bridge.locks.clear()
+            entered = asyncio.Event()
+            release = asyncio.Event()
+            count = 0
+            class Engine:
+                async def ainvoke(self, query):
+                    nonlocal count
+                    count += 1
+                    if count == 30:
+                        entered.set()
+                    await release.wait()
+                    return []
+            async def engine(*args):
+                return Engine()
+            request = bridge.Search(query='预算', scopes=[bridge.Scope(id='customer:parallel', documents=[
+                bridge.Source(id='article:parallel', version='1', title='案例', content='客户预算顾虑')])])
+            with patch.object(bridge.retriever, 'get_retriever', side_effect=engine):
+                tasks = [asyncio.create_task(bridge.search(request)) for _ in range(30)]
+                try:
+                    await asyncio.wait_for(entered.wait(), 10)
+                    old_generation = next(g for g in bridge.readers if g.startswith('customer:parallel:'))
+                    changed = bridge.Scope(id='customer:parallel', documents=[])
+                    async with bridge.locks[changed.id]:
+                        await asyncio.to_thread(bridge.snapshot, changed)
+                    self.assertTrue(bridge.store.get(where={'user_id': old_generation})['ids'])
+                finally:
+                    release.set()
+                    await asyncio.gather(*tasks)
+                self.assertFalse(bridge.store.get(where={'user_id': old_generation})['ids'])
+        asyncio.run(scenario())
 
     def test_embedding_cache_uses_cloud_only_once_for_identical_input(self):
         self.documents.stop();self.query.stop()

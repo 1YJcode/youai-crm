@@ -17,9 +17,10 @@ public class RagKnowledgeService {
     private final KnowledgeRepository articles;private final CustomerTranscriptSegmentRepository segments;
     private final CustomerAccessPolicy access;private final AccessPolicy users;private final CallIntelligenceService intelligence;
     private final CallFollowupWorkRepository work;private final RagNotebookClient rag;private final RagAnswerClient model;
+    private final RagSourceReader sourceReader;
     public RagKnowledgeService(KnowledgeRepository articles,CustomerTranscriptSegmentRepository segments,CustomerAccessPolicy access,
-            AccessPolicy users,CallIntelligenceService intelligence,CallFollowupWorkRepository work,RagNotebookClient rag,RagAnswerClient model){
-        this.articles=articles;this.segments=segments;this.access=access;this.users=users;this.intelligence=intelligence;this.work=work;this.rag=rag;this.model=model;
+            AccessPolicy users,CallIntelligenceService intelligence,CallFollowupWorkRepository work,RagNotebookClient rag,RagAnswerClient model,RagSourceReader sourceReader){
+        this.articles=articles;this.segments=segments;this.access=access;this.users=users;this.intelligence=intelligence;this.work=work;this.rag=rag;this.model=model;this.sourceReader=sourceReader;
     }
     public record Material(String id,String version,String title,String content,Long articleId,Long segmentId,String customerNo){}
     public record Citation(String title,String quote,Long articleId,Long segmentId,String customerNo,String sourceId,String version){}
@@ -29,30 +30,26 @@ public class RagKnowledgeService {
         var result=materials(customerNo,null,auth).get(id);if(result==null)throw new com.youai.crm.common.NotFoundException("引用资料已不可访问");
         if(!result.version.equals(version))throw new ConflictException("引用资料已更新，请重新查询");return result;
     }
-    private boolean shared(KnowledgeArticle a){return a.companyCase||(a.sourceCallId==null&&a.customerNo==null);}
+    private boolean shared(KnowledgeArticle a){return a.isPublished()&&(a.companyCase||(a.sourceCallId==null&&a.customerNo==null));}
     private String fingerprint(String text){try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)));}catch(Exception e){throw new IllegalStateException(e);}}
     private LinkedHashMap<String,Material> materials(String customerNo,Long segmentId,Authentication auth){
         users.currentUserId(auth);if(customerNo!=null)access.requireAccess(customerNo,auth);
         var result=new LinkedHashMap<String,Material>();
-        articles.findAll((root,q,cb)->cb.or(cb.isTrue(root.get("companyCase")),cb.and(cb.isNull(root.get("sourceCallId")),cb.isNull(root.get("customerNo"))))).forEach(a->{
+        articles.findAll((root,q,cb)->cb.and(cb.equal(root.get("publicationStatus"),"PUBLISHED"),cb.or(cb.isTrue(root.get("companyCase")),cb.and(cb.isNull(root.get("sourceCallId")),cb.isNull(root.get("customerNo")))))).forEach(a->{
             result.put("article:"+a.id,new Material("article:"+a.id,String.valueOf(a.version),a.title,a.content,a.id,null,null));
         });
         if(customerNo!=null){
             var selected=segmentId==null?segments.findByCustomerNo(customerNo,PageRequest.of(0,100,Sort.by(Sort.Direction.DESC,"sourceTime"))).getContent():segments.findById(segmentId).map(List::of).orElse(List.of());
             for(var s:selected){
                 var v=CustomerTranscriptService.view(s,true);if(!customerNo.equals(v.customerNo()))throw new org.springframework.security.access.AccessDeniedException("通话来源不属于当前客户");
-                var i=intelligence.get(v.id(),auth);var content=new StringBuilder("通话来源："+v.sourceTime()+"\n销售："+v.salesName()+"\n\n"+v.transcript());
-                String title="客户通话 · "+v.sourceTime();if(i.analysis()!=null){title=i.analysis().path("title").asText(title);content.append("\n\nAI摘要（待核对）：").append(i.analysis().path("summary").asText());}
-                if(i.confirmedContent()!=null)content.append("\n\n销售已确认跟进：").append(i.confirmedContent());
-                else work.findById(v.callId()).filter(w->w.confirmedContent!=null).ifPresent(w->content.append("\n\n销售已确认跟进：").append(w.confirmedContent));
-                String text=content.toString();result.put("segment:"+v.id(),new Material("segment:"+v.id(),fingerprint(v.recordingRevision()+text),title,text,null,v.id(),customerNo));
+                var material=sourceReader.render(s);result.put(material.id(),material);
             }
         }else if(segmentId!=null)throw new IllegalArgumentException("请选择客户后查询通话资料");
         if(result.size()>500)throw new IllegalArgumentException("资料超过单次检索范围，请缩小查询范围");return result;
     }
     private List<Map<String,Object>> scopes(Collection<Material> materials,String customerNo){
         var company=new ArrayList<Map<String,Object>>();var personal=new ArrayList<Map<String,Object>>();
-        for(var m:materials){var d=Map.<String,Object>of("id",m.id,"version",m.version,"title",m.title,"content",m.content);if(m.customerNo==null)company.add(d);else personal.add(d);}
+        for(var m:materials){var d=Map.<String,Object>of("id",m.id,"version",m.version);if(m.customerNo==null)company.add(d);else personal.add(d);}
         var result=new ArrayList<Map<String,Object>>();result.add(Map.of("id","company","documents",company));if(customerNo!=null)result.add(Map.of("id","customer:"+customerNo,"documents",personal));return result;
     }
     public Answer ask(String question,String customerNo,Long segmentId,boolean coaching,Authentication auth)throws Exception{
@@ -69,7 +66,7 @@ public class RagKnowledgeService {
             if(material==null||original==null||!material.version.equals(original.version)||!material.version.equals(match.path("version").asText())||text.isBlank()||text.length()>2000||!material.content.contains(text))continue;
             evidence.add(Map.of("id",material.id,"title",material.title,"content",text,"chunk",match.path("chunk").asInt()));
         }
-        if(evidence.isEmpty())return new Answer("没有找到可核验的相关资料，暂不能给出有来源的回答。",List.of(),"RAG-Notebook",false);
+        if(evidence.isEmpty())return new Answer("没有找到可核验的相关资料；新建或修改的资料可能正在同步，请稍后重试。",List.of(),"RAG-Notebook",false);
         var response=model.answer(question,evidence,coaching);var after=materials(customerNo,segmentId,auth);var citations=new ArrayList<Citation>();
         for(var citation:response.path("citations")){
             String id=citation.path("id").asText(),quote=citation.path("quote").asText();int chunk=citation.path("chunk").asInt(-1);

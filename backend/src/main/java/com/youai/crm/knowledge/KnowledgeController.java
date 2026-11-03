@@ -23,11 +23,11 @@ public class KnowledgeController {
     private final com.youai.crm.communication.CustomerTranscriptService transcripts;
     public KnowledgeController(KnowledgeRepository articles, com.youai.crm.customer.CustomerAccessPolicy access,com.youai.crm.communication.CustomerTranscriptService transcripts) { this.articles=articles; this.access=access;this.transcripts=transcripts; }
     private org.springframework.data.jpa.domain.Specification<KnowledgeArticle> visible(Authentication auth) {
-        return (root,query,cb)->cb.or(cb.isNull(root.get("sourceCallId")),cb.isTrue(root.get("companyCase")),access.visibleReference(root.get("customerNo"),query,cb,auth));
+        return (root,query,cb)->cb.or(cb.and(cb.isTrue(root.get("companyCase")),cb.equal(root.get("createdBy"),auth.getName())),admin(auth)?cb.conjunction():cb.disjunction(),cb.and(cb.equal(root.get("publicationStatus"),"PUBLISHED"),cb.or(cb.isNull(root.get("sourceCallId")),cb.isTrue(root.get("companyCase")),access.visibleReference(root.get("customerNo"),query,cb,auth))));
     }
     public record ArticleRequest(@NotBlank @Size(max=160) String title,
             @NotBlank @Size(max=64) String category, @NotBlank @Size(max=100000) String content, Long version) {}
-    public record Summary(Long id,String title,String category,String preview,String updatedBy,LocalDateTime updatedAt) {}
+    public record Summary(Long id,String title,String category,String preview,String publicationStatus,String updatedBy,LocalDateTime updatedAt) {}
     public record CompanyCaseRequest(@NotBlank @Size(max=160) String title,
             @NotBlank @Size(max=64) String category,@NotBlank @Size(max=100000) String content,
             @NotNull Long version,@NotNull @AssertTrue Boolean sharingConfirmed) {}
@@ -35,18 +35,20 @@ public class KnowledgeController {
     public void noCache(jakarta.servlet.http.HttpServletResponse response) { response.setHeader("Cache-Control","no-store"); }
     @GetMapping
     public Page<Summary> list(@RequestParam(defaultValue="") String keyword,
-            @RequestParam(defaultValue="") String category, @RequestParam(defaultValue="0") int page, Authentication auth) {
+            @RequestParam(defaultValue="") String category, @RequestParam(defaultValue="") String publicationStatus, @RequestParam(defaultValue="0") int page, Authentication auth) {
         String term=keyword.trim().toLowerCase(java.util.Locale.ROOT).replace("!","!!").replace("%","!%").replace("_","!_");
         org.springframework.data.jpa.domain.Specification<KnowledgeArticle> matching=(root,query,cb)->cb.and(
+                (publicationStatus.isBlank()?cb.conjunction():cb.equal(root.get("publicationStatus"),publicationStatus)),
                 category.isBlank()?cb.conjunction():cb.equal(root.get("category"),category.trim()),
                 cb.or(cb.like(cb.lower(root.get("title")),"%"+term+"%",'!'),cb.like(cb.lower(root.get("content")),"%"+term+"%",'!')));
         return articles.findAll(visible(auth).and(matching),PageRequest.of(Math.max(0,page),12,Sort.by(Sort.Direction.DESC,"updatedAt").and(Sort.by(Sort.Direction.DESC,"id"))))
-                .map(a->new Summary(a.id,a.title,a.category,a.content.substring(0,Math.min(a.content.length(),140)),a.updatedBy,a.updatedAt));
+                .map(a->new Summary(a.id,a.title,a.category,a.content.substring(0,Math.min(a.content.length(),140)),a.publicationStatus,a.updatedBy,a.updatedAt));
     }
     @GetMapping("/categories") public List<String> categories(Authentication auth) {return articles.findAll(visible(auth)).stream().map(a->a.category).distinct().sorted().toList();}
     @GetMapping("/{id}") public Map<String,Object> get(@PathVariable Long id, Authentication auth) {
         var article=find(id);
         if(article.sourceCallId!=null && !article.companyCase) access.requireAccess(article.customerNo,auth);
+        if(!article.isPublished() && !admin(auth) && !auth.getName().equals(article.createdBy)) throw new org.springframework.security.access.AccessDeniedException("Knowledge is not published");
         return view(article,auth);
     }
     @PostMapping @ResponseStatus(HttpStatus.CREATED) @PreAuthorize("hasRole('ADMIN')")
@@ -68,7 +70,7 @@ public class KnowledgeController {
         access.requireAccess(source.customerNo,auth);
         if(!request.version().equals(source.version)) throw new ConflictException("来源内容已更新，请重新打开后整理");
         if(articles.findByDerivedFromId(source.id).isPresent()) throw new ConflictException("此来源已经整理为公司案例，请在知识库查看");
-        var article=new KnowledgeArticle(); article.companyCase=true; article.derivedFromId=source.id;
+        var article=new KnowledgeArticle(); article.reviewedSourceVersion=source.version; article.companyCase=true; article.publicationStatus="PENDING"; article.derivedFromId=source.id;
         article.sourceCallId=source.sourceCallId; article.customerNo=source.customerNo;
         article.customerName=source.customerName; article.salesUserId=source.salesUserId; article.salesName=source.salesName;
         article.recordingRevision=source.recordingRevision; article.recordingSource=source.recordingSource;
@@ -84,15 +86,39 @@ public class KnowledgeController {
         if(!version.equals(article.version)) throw new ConflictException("知识内容已更新，请重新打开后删除");
         articles.delete(article); articles.flush();
     }
+    @PutMapping("/{id}/resubmit") @Transactional
+    public Map<String,Object> resubmit(@PathVariable Long id,@Valid @RequestBody ArticleRequest request,Authentication auth){
+        var a=articles.lockById(id).orElseThrow(()->new NotFoundException("Knowledge not found"));
+        if(!admin(auth)&&!auth.getName().equals(a.createdBy))throw new org.springframework.security.access.AccessDeniedException("Not the submitter");
+        if(!a.companyCase||a.isPublished())throw new ConflictException("Only unpublished cases can be resubmitted");
+        if(request.version()==null||!request.version().equals(a.version))throw new ConflictException("Knowledge changed");
+        apply(a,request,auth);a.publicationStatus="PENDING";a.reviewNote=null;a.reviewedAt=null;a.reviewedBy=null;
+        return view(articles.saveAndFlush(a),auth);
+    }
+    private boolean admin(Authentication auth){return auth.getAuthorities().stream().anyMatch(a->a.getAuthority().equals("ROLE_ADMIN"));}
+    public record ReviewRequest(@NotNull Long version,@NotBlank String action,@Size(max=1000) String note) {}
+    @PostMapping("/{id}/review") @PreAuthorize("hasRole('ADMIN')") @Transactional
+    public Map<String,Object> review(@PathVariable Long id,@Valid @RequestBody ReviewRequest request,Authentication auth){
+        var a=articles.lockById(id).orElseThrow(()->new NotFoundException("Knowledge not found"));
+        if(!request.version().equals(a.version))throw new ConflictException("Knowledge changed; reopen before reviewing");
+        if(!a.companyCase && a.sourceCallId!=null)throw new IllegalArgumentException("Private source cannot be published");
+        String target=switch(request.action()){case "APPROVE"->"PUBLISHED";case "REJECT"->"REJECTED";case "WITHDRAW"->"WITHDRAWN";default->throw new IllegalArgumentException("Invalid action");};
+        if("WITHDRAW".equals(request.action())?!a.isPublished():!"PENDING".equals(a.publicationStatus))throw new ConflictException("Invalid publication state");
+        if("REJECT".equals(request.action())&&(request.note()==null||request.note().isBlank()))throw new IllegalArgumentException("Rejection reason required");
+        if("PUBLISHED".equals(target)&&a.derivedFromId!=null)a.reviewedSourceVersion=articles.findById(a.derivedFromId).map(source->source.version).orElse(null);
+        a.publicationStatus=target;a.reviewNote=request.note();a.reviewedBy=auth.getName();a.reviewedAt=LocalDateTime.now();a.updatedBy=auth.getName();
+        return view(articles.saveAndFlush(a),auth);
+    }
     private KnowledgeArticle find(Long id) {return articles.findById(id).orElseThrow(()->new NotFoundException("未找到知识内容"));}
     private Map<String,Object> view(KnowledgeArticle article,Authentication auth) {
         // Whitelist public fields. A shared case never returns source identifiers to other staff.
         Map<String,Object> result=new LinkedHashMap<>();
-        result.put("id",article.id); result.put("title",article.title); result.put("category",article.category);
+        result.put("publicationStatus",article.publicationStatus); result.put("reviewNote",article.reviewNote); result.put("reviewedBy",article.reviewedBy); result.put("reviewedAt",article.reviewedAt); result.put("id",article.id); result.put("title",article.title); result.put("category",article.category);
         result.put("content",article.content); result.put("version",article.version); result.put("companyCase",article.companyCase);
         result.put("createdBy",article.createdBy); result.put("createdAt",article.createdAt);
         result.put("updatedBy",article.updatedBy); result.put("updatedAt",article.updatedAt);
         boolean canAccessSource=article.sourceCallId!=null && access.canAccess(article.customerNo,auth);
+        if(canAccessSource && article.companyCase && article.derivedFromId!=null)result.put("sourceUpdated",articles.findById(article.derivedFromId).map(source->!java.util.Objects.equals(source.version,article.reviewedSourceVersion)).orElse(true));
         result.put("canAccessSource",canAccessSource); result.put("canPublishCase",canAccessSource && !article.companyCase);
         if(canAccessSource) {
             result.put("sourceSegments",transcripts.sources(article.id));

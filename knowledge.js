@@ -3,7 +3,7 @@ let closeKnowledgeDialog = null;
 function knowledgeBaseView() {
   return `<section class="page">${analyticsNav('知识库')}<div class="page-content knowledge-page" id="knowledgeRoot">
     <div class="knowledge-heading"><div><h2>知识库</h2><p>公司案例和通用知识供全员查阅；客户原始转写与录音仅当前归属人和管理员可见。</p></div>${isAdmin() ? '<button class="button primary" data-knowledge-new>新增知识</button>' : ''}</div>
-    <form class="knowledge-search"><input name="keyword" type="search" placeholder="搜索案例、客户、销售或正文" aria-label="搜索知识" maxlength="200"><select name="category" aria-label="知识分类"><option value="">全部分类</option></select><button class="button primary">搜索</button><button class="button secondary" type="reset">重置</button></form>
+    <form class="knowledge-search"><input name="keyword" type="search" placeholder="搜索案例、客户、销售或正文" aria-label="搜索知识" maxlength="200"><select name="category" aria-label="知识分类"><option value="">全部分类</option></select><select name="publicationStatus" aria-label="发布状态"><option value="">全部状态</option><option value="PUBLISHED">已发布</option><option value="PENDING">待审核</option><option value="REJECTED">已退回</option><option value="WITHDRAWN">已下架</option></select><button class="button primary">搜索</button><button class="button secondary" type="reset">重置</button></form>
     ${ragAskMarkup()}<p data-knowledge-status role="status"></p><div class="knowledge-grid" data-knowledge-list></div><footer class="knowledge-pagination"><button class="button secondary" data-knowledge-prev>上一页</button><span data-knowledge-page></span><button class="button secondary" data-knowledge-next>下一页</button></footer>
   </div></section>`;
 }
@@ -19,12 +19,12 @@ function bindKnowledgeBase() {
   async function load() {
     const request = ++sequence;
     status.textContent = '正在加载知识内容…';
-    const params = new URLSearchParams({keyword:form.elements.keyword.value.trim(),category:form.elements.category.value,page:String(page)});
+    const params = new URLSearchParams({keyword:form.elements.keyword.value.trim(),category:form.elements.category.value,publicationStatus:form.elements.publicationStatus.value,page:String(page)});
     try {
       const data = await apiRequest(`/knowledge?${params}`);
       if (!valid() || request !== sequence) return;
       pages = data.totalPages || 0;
-      root.querySelector('[data-knowledge-list]').innerHTML = data.content.map(item => `<button type="button" class="knowledge-card" data-knowledge-id="${escapeHtml(String(item.id))}"><span class="pill blue">${escapeHtml(item.category)}</span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.preview)}</p><small>更新于 ${escapeHtml(formatDateTime(item.updatedAt))}</small></button>`).join('');
+      root.querySelector('[data-knowledge-list]').innerHTML = data.content.map(item => `<button type="button" class="knowledge-card" data-knowledge-id="${escapeHtml(String(item.id))}"><span class="pill blue">${escapeHtml(item.category)}</span><span class="pill">${escapeHtml(({PENDING:"待审核",PUBLISHED:"已发布",REJECTED:"已退回",WITHDRAWN:"已下架"})[item.publicationStatus]||"")}</span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.preview)}</p><small>更新于 ${escapeHtml(formatDateTime(item.updatedAt))}</small></button>`).join('');
       status.textContent = data.totalElements ? `共 ${data.totalElements} 篇知识` : (params.get('keyword') || params.get('category') ? '没有找到符合条件的知识，请调整搜索条件。' : '知识库还没有内容，管理员可点击“新增知识”开始整理。');
       root.querySelector('[data-knowledge-page]').textContent = pages ? `${page+1} / ${pages}` : '0 / 0';
       root.querySelector('[data-knowledge-prev]').disabled = page === 0;
@@ -41,7 +41,7 @@ function bindKnowledgeBase() {
   }
   const reload=async()=>{await categories();await load();};
   form.onsubmit=event=>{event.preventDefault();page=0;load();};
-  form.onreset=event=>{event.preventDefault();form.elements.keyword.value='';form.elements.category.value='';page=0;load();};
+  form.onreset=event=>{event.preventDefault();form.elements.keyword.value='';form.elements.category.value='';form.elements.publicationStatus.value='';page=0;load();};
   root.querySelector('[data-knowledge-prev]').onclick=()=>{if(page>0){page--;load();}};
   root.querySelector('[data-knowledge-next]').onclick=()=>{if(page+1<pages){page++;load();}};
   root.querySelector('[data-knowledge-new]')?.addEventListener('click',()=>openKnowledgeArticle(null,reload));
@@ -97,8 +97,20 @@ function openKnowledgeArticle(article,onSave) {
       }
     }
   }
+  if(article) {
+    const labels={PENDING:'待审核',PUBLISHED:'已发布',REJECTED:'已退回',WITHDRAWN:'已下架'};
+    const info=document.createElement('p');info.textContent=`状态：${labels[article.publicationStatus]||'已发布'} ${article.reviewNote||''}${article.sourceUpdated?'；来源已有更新，请管理员核对案例是否仍适用。':''}`;form.append(info);
+    const actions=isAdmin()?(article.publicationStatus==='PENDING'?['APPROVE','REJECT']:article.publicationStatus==='PUBLISHED'?['WITHDRAW']:[]):[];
+    for(const action of actions){const button=document.createElement('button');button.type='button';button.className='button secondary';button.textContent={APPROVE:'审核通过并发布',REJECT:'退回修改',WITHDRAW:'下架知识'}[action];
+      button.onclick=async()=>{const note=action==='REJECT'?prompt('请填写退回原因'):'';if(action==='REJECT'&&!note?.trim())return;button.disabled=true;try{await apiRequest(`/knowledge/${article.id}/review`,{method:'POST',body:JSON.stringify({version:article.version,action,note})});cleanup();onSave();toast('知识状态已更新');}catch(error){message.textContent=error.message;button.disabled=false;}};form.append(button);}
+    if(article.companyCase&&article.publicationStatus!=='PUBLISHED'){
+      const button=document.createElement('button');button.type='button';button.className='button primary';button.textContent='保存修改并重新提交';form.append(button);
+      [...form.querySelectorAll('input,textarea')].forEach(input=>input.readOnly=false);
+      button.onclick=async()=>{button.disabled=true;try{await apiRequest(`/knowledge/${article.id}/resubmit`,{method:'PUT',body:JSON.stringify({version:article.version,title:form.elements.title.value,category:form.elements.category.value,content:form.elements.content.value})});cleanup();onSave();}catch(error){message.textContent=error.message;button.disabled=false;}};
+    }
+  }
   if(article) dialog.querySelector('[data-meta]').textContent=`最后更新：${formatDateTime(article.updatedAt)} · ${article.updatedBy}`;
-  if(!isAdmin()) [...form.querySelectorAll('input,textarea')].forEach(input=>input.readOnly=true);
+  if(!isAdmin()&&!(article?.companyCase&&article.publicationStatus!=='PUBLISHED')) [...form.querySelectorAll('input,textarea')].forEach(input=>input.readOnly=true);
   let closed=false, deleting=false;
   const valid=()=>!closed && state.auth.user?.id===account && Boolean(state.auth.token);
   const cleanup=()=>{if(closed)return;closed=true;clearInterval(watcher);dialog.dispatchEvent(new Event('close'));dialog.remove();closeKnowledgeDialog=null;};
@@ -137,13 +149,13 @@ async function openCompanyCaseEditor(source,onSave=()=>{}) {
   const dialog=document.createElement('dialog'); dialog.className='knowledge-dialog';
   dialog.setAttribute('aria-labelledby','companyCaseTitle');
   dialog.innerHTML=`<header><h2 id="companyCaseTitle">整理为公司案例</h2><button type="button" class="button secondary" data-close>关闭</button></header>
-    <p>发布的是单独的案例副本，全公司员工可查看。客户原始转写、录音和关联资料仍按客户权限保护，发布后由管理员维护。</p>
+    <p>提交的是单独的案例副本，管理员审核通过后全公司员工可查看。客户原始转写、录音和关联资料仍按客户权限保护，发布后由管理员维护。</p>
     <details><summary>查看原始内容（仅当前客户归属人和管理员可见）</summary><pre data-private-reference style="white-space:pre-wrap"></pre></details>
     <form><label>案例标题<input name="title" required maxlength="160" value="客户沟通案例"></label>
     <label>分类<input name="category" required maxlength="64" value="公司案例"></label>
     <label>可供公司查看的案例正文<textarea name="content" required maxlength="100000" rows="14" placeholder="整理沟通背景、客户诉求、处理方法和可复用经验，请移除客户姓名、电话及其他不应共享的信息。"></textarea></label>
     <label><input name="sharingConfirmed" type="checkbox" required>我已检查案例内容，移除不应公开的客户身份信息，确认以上内容可供全公司查看。</label>
-    <p data-status role="status"></p><button class="button primary" type="submit">发布公司案例</button></form>`;
+    <p data-status role="status"></p><button class="button primary" type="submit">提交管理员审核</button></form>`;
   dialog.querySelector('[data-private-reference]').textContent=source.content;
   const form=dialog.querySelector('form'),message=dialog.querySelector('[data-status]');
   let closed=false;
@@ -157,7 +169,7 @@ async function openCompanyCaseEditor(source,onSave=()=>{}) {
     const data={title:form.elements.title.value.trim(),category:form.elements.category.value.trim(),content:form.elements.content.value.trim(),version:source.version,sharingConfirmed:form.elements.sharingConfirmed.checked};
     try {
       const shared=await apiRequest(`/knowledge/${source.id}/company-case`,{method:'POST',body:JSON.stringify(data)});
-      if(!valid())return;cleanup();onSave();toast('公司案例已发布，原始资料权限保持不变');openKnowledgeArticle(shared,onSave);
+      if(!valid())return;cleanup();onSave();toast('案例已提交，审核通过后供公司查阅');openKnowledgeArticle(shared,onSave);
     } catch(error){if(valid())message.textContent=error.message;}
     finally{button.disabled=false;}
   };
