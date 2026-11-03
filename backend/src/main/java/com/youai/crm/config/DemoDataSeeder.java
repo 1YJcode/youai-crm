@@ -156,6 +156,9 @@ public class DemoDataSeeder {
         }
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.youai.crm.account.UserIdentityResolver orderIdentities;
+
     private SalesOrder order(
             String orderNo, String customer, String product, long amount, long paid,
             String paymentStatus, String serviceStatus, String owner) {
@@ -168,6 +171,7 @@ public class DemoDataSeeder {
         order.setPaymentStatus(paymentStatus);
         order.setServiceStatus(serviceStatus);
         order.setOwner(owner);
+        order.setOwnerId(orderIdentities.enabledEmployee(owner).getId());
         order.setCreatedAt(LocalDateTime.now());
         return order;
     }

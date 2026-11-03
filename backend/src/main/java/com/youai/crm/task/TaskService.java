@@ -113,7 +113,7 @@ public class TaskService {
         if (request.customerId() == null) return;
         Customer customer = customerRepository.findByCustomerNo(request.customerId())
                 .orElseThrow(() -> new NotFoundException("未找到客户：" + request.customerId()));
-        accessPolicy.requireUserId(customer.getOwnerId(), authentication);
+        customerAccess.requireAccess(customer.getCustomerNo(), authentication);
         task.setCustomerName(customer.getName());
         customer.setLastContactAt(task.getFollowedAt());
         if (StringUtils.hasText(request.customerStatus())) customer.setStage(request.customerStatus().trim());

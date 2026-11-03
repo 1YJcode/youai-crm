@@ -20,7 +20,8 @@ public class CustomerAccessPolicy {
     public boolean canAccess(String customerNo, Authentication authentication) {
         if (access.isAdmin(authentication)) return true;
         return customerNo != null && customers.findByCustomerNo(customerNo)
-                .map(customer -> access.canAccessUserId(customer.getOwnerId(), authentication)).orElse(false);
+                .map(customer -> access.canAccessUserId(customer.getOwnerId(), authentication)
+                        || customer.getCollaboratorIds().contains(access.currentUserId(authentication))).orElse(false);
     }
 
     public void requireAccess(String customerNo, Authentication authentication) {
@@ -33,7 +34,8 @@ public class CustomerAccessPolicy {
         Subquery<String> visible = query.subquery(String.class);
         Root<Customer> customer = visible.from(Customer.class);
         visible.select(customer.get("customerNo"))
-                .where(builder.equal(customer.get("ownerId"), access.currentUserId(authentication)));
+                .where(builder.or(builder.equal(customer.get("ownerId"), access.currentUserId(authentication)),
+                        builder.isMember(access.currentUserId(authentication), customer.get("collaboratorIds"))));
         return customerNo.in(visible);
     }
 }

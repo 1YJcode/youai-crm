@@ -46,6 +46,11 @@ public class SalesOrder {
     @Column(nullable = false, length = 32)
     private String owner;
 
+    @Column(name = "owner_id")
+    private Long ownerId;
+    public Long getOwnerId() { return ownerId; }
+    public void setOwnerId(Long value) { ownerId = value; }
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

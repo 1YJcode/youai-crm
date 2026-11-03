@@ -32,14 +32,14 @@ public class OrderRefundService {
     public List<RefundResponse> list(Authentication authentication) {
         accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
         return refundRepository.findAllByOrderByCreatedAtDesc().stream()
-                .filter(refund -> accessPolicy.canAccessOwner(refund.getOwner(), authentication))
+                .filter(refund -> orderRepository.findByOrderNo(refund.getOrderNo()).map(order -> accessPolicy.canAccessUserId(order.getOwnerId(), authentication)).orElse(false))
                 .map(RefundResponse::from).toList();
     }
 
     public RefundResponse create(RefundRequest request, Authentication authentication) {
         SalesOrder order = orderRepository.findByOrderNo(request.orderNo().trim())
                 .orElseThrow(() -> new NotFoundException("未找到订单：" + request.orderNo()));
-        accessPolicy.requireOwner(order.getOwner(), authentication);
+        accessPolicy.requireUserId(order.getOwnerId(), authentication);
         BigDecimal amount = request.amount();
         if (amount.compareTo(order.getPaidAmount()) > 0) {
             throw new IllegalArgumentException("退款金额不能超过已回款金额");

@@ -73,4 +73,16 @@ class OrderControllerTest {
         mockMvc.perform(get("/api/orders/SO20260816023"))
                 .andExpect(status().isForbidden());
     }
+
+    @Test
+    @WithMockUser(username = "linxi", roles = "SALES")
+    void salesCannotUseFinanceEndpoints() throws Exception {
+        mockMvc.perform(patch("/api/orders/SO20260817008/payment")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"paid\":100}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(patch("/api/orders/SO20260817008/confirmation")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"confirmed\":true}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/ledger-accounts")).andExpect(status().isForbidden());
+    }
 }

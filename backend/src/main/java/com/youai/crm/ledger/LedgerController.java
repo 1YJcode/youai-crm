@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+@org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
 @RestController @RequestMapping("/api/ledger-accounts")
 public class LedgerController {
  private final LedgerService service; public LedgerController(LedgerService service){this.service=service;}

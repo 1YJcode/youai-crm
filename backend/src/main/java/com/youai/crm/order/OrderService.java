@@ -25,10 +25,12 @@ public class OrderService {
     private static final DateTimeFormatter ORDER_DATE = DateTimeFormatter.ofPattern("yyyyMMddHHmmss", Locale.ROOT);
     private final SalesOrderRepository repository;
     private final AccessPolicy accessPolicy;
+    private final com.youai.crm.account.UserIdentityResolver identities;
 
-    public OrderService(SalesOrderRepository repository, AccessPolicy accessPolicy) {
+    public OrderService(SalesOrderRepository repository, AccessPolicy accessPolicy, com.youai.crm.account.UserIdentityResolver identities) {
         this.repository = repository;
         this.accessPolicy = accessPolicy;
+        this.identities = identities;
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
@@ -38,7 +40,7 @@ public class OrderService {
         boolean admin = accessPolicy.isAdmin(authentication);
         var spec = (org.springframework.data.jpa.domain.Specification<SalesOrder>) (root, query, builder) -> {
             var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
-            if (!admin) predicates.add(builder.equal(root.get("owner"), accessPolicy.currentOwner(authentication)));
+            if (!admin) predicates.add(builder.equal(root.get("ownerId"), accessPolicy.currentUserId(authentication)));
             if (normalizedKeyword != null) {
                 String like = "%" + normalizedKeyword + "%";
                 predicates.add(builder.or(builder.like(builder.lower(root.get("orderNo")), like), builder.like(builder.lower(root.get("customerName")), like)));
@@ -60,19 +62,31 @@ public class OrderService {
 
     public OrderResponse create(OrderRequest request, Authentication authentication) {
         SalesOrder order = new SalesOrder();
-        apply(order, request, true);
+        apply(order, request, true, authentication);
+        if (!accessPolicy.isAdmin(authentication)) {
+            if (order.getPaidAmount().signum() != 0) throw new org.springframework.security.access.AccessDeniedException("只有管理员可以登记回款");
+            order.setPaymentStatus(paymentStatus(order.getAmount(), BigDecimal.ZERO));
+            order.setOwnerId(accessPolicy.currentUserId(authentication));
+        }
         if (!accessPolicy.isAdmin(authentication)) order.setOwner(accessPolicy.currentOwner(authentication));
         return OrderResponse.from(repository.save(order));
     }
 
     public OrderResponse update(String orderNo, OrderRequest request, Authentication authentication) {
         SalesOrder order = get(orderNo, authentication);
-        apply(order, request, false);
+        if (!accessPolicy.isAdmin(authentication) && (request.paid() == null ? BigDecimal.ZERO : request.paid()).compareTo(order.getPaidAmount()) != 0)
+            throw new org.springframework.security.access.AccessDeniedException("只有管理员可以修改回款");
+        apply(order, request, false, authentication);
+        if (!accessPolicy.isAdmin(authentication)) {
+            order.setOwnerId(accessPolicy.currentUserId(authentication));
+            order.setPaymentStatus(paymentStatus(order.getAmount(), order.getPaidAmount()));
+        }
         if (!accessPolicy.isAdmin(authentication)) order.setOwner(accessPolicy.currentOwner(authentication));
         return OrderResponse.from(repository.save(order));
     }
 
     public OrderResponse updatePayment(String orderNo, BigDecimal paid, Authentication authentication) {
+        if (!accessPolicy.isAdmin(authentication)) throw new org.springframework.security.access.AccessDeniedException("只有管理员可以操作财务数据");
         SalesOrder order = get(orderNo, authentication);
         validatePaid(order.getAmount(), paid);
         order.setPaidAmount(paid);
@@ -88,6 +102,7 @@ public class OrderService {
     }
 
     public OrderResponse updateConfirmation(String orderNo, boolean confirmed, Authentication authentication) {
+        if (!accessPolicy.isAdmin(authentication)) throw new org.springframework.security.access.AccessDeniedException("只有管理员可以操作财务数据");
         SalesOrder order = get(orderNo, authentication);
         if (confirmed && (order.getPaidAmount() == null || order.getPaidAmount().signum() <= 0)) {
             throw new IllegalArgumentException("订单尚未回款，暂不能确认业绩");
@@ -96,7 +111,7 @@ public class OrderService {
         return OrderResponse.from(repository.save(order));
     }
 
-    private void apply(SalesOrder order, OrderRequest request, boolean creating) {
+    private void apply(SalesOrder order, OrderRequest request, boolean creating, Authentication authentication) {
         BigDecimal amount = request.amount();
         BigDecimal paid = request.paid() == null ? BigDecimal.ZERO : request.paid();
         validatePaid(amount, paid);
@@ -112,7 +127,15 @@ public class OrderService {
         order.setPaidAmount(paid);
         order.setPaymentStatus(StringUtils.hasText(request.status()) ? request.status().trim() : paymentStatus(amount, paid));
         order.setServiceStatus(StringUtils.hasText(request.service()) ? request.service().trim() : "未开始");
-        order.setOwner(request.owner().trim());
+        // Resolve ownership once when writing; display names are snapshots.
+        if (accessPolicy.isAdmin(authentication)) {
+            var employee = identities.enabledEmployee(request.owner());
+            order.setOwner(employee.getDisplayName());
+            order.setOwnerId(employee.getId());
+        } else {
+            order.setOwner(accessPolicy.currentDisplayName(authentication));
+            order.setOwnerId(accessPolicy.currentUserId(authentication));
+        }
     }
 
     private void validatePaid(BigDecimal amount, BigDecimal paid) {
@@ -138,7 +161,7 @@ public class OrderService {
     private SalesOrder get(String orderNo, Authentication authentication) {
         SalesOrder order = repository.findByOrderNo(orderNo)
                 .orElseThrow(() -> new NotFoundException("未找到订单：" + orderNo));
-        accessPolicy.requireOwner(order.getOwner(), authentication);
+        accessPolicy.requireUserId(order.getOwnerId(), authentication);
         return order;
     }
 }

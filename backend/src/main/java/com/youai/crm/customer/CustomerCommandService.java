@@ -85,6 +85,7 @@ public class CustomerCommandService {
 
     public CustomerResponse update(String customerNo, CustomerRequest request, Authentication authentication) {
         Customer customer = queryService.get(customerNo, authentication);
+        accessPolicy.requireUserId(customer.getOwnerId(), authentication);
         String previousOwner = customer.getOwner();
         Long previousOwnerId = customer.getOwnerId();
         apply(customer, request, authentication, true);

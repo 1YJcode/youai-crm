@@ -1730,7 +1730,7 @@ async function hydrateFromApi() {
       apiRequest("/call-reviews"),
       isAdmin() ? apiRequest("/auth/users") : Promise.resolve([]),
       apiRequest("/invitations"),
-      apiRequest("/ledger-accounts"),
+      isAdmin() ? apiRequest("/ledger-accounts") : Promise.resolve([]),
       apiRequest("/system-notifications"),
       apiRequest("/business-settings/customer-pool")
     ]);
@@ -4128,9 +4128,9 @@ function paymentRecordsView() {
   /* Existing CRM payment view retained below for reference. */
   /*
   return `<section class="page">${orderNav("流水列表")}<div class="page-content">
-    ${pageHeading(`<button class="button secondary" id="exportPayments" type="button">${icon("download")}导出回款</button><button class="button primary" id="newPaymentRecord" type="button">${icon("plus")}登记回款</button>`)}
+    ${pageHeading(`<button class="button secondary" id="exportPayments" type="button">${icon("download")}导出回款</button><button class="button primary" id="newPaymentRecord" type="button" ${isAdmin() ? "" : "hidden"}>${icon("plus")}登记回款</button>`)}
     <section class="metric-grid">${metric("流水记录", String(rows.length), "笔", "实时", "blue", "wallet")}${metric("累计回款", money(totalPaid), "", "实时", "green", "check")}${metric("待回款订单", String(orderRowsForSection().filter(order => order.amount > order.paid).length), "个", "实时", "amber", "clock")}</section>
-    <section class="data-panel"><div class="data-toolbar"><div class="panel-title"><h2>流水列表</h2><span>按订单查看已登记流水，可继续补录金额</span></div><span class="pill gray">${rows.length} 笔</span></div><div class="table-wrap">${rows.length ? `<table class="data-table"><thead><tr><th>流水编号</th><th>订单号</th><th>客户</th><th>订单金额</th><th>本次累计回款</th><th>剩余应收</th><th>支付状态</th><th>操作</th></tr></thead><tbody>${rows.map((order, index) => `<tr><td>PAY-${String(index + 1).padStart(4, "0")}</td><td>${escapeHtml(order.id)}</td><td>${escapeHtml(order.customer)}</td><td>${money(order.amount)}</td><td><strong>${money(order.paid)}</strong></td><td>${money(Math.max(0, order.amount - order.paid))}</td><td>${orderPill(order.status)}</td><td><button class="button ghost" type="button" data-payment-order="${escapeHtml(order.id)}">继续登记</button></td></tr>`).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("wallet")}</span><strong>暂无流水记录</strong><p>订单登记回款后会显示在这里。</p><button class="button primary" type="button" id="newPaymentRecordEmpty">${icon("plus")}登记回款</button></div>`}</div></section>
+    <section class="data-panel"><div class="data-toolbar"><div class="panel-title"><h2>流水列表</h2><span>按订单查看已登记流水，可继续补录金额</span></div><span class="pill gray">${rows.length} 笔</span></div><div class="table-wrap">${rows.length ? `<table class="data-table"><thead><tr><th>流水编号</th><th>订单号</th><th>客户</th><th>订单金额</th><th>本次累计回款</th><th>剩余应收</th><th>支付状态</th><th>操作</th></tr></thead><tbody>${rows.map((order, index) => `<tr><td>PAY-${String(index + 1).padStart(4, "0")}</td><td>${escapeHtml(order.id)}</td><td>${escapeHtml(order.customer)}</td><td>${money(order.amount)}</td><td><strong>${money(order.paid)}</strong></td><td>${money(Math.max(0, order.amount - order.paid))}</td><td>${orderPill(order.status)}</td><td><button class="button ghost" type="button" data-payment-order="${escapeHtml(order.id)}" ${isAdmin() ? "" : "hidden"}>继续登记</button></td></tr>`).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("wallet")}</span><strong>暂无流水记录</strong><p>订单登记回款后会显示在这里。</p><button class="button primary" type="button" id="newPaymentRecordEmpty" ${isAdmin() ? "" : "hidden"}>${icon("plus")}登记回款</button></div>`}</div></section>
   </div></section>`; */
 }
 
@@ -4160,13 +4160,13 @@ function refundView() {
 function performanceView() {
   const rows = orderRowsForSection();
   const pending = rows.filter(order => !order.performanceConfirmed && order.paid > 0);
-  const performanceRows = rows.map((order, index) => `<tr><td>${escapeHtml(order.created)}</td><td>29${String(2101 - index).padStart(4, "0")}</td><td><button class="table-link">${escapeHtml(order.id.replace(/^SO2026/, "16"))}</button></td><td><button class="table-link">14300${String(21483 - index * 528).padStart(5, "0")}</button></td><td>${escapeHtml(order.customer)}</td><td>${escapeHtml(order.owner)}</td><td>${order.amount}/${order.paid}</td><td>${index % 2 ? "80%" : "20%"}</td><td>${Math.round(order.paid * (index % 2 ? .8 : .2))}</td><td>${order.performanceConfirmed ? "已确认" : order.paid > 0 ? `<button class="button primary" type="button" data-confirm-performance="${escapeHtml(order.id)}">确认业绩</button>` : "待确认"}</td></tr>`).join("");
+  const performanceRows = rows.map((order, index) => `<tr><td>${escapeHtml(order.created)}</td><td>29${String(2101 - index).padStart(4, "0")}</td><td><button class="table-link">${escapeHtml(order.id.replace(/^SO2026/, "16"))}</button></td><td><button class="table-link">14300${String(21483 - index * 528).padStart(5, "0")}</button></td><td>${escapeHtml(order.customer)}</td><td>${escapeHtml(order.owner)}</td><td>${order.amount}/${order.paid}</td><td>${index % 2 ? "80%" : "20%"}</td><td>${Math.round(order.paid * (index % 2 ? .8 : .2))}</td><td>${order.performanceConfirmed ? "已确认" : order.paid > 0 && isAdmin() ? `<button class="button primary" type="button" data-confirm-performance="${escapeHtml(order.id)}">确认业绩</button>` : "待确认"}</td></tr>`).join("");
   return `<section class="page order-performance-reference">${orderNav("业绩列表")}<div class="order-performance-content"><section class="performance-filter-panel"><div class="performance-filter-grid"><label>订单ID：<input placeholder="请输入订单ID"></label><label>员工姓名：<input placeholder="请选择"></label><label>会员ID：<input placeholder="请输入会员ID"></label><label>状态：<select><option>请选择</option><option>待确认</option><option>已确认</option></select></label><label>创建时间：<input placeholder="开始日期　—　结束日期"></label></div><div class="performance-filter-actions"><button class="button primary" type="button">${icon("search")}查询</button><button class="button secondary" type="button">${icon("repeat")}重置</button></div></section><section class="data-panel order-performance-panel"><div class="performance-summary">总收款业绩：${money(rows.filter(order => order.performanceConfirmed).reduce((sum, order) => sum + order.paid, 0))} <span>（定金、销售后订单不可计入提成）</span></div><div class="table-wrap"><table class="data-table order-performance-table"><thead><tr><th>创建时间</th><th>业绩ID</th><th>订单ID</th><th>会员ID</th><th>会员姓名</th><th>员工姓名</th><th>应付/实付金额</th><th>业绩比例</th><th>业绩</th><th>状态</th></tr></thead><tbody>${performanceRows || `<tr><td colspan="10"><div class="empty-state"><span class="empty-icon">${icon("check")}</span><strong>暂无数据</strong></div></td></tr>`}</tbody></table></div></section></div></section>`;
   /* Existing CRM performance view retained below for reference. */
   /* return `<section class="page">${orderNav("业绩列表")}<div class="page-content">
-    ${pageHeading(`<button class="button secondary" id="exportPerformance" type="button">${icon("download")}导出业绩</button><button class="button primary" id="confirmAllPerformance" type="button" ${pending.length ? "" : "disabled"}>${icon("check")}确认全部已付订单</button>`)}
+    ${pageHeading(`<button class="button secondary" id="exportPerformance" type="button">${icon("download")}导出业绩</button><button class="button primary" id="confirmAllPerformance" type="button" ${isAdmin() ? "" : "hidden"} ${pending.length ? "" : "disabled"}>${icon("check")}确认全部已付订单</button>`)}
     <section class="metric-grid">${metric("订单总数", String(rows.length), "个", "实时", "blue", "order")}${metric("待确认", String(pending.length), "个", "实时", "amber", "clock")}${metric("已确认金额", money(rows.filter(order => order.performanceConfirmed).reduce((sum, order) => sum + order.paid, 0)), "", "实时", "green", "check")}</section>
-    <section class="data-panel"><div class="data-toolbar"><div class="panel-title"><h2>业绩列表</h2><span>仅已回款订单可确认业绩，未回款订单需先登记回款</span></div><span class="pill gray">${pending.length} 个待确认</span></div><div class="table-wrap">${rows.length ? `<table class="data-table"><thead><tr><th>订单号</th><th>客户</th><th>销售</th><th>订单金额</th><th>已回款</th><th>支付状态</th><th>业绩状态</th><th>操作</th></tr></thead><tbody>${rows.map(order => `<tr><td>${escapeHtml(order.id)}</td><td>${escapeHtml(order.customer)}</td><td>${escapeHtml(order.owner)}</td><td>${money(order.amount)}</td><td>${money(order.paid)}</td><td>${orderPill(order.status)}</td><td><span class="pill ${order.performanceConfirmed ? "green" : order.paid > 0 ? "amber" : "gray"}">${order.performanceConfirmed ? "已确认" : order.paid > 0 ? "待确认" : "待回款"}</span></td><td>${order.performanceConfirmed ? "-" : order.paid > 0 ? `<button class="button primary" type="button" data-confirm-performance="${escapeHtml(order.id)}">确认业绩</button>` : `<span class="muted">先登记回款</span>`}</td></tr>`).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("check")}</span><strong>暂无订单</strong><p>创建订单后可在这里确认业绩。</p></div>`}</div></section>
+    <section class="data-panel"><div class="data-toolbar"><div class="panel-title"><h2>业绩列表</h2><span>仅已回款订单可确认业绩，未回款订单需先登记回款</span></div><span class="pill gray">${pending.length} 个待确认</span></div><div class="table-wrap">${rows.length ? `<table class="data-table"><thead><tr><th>订单号</th><th>客户</th><th>销售</th><th>订单金额</th><th>已回款</th><th>支付状态</th><th>业绩状态</th><th>操作</th></tr></thead><tbody>${rows.map(order => `<tr><td>${escapeHtml(order.id)}</td><td>${escapeHtml(order.customer)}</td><td>${escapeHtml(order.owner)}</td><td>${money(order.amount)}</td><td>${money(order.paid)}</td><td>${orderPill(order.status)}</td><td><span class="pill ${order.performanceConfirmed ? "green" : order.paid > 0 ? "amber" : "gray"}">${order.performanceConfirmed ? "已确认" : order.paid > 0 ? "待确认" : "待回款"}</span></td><td>${order.performanceConfirmed ? "-" : order.paid > 0 && isAdmin() ? `<button class="button primary" type="button" data-confirm-performance="${escapeHtml(order.id)}">确认业绩</button>` : `<span class="muted">先登记回款</span>`}</td></tr>`).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("check")}</span><strong>暂无订单</strong><p>创建订单后可在这里确认业绩。</p></div>`}</div></section>
   </div></section>`; */
 }
 
@@ -5021,13 +5021,13 @@ function businessModalFields(type, record) {
       <label><span>客户 *</span><select name="customer" required>${customers.map(customer => `<option value="${escapeHtml(customer.name)}" ${customer.name === record?.customer ? "selected" : ""}>${escapeHtml(customer.name)} · ${escapeHtml(customer.company)}</option>`).join("")}</select></label>
       <label class="form-span-2"><span>商品 / 套餐 *</span><input name="product" required maxlength="128" value="${escapeHtml(record?.product || "")}" placeholder="例如：专业版 · 20 席位"></label>
       <label><span>订单金额 *</span><input name="amount" type="number" min="0" step="0.01" required value="${record?.amount ?? ""}"></label>
-      <label><span>已付金额</span><input name="paid" type="number" min="0" step="0.01" value="${record?.paid ?? 0}"></label>
+      <label><span>已付金额</span><input name="paid" type="number" min="0" step="0.01" value="${record?.paid ?? 0}" ${isAdmin() ? "" : "readonly"}></label>
       <label><span>服务状态</span><select name="service">${["未开始","待开通","实施中","已开通"].map(value => `<option ${value === record?.service ? "selected" : ""}>${value}</option>`).join("")}</select></label>
       <label><span>销售负责人 *</span><select name="owner" required ${isAdmin() ? "" : "disabled"}>${ownerOptions(record?.owner || currentOwner())}</select></label>
     </div>${businessModalFooter(false, "保存订单")}`;
   }
   if (type === "order-payment") {
-    return `<input type="hidden" name="recordId" value="${escapeHtml(record?.id || "")}"><div class="form-grid"><label class="form-span-2"><span>订单</span><input value="${escapeHtml(record?.id || "")} · ${escapeHtml(record?.customer || "")}" readonly></label><label class="form-span-2"><span>已付金额 *</span><input name="paid" type="number" min="0" max="${record?.amount ?? 0}" step="0.01" required value="${record?.paid ?? 0}"></label></div>${businessModalFooter(false, "保存回款")}`;
+    return `<input type="hidden" name="recordId" value="${escapeHtml(record?.id || "")}"><div class="form-grid"><label class="form-span-2"><span>订单</span><input value="${escapeHtml(record?.id || "")} · ${escapeHtml(record?.customer || "")}" readonly></label><label class="form-span-2"><span>已付金额 *</span><input name="paid" type="number" min="0" max="${record?.amount ?? 0}" step="0.01" required value="${record?.paid ?? 0}" ${isAdmin() ? "" : "readonly"}></label></div>${businessModalFooter(false, "保存回款")}`;
   }
   if (type === "order-service") {
     return `<input type="hidden" name="recordId" value="${escapeHtml(record?.id || "")}"><div class="form-grid"><label class="form-span-2"><span>订单</span><input value="${escapeHtml(record?.id || "")} · ${escapeHtml(record?.customer || "")}" readonly></label><label class="form-span-2"><span>服务状态 *</span><select name="service">${["未开始","待开通","实施中","已开通"].map(value => `<option ${value === record?.service ? "selected" : ""}>${value}</option>`).join("")}</select></label></div>${businessModalFooter(false, "保存服务状态")}`;
@@ -6240,6 +6240,7 @@ function bindDrawerEvents() {
 }
 
 function openPaymentModal(order) {
+  if (!isAdmin()) { toast("仅管理员可以登记回款"); return; }
   openBusinessModal("order-payment", order);
 }
 
@@ -7996,6 +7997,7 @@ function exportOrders() {
 }
 
 function openFirstPaymentModal() {
+  if (!isAdmin()) { toast("仅管理员可以登记回款"); return; }
   const order = orders.find(item => item.amount > item.paid) || orders[0];
   if (order) openPaymentModal(order); else toast("暂无可登记回款的订单");
 }
@@ -8023,6 +8025,7 @@ async function reviewRefund(id) {
 }
 
 async function confirmOrderPerformance(id) {
+  if (!isAdmin()) { toast("仅管理员可以确认业绩"); return; }
   const order = orders.find(item => item.id === id);
   if (!order) return;
   if (order.paid <= 0) { toast("订单尚未回款，暂不能确认业绩"); return; }
@@ -8035,6 +8038,7 @@ async function confirmOrderPerformance(id) {
 }
 
 async function confirmAllPerformance() {
+  if (!isAdmin()) { toast("仅管理员可以确认业绩"); return; }
   const pending = orders.filter(order => !order.performanceConfirmed && order.paid > 0);
   for (const order of pending) await confirmOrderPerformance(order.id);
   if (pending.length) toast(`已确认 ${pending.length} 个订单业绩`);

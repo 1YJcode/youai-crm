@@ -507,7 +507,6 @@ public class CustomerQueryService {
         return repository.findAll().stream()
                 .filter(customer -> accessPolicy.isAdmin(authentication) || PUBLIC_POOL.equals(customer.getOwner())
                         || accessPolicy.canAccessUserId(customer.getOwnerId(), authentication))
-                .filter(customer -> accessPolicy.canAccessUserId(customer.getOwnerId(), authentication))
                 .flatMap(customer -> customer.getTags().stream())
                 .collect(Collectors.groupingBy(tag -> tag, LinkedHashMap::new, Collectors.counting()));
     }
@@ -519,7 +518,9 @@ public class CustomerQueryService {
     public Customer get(String customerNo, Authentication authentication) {
         Customer customer = repository.findByCustomerNo(customerNo)
                 .orElseThrow(() -> new NotFoundException("鏈壘鍒板鎴凤細" + customerNo));
-        accessPolicy.requireUserId(customer.getOwnerId(), authentication);
+        if (!accessPolicy.canAccessUserId(customer.getOwnerId(), authentication)
+                && !customer.getCollaboratorIds().contains(accessPolicy.currentUserId(authentication)))
+            throw new AccessDeniedException("只能访问本人负责或协作的客户");
         return customer;
     }
 

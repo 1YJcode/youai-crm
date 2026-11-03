@@ -37,7 +37,8 @@ public class CustomerResponseMapper {
 
     public CustomerResponse toResponse(Customer customer, Authentication authentication, int deepTalkDurationSeconds,
             long followUpCount) {
-        boolean contactVisible = accessPolicy.canAccessUserId(customer.getOwnerId(), authentication);
+        boolean contactVisible = accessPolicy.canAccessUserId(customer.getOwnerId(), authentication)
+                || (authentication != null && customer.getCollaboratorIds().contains(accessPolicy.currentUserId(authentication)));
         return CustomerResponse.from(customer, contactVisible, deepTalkDurationSeconds, followUpCount);
     }
 

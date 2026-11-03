@@ -108,7 +108,7 @@ class CustomerSecurityTest {
     }
 
     @Test
-    void collaboratorsUseExactIdsAndNeverReceivePrivateFields() throws Exception {
+    void collaboratorsUseExactIdsAndCanFollowAssignedCustomers() throws Exception {
         long owner = employee("collab_owner", "负责人甲");
         long collaborator = employee("collab_one", "小张");
         employee("collab_two", "小张");
@@ -116,10 +116,11 @@ class CustomerSecurityTest {
         mvc.perform(get("/api/customers").param("keyword", id).param("scope", "collab")
                 .with(user("collab_one").roles("SALES")))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.content[0].contactVisible").value(false))
-                .andExpect(jsonPath("$.content[0].idCard").isEmpty())
-                .andExpect(jsonPath("$.content[0].note").isEmpty())
-                .andExpect(jsonPath("$.content[0].remark").isEmpty());
+                .andExpect(jsonPath("$.content[0].contactVisible").value(true));
+        mvc.perform(get("/api/customers/" + id).with(user("collab_one").roles("SALES")))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/customers/" + id).with(user("collab_two").roles("SALES")))
+                .andExpect(status().isForbidden());
         mvc.perform(get("/api/customers").param("keyword", id).param("scope", "collab")
                 .with(user("collab_two").roles("SALES")))
                 .andExpect(jsonPath("$.totalElements").value(0));
@@ -212,7 +213,10 @@ class CustomerSecurityTest {
         mvc.perform(get("/api/customers/" + id + "/assignment-events").with(user("admin").roles("ADMIN")))
                 .andExpect(jsonPath("$.length()").value(2));
         mvc.perform(get("/api/calls").param("keyword", id).with(user("related_one").roles("SALES")))
-                .andExpect(jsonPath("$.totalElements").value(0));
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].canAccessRecording").value(false))
+                .andExpect(jsonPath("$.content[0].phone").value(""))
+                .andExpect(jsonPath("$.content[0].note").value(""));
         mvc.perform(get("/api/calls").param("keyword", id).with(user("related_two").roles("SALES")))
                 .andExpect(jsonPath("$.totalElements").value(1));
         mvc.perform(get("/api/conversations/" + conversationId + "/messages").with(user("related_two").roles("SALES")))
@@ -232,5 +236,25 @@ class CustomerSecurityTest {
                 .andExpect(jsonPath("$.totalElements").value(0));
         mvc.perform(get("/api/customers/" + id).with(user("legacy_owner").roles("SALES")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void orderOwnershipSurvivesDuplicateNamesAndRenames() throws Exception {
+        long first = employee("order_identity_one", "订单同名员工");
+        employee("order_identity_two", "订单同名员工");
+        mvc.perform(post("/api/orders").with(user("admin").roles("ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"orderNo\":\"SO-IDENTITY-REGRESSION\",\"customer\":\"测试客户\",\"product\":\"服务\",\"amount\":100,\"paid\":0,\"owner\":\"user:" + first + "\"}"))
+                .andExpect(status().isCreated());
+        mvc.perform(get("/api/orders").param("keyword", "SO-IDENTITY-REGRESSION").with(user("order_identity_two").roles("SALES")))
+                .andExpect(jsonPath("$.totalElements").value(0));
+        mvc.perform(patch("/api/auth/users/" + first).with(user("admin").roles("ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"username\":\"order_identity_one\",\"displayName\":\"订单新姓名\",\"phone\":\"\",\"roles\":[\"SALES\"]}"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/orders").param("keyword", "SO-IDENTITY-REGRESSION").with(user("order_identity_one").roles("SALES")))
+                .andExpect(jsonPath("$.totalElements").value(1));
+        mvc.perform(get("/api/orders/SO-IDENTITY-REGRESSION").with(user("order_identity_one").roles("SALES")))
+                .andExpect(status().isOk());
     }
 }
