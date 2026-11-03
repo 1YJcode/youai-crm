@@ -1006,7 +1006,7 @@ function isAdmin() {
 }
 
 const adminOnlyViews = new Set(["system", "finance"]);
-const adminOnlyCustomerSections = new Set(["白板列表", "客户导入"]);
+const employeeCustomerSections = new Set(["客户列表", "公海列表", "客户导入"]);
 
 function canAccessView(view) {
   return !adminOnlyViews.has(view) || isAdmin();
@@ -1016,13 +1016,21 @@ function accessibleView(view) {
   return canAccessView(view) ? view : "dashboard";
 }
 
+function canAccessAnalyticsSection(section) {
+  return isAdmin() || ["邀请券记录", "邀约记录", "知识库"].includes(section);
+}
+
+function canAccessOrderSection(section) {
+  return isAdmin() || !["业绩上传", "卡券管理"].includes(section);
+}
+
 function canAccessCustomerSection(section) {
-  return !adminOnlyCustomerSections.has(section) || isAdmin();
+  return isAdmin() || employeeCustomerSections.has(section);
 }
 
 function requireCustomerSectionAccess(section) {
   if (canAccessCustomerSection(section)) return true;
-  toast(section === "白板列表" ? "仅管理员可以查看白板列表" : "仅管理员可以使用客户导入");
+  toast("仅管理员可以查看该客户管理功能");
   return false;
 }
 
@@ -1925,7 +1933,7 @@ function ensureCurrentWorkspaceTab() {
 function renderWorkspaceTabs() {
   const bar = document.querySelector("#workspaceTabs");
   if (!bar) return;
-  const html = state.workspaceTabs.filter(tab => canAccessView(tab.view)).map(tab => {
+  const html = state.workspaceTabs.filter(tab => canAccessView(tab.view) && (tab.view !== "analytics" || canAccessAnalyticsSection(tab.section)) && (tab.view !== "orders" || canAccessOrderSection(tab.section))).map(tab => {
     const label = tab.importDetailId ? "导入详情" : tab.detailId ? (() => { const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(tab.detailId)); return customer ? `${customer.name}[${customer.id}]` : (tab.label || `客户详情[${tab.detailId}]`); })() : tab.label;
     tab.label = label;
     return `<div class="workspace-tab ${tab.id === state.activeWorkspaceTabId ? "active" : ""}" role="button" tabindex="0" data-workspace-tab="${escapeHtml(tab.id)}" ${tab.id === state.activeWorkspaceTabId ? 'aria-current="page"' : ""}><span>${escapeHtml(label)}</span>${tab.view === "dashboard" ? "" : `<button type="button" class="workspace-tab-close" data-close-workspace-tab="${escapeHtml(tab.id)}" aria-label="关闭 ${escapeHtml(label)}">${icon("close")}</button>`}</div>`;
@@ -2947,7 +2955,7 @@ async function refreshCustomerSourceOptions() {
 
 function loadCustomerImportHistory() {
   resetCustomerImportState();
-  if (!isAdmin()) return;
+  if (!canAccessCustomerSection("客户导入")) return;
   try {
     const stored = JSON.parse(localStorage.getItem("youai.crm.importHistory") || "[]");
     state.importHistory = Array.isArray(stored) ? stored : [];
@@ -2955,13 +2963,13 @@ function loadCustomerImportHistory() {
 }
 
 function requireCustomerImportAccess() {
-  if (isAdmin()) return true;
+  if (canAccessCustomerSection("客户导入")) return true;
   toast("仅管理员可以使用客户导入");
   return false;
 }
 
 function enforceCustomerImportAccess() {
-  if (isAdmin()) return;
+  if (canAccessCustomerSection("客户导入")) return;
   resetCustomerImportState();
   const tabs = state.workspaceTabs || [];
   state.workspaceTabs = tabs.filter(tab => !(tab.view === "customers" && (!canAccessCustomerSection(tab.section) || tab.importDetailId)));
@@ -2975,12 +2983,12 @@ function enforceCustomerImportAccess() {
 }
 
 function importHistoryRecord(id) {
-  if (!isAdmin()) return null;
+  if (!canAccessCustomerSection("客户导入")) return null;
   return state.importHistory.find(record => String(record.id) === String(id));
 }
 
 function persistImportHistory() {
-  if (!isAdmin()) return;
+  if (!canAccessCustomerSection("客户导入")) return;
   try {
     localStorage.setItem("youai.crm.importHistory", JSON.stringify(state.importHistory));
   } catch (_) {
@@ -3060,7 +3068,7 @@ function importRowStatus(row, validation) {
 }
 
 function customerImportDetailView(record) {
-  if (!isAdmin()) { enforceCustomerImportAccess(); return customerListView(); }
+  if (!canAccessCustomerSection("客户导入")) { enforceCustomerImportAccess(); return customerListView(); }
   const rows = importRowsForRecord(record);
   const filteredRows = rows.map((row, index) => ({ row, index })).filter(({ row }) => {
     return state.importDetailStatusFilter === "全部状态"
@@ -3092,7 +3100,7 @@ return `<tr class="${rowClass}" data-import-row-index="${index}"><td class="impo
 }
 
 function customerImportView() {
-  if (!isAdmin()) { enforceCustomerImportAccess(); return customerListView(); }
+  if (!canAccessCustomerSection("客户导入")) { enforceCustomerImportAccess(); return customerListView(); }
   const detailRecord = state.importDetailId ? importHistoryRecord(state.importDetailId) : null;
   if (detailRecord) return customerImportDetailView(detailRecord);
   const records = state.importHistory.filter(record => state.importStatusFilter === "全部状态" || record.status === state.importStatusFilter);
@@ -3124,7 +3132,7 @@ function customerTagView() {
 
 function sincereResourceView() {
   const query = state.customerSearch.trim().toLowerCase();
-  const rows = customers.filter(customer => customer.owner === "公海" || customer.owner === "鍏捣").filter(customer => {
+  const rows = libraryCustomerRows().filter(customer => {
     const matchesQuery = !query || [customer.id, customer.name, customer.phone, customer.company].join(" ").toLowerCase().includes(query);
     const matchesOwner = state.customerOwner === "全部负责人" || customer.owner === state.customerOwner;
     const matchesScope = state.sincereScope === "all"
@@ -3302,7 +3310,7 @@ function whiteboardAdvancedFilterView({ isPool = false } = {}) {
 
 function inventoryResourceView() {
   const query = state.customerSearch.trim().toLowerCase();
-  const rows = customers.filter(customer => !query || [customer.id, customer.phone, customer.name, customer.company].join(" ").toLowerCase().includes(query));
+  const rows = libraryCustomerRows().filter(customer => !query || [customer.id, customer.phone, customer.name, customer.company].join(" ").toLowerCase().includes(query));
   return `<section class="page inventory-resource-page">
     ${subnav(["首页", "库存资源"], "库存资源", ["首页", "库存资源"])}
     <div class="page-content">
@@ -3315,13 +3323,13 @@ function inventoryResourceView() {
       <section class="inventory-table-panel"><div class="table-wrap"><table class="data-table inventory-table"><thead><tr><th class="select-column"><input type="checkbox" aria-label="全选"></th><th>标注</th><th>ID</th><th>客户姓名/昵称</th><th>性别</th><th>婚否</th><th>年龄</th><th>学历</th><th>收入</th><th>等级</th><th>城市</th><th>未联系天数</th><th>归属人</th><th>邀约人</th><th>协作人</th><th>服务人</th><th>客户状态</th><th>库存天数</th><th class="operation-column">操作</th></tr></thead><tbody>${rows.map((customer, index) => `<tr data-customer-id="${escapeHtml(customer.id)}"><td class="select-column"><input type="checkbox" aria-label="选择${escapeHtml(customer.name)}" onclick="event.stopPropagation()"></td><td><span class="inventory-flag">⚑</span></td><td><button class="inventory-id" type="button" data-open-customer="${escapeHtml(customer.id)}">${escapeHtml(customer.id)}</button></td><td><div class="inventory-customer"><span class="person-avatar">${escapeHtml(customer.name[0])}</span><span>昵称：${escapeHtml(customer.name || customer.phone || "—")}</span></div></td><td>${escapeHtml(customer.gender || "—")}</td><td>${escapeHtml(customer.maritalStatus || "—")}</td><td>${escapeHtml(customer.age || "—")}</td><td>${escapeHtml(customer.education || "—")}</td><td>${escapeHtml(customer.monthlyIncome || "—")}</td><td>${escapeHtml(customer.level || "—")}</td><td>${escapeHtml(customer.city || "—")}</td><td>${escapeHtml(String(customer.uncontactedDays || 0))}</td><td>${escapeHtml(customer.owner || "管理员")}</td><td>—</td><td>—</td><td>—</td><td>${escapeHtml(customer.stage || "未激活")}</td><td>${escapeHtml(String(customer.inventoryDays || "—"))}</td><td class="operation-column"><div class="table-actions"><button class="inventory-claim" type="button" data-inventory-claim="${escapeHtml(customer.id)}">领取</button></div></td></tr>`).join("")}</tbody></table></div><footer class="pagination"><span>共 ${rows.length} 条</span><button class="page-button" disabled>‹</button><button class="page-button active">1</button><button class="page-button" disabled>›</button><span>20 条/页</span></footer></section>
     </div>
     ${state.whiteboardTagModalOpen ? whiteboardTagModalView() : ""}
-    ${state.whiteboardAdvancedOpen ? whiteboardAdvancedFilterView() : ""}
+    ${state.serviceAdvancedOpen ? libraryAdvancedFilterView() : ""}
   </section>`;
 }
 
 function serviceLibraryView() {
   const query = state.customerSearch.trim().toLowerCase();
-  const sourceRows = customers.filter(customer => {
+  const sourceRows = libraryCustomerRows().filter(customer => {
     const matchesQuery = !query || [customer.id, customer.phone, customer.name, customer.company, customer.note].join(" ").toLowerCase().includes(query);
     const matchesScope = state.serviceScope === "all"
       || (state.serviceScope === "mine" && isCurrentCustomerOwner(customer))
@@ -3346,7 +3354,7 @@ function serviceLibraryView() {
       </section>
       <div class="service-batch-area"><label><input type="checkbox"> 添加微信客户</label><div><button class="button primary" type="button">${icon("check")}资源调配</button><button class="button secondary" type="button">${icon("message")}发送消息</button><button class="button secondary" type="button">${icon("table-grid")}自定义表头</button></div><p>*红色ID为待开启会员</p></div>
       <section class="service-table-panel"><div class="table-wrap">${rows.length ? `<table class="data-table service-library-table"><thead><tr><th class="select-column"><input type="checkbox" aria-label="全选"></th><th>标注</th><th>ID</th><th>客户姓名/昵称</th><th>性别</th><th>婚况</th><th>年龄</th><th>学历</th><th>收入</th><th>等级</th><th>城市</th><th>跟进次数</th><th>未联系天数</th><th>归属人</th><th>服务人</th><th>客户状态</th><th>分配时间</th><th>到期时间</th><th>标签</th><th>来源</th><th class="operation-column">操作</th></tr></thead><tbody>${rows.map(customer => `<tr data-customer-id="${escapeHtml(customer.id)}"><td><input type="checkbox" aria-label="选择${escapeHtml(customer.name)}" onclick="event.stopPropagation()"></td><td>⚑</td><td><button class="table-link" type="button" data-open-customer="${escapeHtml(customer.id)}">${escapeHtml(customer.id)}</button></td><td>${escapeHtml(customer.name || "—")}</td><td>${escapeHtml(customer.gender || "—")}</td><td>${escapeHtml(customer.maritalStatus || "—")}</td><td>${escapeHtml(customer.age || "—")}</td><td>${escapeHtml(customer.education || "—")}</td><td>${escapeHtml(customer.monthlyIncome || "—")}</td><td>${escapeHtml(customer.level || "—")}</td><td>${escapeHtml(customer.city || "—")}</td><td>${escapeHtml(String(customer.followUpCount || 0))}</td><td>${escapeHtml(String(customer.uncontactedDays || "—"))}</td><td>${escapeHtml(customer.owner || "—")}</td><td>${escapeHtml(customer.servicePerson || "—")}</td><td>${escapeHtml(customer.stage || "—")}</td><td>${escapeHtml(String(customer.createdAt || "—").replace("T", " ").slice(0, 19))}</td><td>—</td><td>${(customer.tags || []).map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join("") || "—"}</td><td>${escapeHtml(customer.source || "—")}</td><td class="operation-column"><button class="button ghost" type="button" data-open-customer="${escapeHtml(customer.id)}">跟进</button></td></tr>`).join("")}</tbody></table>` : `<div class="service-empty"><span class="empty-icon">${icon("users")}</span><strong>暂无数据</strong></div>`}</div><footer class="pagination"><span>共 ${rows.length} 条</span><button class="page-button" disabled>‹</button><button class="page-button active">1</button><button class="page-button" disabled>›</button><span>20 条/页</span></footer></section>
-    </div>${state.serviceAdvancedOpen ? serviceAdvancedFilterView() : ""}
+    </div>${state.serviceAdvancedOpen ? libraryAdvancedFilterView() : ""}
   </section>`;
 }
 
@@ -3375,7 +3383,7 @@ function serviceAdvancedFilterView() {
 
 function expiredVipLibraryView() {
   const query = state.customerSearch.trim().toLowerCase();
-  const rows = customers.filter(customer => customer.stage === "已流失" && (!query || [customer.id, customer.phone, customer.name, customer.note, customer.owner].join(" ").toLowerCase().includes(query)));
+  const rows = libraryCustomerRows().filter(customer => customer.stage === "已流失" && (!query || [customer.id, customer.phone, customer.name, customer.note, customer.owner].join(" ").toLowerCase().includes(query)));
   return `<section class="page expired-vip-page">
     ${subnav(["首页", "过期VIP库"], "过期VIP库", ["首页", "过期VIP库"])}
     <div class="page-content">
@@ -3385,7 +3393,7 @@ function expiredVipLibraryView() {
       </section>
       <div class="expired-vip-actions"><div class="expired-consent"><label><input type="radio" name="expiredConsent" checked> 未取得用户同意</label><label><input type="radio" name="expiredConsent"> 取得用户同意</label></div><div><button class="button primary" type="button">${icon("check")}资源调配</button><button class="button secondary" type="button">${icon("users")}领取客户</button></div></div>
       <section class="expired-vip-table-panel"><div class="table-wrap">${rows.length ? `<table class="data-table expired-vip-table"><thead><tr><th class="select-column"><input type="checkbox" aria-label="全选"></th><th>标注</th><th>ID</th><th>客户姓名/昵称</th><th>性别</th><th>婚况</th><th>年龄</th><th>学历</th><th>收入</th><th>等级</th><th>城市</th><th>未联系天数</th><th>前归属人</th><th>前服务人</th><th>客户状态</th><th>用户是否同意</th><th>关单时间</th><th class="operation-column">操作</th></tr></thead><tbody>${rows.map(customer => `<tr data-customer-id="${escapeHtml(customer.id)}"><td><input type="checkbox" aria-label="选择${escapeHtml(customer.name)}"></td><td>⚑</td><td><button class="table-link expired-vip-id" type="button" data-open-customer="${escapeHtml(customer.id)}">${escapeHtml(customer.id)}</button></td><td>${escapeHtml(customer.name || "—")}</td><td>${escapeHtml(customer.gender || "—")}</td><td>${escapeHtml(customer.maritalStatus || "—")}</td><td>${escapeHtml(customer.age || "—")}</td><td>${escapeHtml(customer.education || "—")}</td><td>${escapeHtml(customer.monthlyIncome || "—")}</td><td>${escapeHtml(customer.level || "—")}</td><td>${escapeHtml(customer.city || "—")}</td><td>${escapeHtml(String(customer.uncontactedDays || "—"))}</td><td>${escapeHtml(customer.previousOwner || customer.owner || "—")}</td><td>${escapeHtml(customer.servicePerson || "—")}</td><td>${escapeHtml(customer.stage || "—")}</td><td>未取得同意</td><td>${escapeHtml(String(customer.updatedAt || customer.lastContactAt || "—").replace("T", " ").slice(0, 19))}</td><td class="operation-column"><button class="button ghost" type="button" data-open-customer="${escapeHtml(customer.id)}">查看</button></td></tr>`).join("")}</tbody></table>` : `<div class="expired-vip-empty"><span class="empty-icon">${icon("users")}</span><strong>暂无数据</strong></div>`}</div><footer class="pagination"><span>共 ${rows.length} 条</span><button class="page-button" disabled>‹</button><button class="page-button active">1</button><button class="page-button" disabled>›</button><span>20 条/页</span></footer></section>
-    </div>${state.serviceAdvancedOpen ? serviceAdvancedFilterView() : ""}
+    </div>${state.serviceAdvancedOpen ? libraryAdvancedFilterView() : ""}
   </section>`;
 }
 
@@ -3592,14 +3600,14 @@ function callTasksView() {
 
 function callAgentsView() {
   const agents = [...new Set([...calls.map(call => call.agent || call.owner), ...tasks.map(task => task.owner)].filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN"));
-  const rows = agents.map(agent => {
+  const rows = agents.filter(agent => !state.seatAgentFilter || agent === state.seatAgentFilter).filter(() => !state.seatStatusFilter || state.seatStatusFilter === "离线").map(agent => {
     const agentCalls = calls.filter(call => (call.agent || call.owner) === agent);
     const agentTasks = tasks.filter(task => task.owner === agent);
     const connected = agentCalls.filter(call => call.status === "已接通").length;
     return { agent, calls: agentCalls.length, connected, duration: agentCalls.reduce((sum, call) => sum + call.durationSeconds, 0), tasks: agentTasks.length, completed: agentTasks.filter(task => task.done).length };
   });
   return `<section class="page customer-list-page seat-management-page"><div class="page-content"><div class="customer-reference-tabs"><button class="active" type="button">通话监听</button><button type="button">谈话指导</button></div>
-    <section class="seat-filter"><label><b>坐席状态：</b><select id="seatStatusFilter"><option>坐席状态</option><option>在线</option><option>离线</option></select></label><label><b>通话人员：</b><select id="seatAgentFilter"><option>请选择</option>${agents.map(agent => `<option>${escapeHtml(agent)}</option>`).join("")}</select></label><div><button class="button primary" id="querySeatAgents" type="button">${icon("search")}查询</button><button class="button secondary" id="resetSeatAgents" type="button">${icon("repeat")}重置</button></div></section>
+    <section class="seat-filter"><label><b>坐席状态：</b><select id="seatStatusFilter"><option value="">坐席状态</option>${["在线", "离线"].map(value => `<option ${state.seatStatusFilter === value ? "selected" : ""}>${value}</option>`).join("")}</select></label><label><b>通话人员：</b><select id="seatAgentFilter"><option value="">请选择</option>${agents.map(agent => `<option ${state.seatAgentFilter === agent ? "selected" : ""}>${escapeHtml(agent)}</option>`).join("")}</select></label><div><button class="button primary" id="querySeatAgents" type="button">${icon("search")}查询</button><button class="button secondary" id="resetSeatAgents" type="button">${icon("repeat")}重置</button></div></section>
     <section class="seat-table-panel"><div class="table-wrap"><table class="seat-management-table"><thead><tr><th>通话人员</th><th>坐席状态</th><th>呼叫ID</th><th>呼叫姓名</th><th>客户状态</th><th>通话时长</th><th>空闲时长</th><th>操作</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.agent)}</td><td>离线</td><td>${row.calls ? `CALL-${String(row.calls).padStart(4,"0")}` : ""}</td><td>${row.calls ? escapeHtml(row.agent) : ""}</td><td>${row.calls ? "通话结束" : ""}</td><td>${formatDuration(row.duration)}</td><td>${row.calls ? "00:00:00" : "00:00:00"}</td><td><button class="seat-monitor-button" type="button" data-seat-monitor="${escapeHtml(row.agent)}">监听</button></td></tr>`).join("") || `<tr><td colspan="8" class="seat-empty">暂无坐席数据</td></tr>`}</tbody></table></div><footer class="seat-pagination"><span>1-${rows.length} 共${rows.length}条</span><button disabled>‹</button><button class="active">1</button><button disabled>›</button><select><option>10 条/页</option></select></footer></section>
   </div></section>`;
 }
@@ -3657,7 +3665,7 @@ function customerMessagesInteractiveView(active, messages) {
   });
   return `<section class="page compact-message-page">${subnav(["消息管理", "短信记录"], "消息管理", ["消息管理", "短信记录"])}<div class="page-content compact-message-content">
     ${pageHeading(`<button class="button secondary" id="markAllRead" type="button">${icon("check")}全部已读</button><button class="button primary" id="newConversation" type="button">${icon("plus")}新建会话</button>`)}
-    <section class="message-layout"><aside class="conversation-list"><div class="conversation-search"><label class="global-search">${icon("search")}<input id="conversationSearch" placeholder="搜索会话"></label></div><article class="conversation-item system-conversation ${systemActive ? "active" : ""}" data-system-message-channel><span class="system-message-avatar">${icon("bell")}</span><div class="conversation-copy"><strong>系统消息</strong><span>${reminders.length ? `您有 ${reminders.length} 条跟进提醒` : "暂无跟进提醒"}</span></div><div class="conversation-meta">${unreadReminders.length ? `<span class="unread">${unreadReminders.length}</span>` : ""}</div></article>${conversations.map(conversation => `<article class="conversation-item ${!systemActive && conversation.id === active?.id ? "active" : ""}" data-conversation="${escapeHtml(conversation.id)}"><span class="person-avatar">${escapeHtml(conversation.name?.[0] || "客")}</span><div class="conversation-copy"><strong>${escapeHtml(conversation.name)}</strong><span>${escapeHtml(conversation.preview || "")}</span></div><div class="conversation-meta"><time>${escapeHtml(conversation.time || "")}</time>${conversation.unread ? `<span class="unread">${conversation.unread}</span>` : ""}</div></article>`).join("")}</aside><div class="chat-pane">${systemActive ? systemMessageThreadView(reminders) : active ? `<header class="chat-header"><h2>${escapeHtml(active.name)}</h2><p>${escapeHtml(active.company || "")}</p></header><div class="messages" id="messageThread">${messages.map(message => `<div class="message ${message.outgoing ? "outgoing" : ""}"><span class="person-avatar">${escapeHtml(message.sender?.[0] || "客")}</span><div class="message-bubble">${escapeHtml(message.content)}<time>${escapeHtml(message.time || "")}</time></div></div>`).join("") || `<div class="empty-state">暂无消息，发送第一条消息开始沟通</div>`}</div><form class="composer" id="messageForm"><textarea id="messageInput" placeholder="输入消息内容，Enter 发送"></textarea><button class="button primary" type="submit">发送</button></form>` : `<div class="empty-state">还没有会话</div>`}</div></section></div></section>`;
+    <section class="message-layout"><aside class="conversation-list"><div class="conversation-search"><label class="global-search">${icon("search")}<input id="conversationSearch" placeholder="搜索会话"></label></div><article class="conversation-item system-conversation ${systemActive ? "active" : ""}" data-system-message-channel><span class="system-message-avatar">${icon("bell")}</span><div class="conversation-copy"><strong>系统消息</strong><span>${reminders.length ? `共 ${reminders.length} 条跟进提醒，${unreadReminders.length} 条未读` : "暂无跟进提醒"}</span></div><div class="conversation-meta">${unreadReminders.length ? `<span class="unread">${unreadReminders.length}</span>` : ""}</div></article>${conversations.map(conversation => `<article class="conversation-item ${!systemActive && conversation.id === active?.id ? "active" : ""}" data-conversation="${escapeHtml(conversation.id)}"><span class="person-avatar">${escapeHtml(conversation.name?.[0] || "客")}</span><div class="conversation-copy"><strong>${escapeHtml(conversation.name)}</strong><span>${escapeHtml(conversation.preview || "")}</span></div><div class="conversation-meta"><time>${escapeHtml(conversation.time || "")}</time>${conversation.unread ? `<span class="unread">${conversation.unread}</span>` : ""}</div></article>`).join("")}</aside><div class="chat-pane">${systemActive ? systemMessageThreadView(reminders) : active ? `<header class="chat-header"><h2>${escapeHtml(active.name)}</h2><p>${escapeHtml(active.company || "")}</p></header><div class="messages" id="messageThread">${messages.map(message => `<div class="message ${message.outgoing ? "outgoing" : ""}"><span class="person-avatar">${escapeHtml(message.sender?.[0] || "客")}</span><div class="message-bubble">${escapeHtml(message.content)}<time>${escapeHtml(message.time || "")}</time></div></div>`).join("") || `<div class="empty-state">暂无消息，发送第一条消息开始沟通</div>`}</div><form class="composer" id="messageForm"><textarea id="messageInput" placeholder="输入消息内容，Enter 发送"></textarea><button class="button primary" type="submit">发送</button></form>` : `<div class="empty-state">还没有会话</div>`}</div></section></div></section>`;
 }
 
 function systemMessageThreadView(reminders) {
@@ -3673,12 +3681,12 @@ function systemMessageThreadView(reminders) {
     const dateLabel = Number.isNaN(dueDate.getTime()) ? formatDateTime(dueAt) : `${dueDate.getMonth() + 1}月${dueDate.getDate()}日 ${pad(dueDate.getHours())}:${pad(dueDate.getMinutes())}`;
     const timeLabel = Number.isNaN(dueDate.getTime()) ? "" : `${pad(dueDate.getHours())}:${pad(dueDate.getMinutes())}:${pad(dueDate.getSeconds())}`;
     const reminderText = task?.done
-      ? "已完成今日跟进。"
+      ? "该跟进任务已完成。"
       : due
-        ? "即将到达你设置的跟进时间，今日尚未跟进，请及时跟进。"
+        ? "已到你设置的跟进时间，任务尚未完成，请及时跟进。"
         : "已设置下次跟进时间，请按计划及时跟进。";
     const dailyFollowed = Boolean(task?.done);
-    return `<article class="followup-reminder ${read ? "is-read" : "is-unread"} ${due ? "is-due" : "is-upcoming"}" data-system-reminder="${escapeHtml(row.id)}"><div class="followup-reminder-time">${escapeHtml(dateLabel)}</div><div class="followup-reminder-card"><div class="followup-reminder-copy"><div class="followup-reminder-title"><span class="followup-reminder-check" aria-hidden="true"></span><strong>跟进提醒</strong><time>${escapeHtml(timeLabel)}</time></div><p>客户：${escapeHtml(task?.customer || "—")}，ID: ${escapeHtml(task?.customerId || "—")}，${reminderText}</p></div><button class="button primary followup-go-button" type="button" data-follow-reminder="${escapeHtml(String(task?.id || ""))}">去跟进</button></div><span class="followup-daily-status ${dailyFollowed ? "is-done" : "is-pending"}"><span aria-hidden="true">${dailyFollowed ? "✓" : "□"}</span>${dailyFollowed ? "当日已跟进" : "当日未跟进"}</span></article>`;
+    return `<article class="followup-reminder ${read ? "is-read" : "is-unread"} ${due ? "is-due" : "is-upcoming"}" data-system-reminder="${escapeHtml(row.id)}"><div class="followup-reminder-time">${escapeHtml(dateLabel)}</div><div class="followup-reminder-card"><div class="followup-reminder-copy"><div class="followup-reminder-title"><span class="followup-reminder-check" aria-hidden="true"></span><strong>跟进提醒</strong><time>${escapeHtml(timeLabel)}</time></div><p>客户：${escapeHtml(task?.customer || "—")}，ID: ${escapeHtml(task?.customerId || "—")}，${reminderText}</p></div><button class="button primary followup-go-button" type="button" data-follow-reminder="${escapeHtml(String(task?.id || ""))}">去跟进</button></div><span class="followup-daily-status ${dailyFollowed ? "is-done" : "is-pending"}"><span aria-hidden="true">${dailyFollowed ? "✓" : "□"}</span>${dailyFollowed ? "任务已完成" : due ? "已到期，待跟进" : "未到期"}</span></article>`;
   }).join("") : `<div class="empty-state"><span class="empty-icon">${icon("bell")}</span><strong>暂无跟进提醒</strong><p>为客户勾选“创建下次跟进任务”并设置时间后，提醒会显示在这里。</p></div>`}</div>`;
 }
 
@@ -3867,17 +3875,20 @@ async function markViewedSystemRemindersRead() {
 function updateNotificationChrome() {
   const popover = document.querySelector("#notificationPopover");
   const dot = document.querySelector(".notification-button span");
-  if (!popover || !dot) return;
   const rows = systemNotificationRows();
   const unread = rows.filter(row => notificationIsDue(row) && !state.notificationRead[row.id]);
-  dot.hidden = unread.length === 0;
+  if (dot) dot.hidden = unread.length === 0;
   const badge = document.querySelector("#messageBadge");
   if (badge) {
     const unreadCount = conversations.reduce((sum, conversation) => sum + Number(conversation.unread || 0), 0)
-      + unread.filter(row => !row.conversationId).length;
+      + systemReminderRows().filter(row => {
+        const task = tasks.find(item => String(item.id) === String(row.taskId));
+        return !task?.done && notificationIsDue(row) && !state.notificationRead[row.id];
+      }).length;
     badge.textContent = String(unreadCount);
     badge.hidden = unreadCount === 0;
   }
+  if (!popover) return;
   const notificationItems = rows.slice(0, 3).map(row => `<button class="notification-item ${state.notificationRead[row.id] ? "read" : ""}" type="button" data-popover-notification="${escapeHtml(row.id)}"><span class="notification-icon">${icon(row.taskId ? "task" : row.conversationId ? "message" : row.customerId ? "phone" : "users")}</span><div><p>${escapeHtml(row.title)}</p><time>${escapeHtml(row.detail)} · ${escapeHtml(formatRelativeDate(row.at))}</time></div></button>`).join("");
   popover.innerHTML = `<div class="popover-title"><span>最新通知${unread.length ? ` · ${unread.length} 条未读` : ""}</span><button type="button" id="readNotifications" ${unread.length ? "" : "disabled"}>全部已读</button></div>${notificationItems || `<div class="notification-empty">暂无待处理通知</div>`}<button class="popover-more" type="button" data-open-notification-center>查看全部通知</button>`;
 }
@@ -3900,8 +3911,9 @@ async function markSystemNotification(id) {
   } catch (error) { toast(`通知状态保存失败：${error.message}`); }
 }
 
-async function markAllSystemNotificationsRead() {
-  const ids = systemNotificationRows().map(row => row.id);
+async function markAllSystemNotificationsRead(rows = systemNotificationRows()) {
+  if (!Array.isArray(rows)) rows = systemNotificationRows();
+  const ids = rows.map(row => row.id);
   try {
     await persistNotificationRead(ids, true);
     ids.forEach(id => { state.notificationRead[id] = true; });
@@ -4048,7 +4060,7 @@ function filteredOrders() {
 }
 
 function orderNav(active) {
-  const sections = ["订单列表", "合同列表", "流水列表", "业绩上传", "退费列表", "业绩列表", "卡券管理"];
+  const sections = ["订单列表", "合同列表", "流水列表", "业绩上传", "退费列表", "业绩列表", "卡券管理"].filter(canAccessOrderSection);
   return subnav(sections, active, sections);
 }
 
@@ -4165,6 +4177,7 @@ function couponManagementView() {
 }
 
 function ordersView() {
+  if (!canAccessOrderSection(state.orderSection)) state.orderSection = "订单列表";
   if (state.orderSection === "合同列表") return contractListView();
   if (state.orderSection === "流水列表") return paymentRecordsView();
   if (state.orderSection === "业绩上传") return performanceUploadView();
@@ -4293,6 +4306,8 @@ function ledgerRecordsView() {
 }
 
 function analyticsView() {
+  if (!canAccessAnalyticsSection(state.analyticsSection)) state.analyticsSection = "邀约记录";
+  if (state.analyticsSection === "邀请券记录") return `<section class="page">${analyticsNav("邀请券记录")}<div class="page-content"><section class="data-panel"><div class="data-toolbar"><h2>邀请券记录</h2></div><div class="empty-state">邀请券记录功能暂未接入</div></section></div></section>`;
   if (state.analyticsSection === "知识库") return knowledgeBaseView();
   if (state.analyticsSection === "邀约记录") return invitationRecordsView();
   if (state.analyticsSection === "分账记录") return ledgerRecordsView();
@@ -5995,7 +6010,7 @@ async function handleCustomerImportFile(event) {
   if (file.size > 50 * 1024 * 1024) { toast("文件不能超过 50MB"); return; }
   try {
     const rows = await readCustomerImportRows(file);
-    if (!isAdmin() || state.importSessionVersion !== importSessionVersion) return;
+    if (!canAccessCustomerSection("客户导入") || state.importSessionVersion !== importSessionVersion) return;
     const record = { id: Date.now(), uploadedAt: new Date().toLocaleString("sv-SE").replace("T", " "), status: rows.length ? "待导入" : "上传失败", count: rows.length, success: 0, fail: 0, skipped: 0, uploader: currentOwner(), fileName: file.name, rows, message: rows.length ? "" : "上传失败，请检查文件格式及字段位置是否正确" };
     state.importRows = rows;
     state.importActiveId = record.id;
@@ -6010,7 +6025,7 @@ async function handleCustomerImportFile(event) {
     render();
     toast(rows.length ? `已解析 ${rows.length} 条客户，请在导入详情中核对` : "文件中没有可导入的客户");
   } catch (error) {
-    if (!isAdmin() || state.importSessionVersion !== importSessionVersion) return;
+    if (!canAccessCustomerSection("客户导入") || state.importSessionVersion !== importSessionVersion) return;
     const record = { id: Date.now(), uploadedAt: new Date().toLocaleString("sv-SE").replace("T", " "), status: "上传失败", count: 0, success: 0, fail: 0, uploader: currentOwner(), fileName: file.name, message: "上传失败，请检查文件格式及字段位置是否正确" };
     state.importHistory = [record, ...state.importHistory].slice(0, 100);
     state.importDetailId = null;
@@ -6092,7 +6107,7 @@ async function importCustomersFromRows(rowIndexes = null) {
   try {
     requireBackend();
     for (const index of requestedIndexes) {
-      if (!isAdmin() || state.importSessionVersion !== importSessionVersion) return;
+      if (!canAccessCustomerSection("客户导入") || state.importSessionVersion !== importSessionVersion) return;
       const row = rows[index];
       const validation = importRowValidation(row, rows);
       if (state.importSkipInvalid && validation.errors.length) {
@@ -6112,7 +6127,7 @@ async function importCustomersFromRows(rowIndexes = null) {
         const phone = validation.phone;
         const before = customers.concat(state.poolCustomers || []).find(item => String(item.phone || "").replace(/\D/g, "") === phone);
         const saved = await apiRequest("/customers/import", { method: "POST", body: JSON.stringify(payload) });
-        if (!isAdmin() || state.importSessionVersion !== importSessionVersion) return;
+        if (!canAccessCustomerSection("客户导入") || state.importSessionVersion !== importSessionVersion) return;
         const normalized = mergeCustomerRecord(saved);
         row._importStatus = "已导入";
         row._importMessage = normalized.id ? `客户ID：${normalized.id}` : "";
@@ -6120,7 +6135,7 @@ async function importCustomersFromRows(rowIndexes = null) {
         else recordCustomerActivity({ customerId: saved.id, customer: saved.name, type: "客户导入", detail: `导入客户资料，手机号 ${saved.phone}`, owner: currentOwner() });
         success += 1;
       } catch (error) {
-        if (!isAdmin() || state.importSessionVersion !== importSessionVersion) return;
+        if (!canAccessCustomerSection("客户导入") || state.importSessionVersion !== importSessionVersion) return;
         row._importStatus = "导入失败";
         row._importMessage = error.message;
         failures.push(`${row.name}：${error.message}`);
@@ -6141,7 +6156,7 @@ async function importCustomersFromRows(rowIndexes = null) {
     toast(`${summary}${duplicates ? `，其中重复注册 ${duplicates} 条` : ""}${toPool ? "，已进入公海" : ""}${failures.length ? `：${failures[0]}` : ""}`);
     render();
   } catch (error) {
-    if (!isAdmin() || state.importSessionVersion !== importSessionVersion) return;
+    if (!canAccessCustomerSection("客户导入") || state.importSessionVersion !== importSessionVersion) return;
     record.message = error.message;
     persistImportHistory();
     toast(`导入在第 ${success + skipped + 1} 条失败：${error.message}`);
@@ -6502,6 +6517,8 @@ async function submitBusinessForm(event) {
 }
 
 function bindViewEvents() {
+  bindLibraryFilters();
+  bindReferenceTableFilters();
   document.querySelectorAll("[data-date-range-view-year], [data-date-range-view-month]").forEach(select => select.addEventListener("change", event => {
     event.stopPropagation();
     const calendar = select.closest("[data-date-range-calendar-index]");
@@ -6717,7 +6734,9 @@ function bindViewEvents() {
   document.querySelectorAll("[data-add-customer]").forEach(button => button.addEventListener("click", () => openModal()));
   document.querySelectorAll("[data-route]").forEach(button => button.addEventListener("click", () => navigate(button.dataset.route)));
   document.querySelectorAll("[data-subnav-value]").forEach(button => button.addEventListener("click", () => {
-    if (!requireCustomerSectionAccess(button.dataset.subnavValue)) return;
+    if (state.view === "customers" && !requireCustomerSectionAccess(button.dataset.subnavValue)) return;
+    if (state.view === "orders" && !canAccessOrderSection(button.dataset.subnavValue)) return;
+    if (state.view === "analytics" && !canAccessAnalyticsSection(button.dataset.subnavValue)) return;
     if (currentWorkspaceSection() === button.dataset.subnavValue) return;
     if (state.view === "dashboard") { state.dashboardTab = button.dataset.subnavValue; render(); }
     if (state.view === "customers") { state.customerSection = button.dataset.subnavValue; state.customerDetailId = null; state.importDetailId = null; state.customerPage = 1; state.whiteboardCustomerPage = 1; render(); refreshVisibleCustomerList(); }
@@ -7910,7 +7929,7 @@ function bindViewEvents() {
   if (state.view === "messages" && state.messageSection === "消息管理" && state.activeMessageChannel === "system") {
     markViewedSystemRemindersRead();
   }
-  document.querySelector("#markAllSystemMessages")?.addEventListener("click", markAllSystemNotificationsRead);
+  document.querySelector("#markAllSystemMessages")?.addEventListener("click", () => markAllSystemNotificationsRead(systemReminderRows().filter(notificationIsDue)));
   document.querySelectorAll("[data-system-reminder]").forEach(item => item.addEventListener("click", () => {
     const id = item.dataset.systemReminder;
     if (!state.notificationRead[id]) markSystemNotification(id);
@@ -7953,8 +7972,8 @@ function bindViewEvents() {
   document.querySelector("#applyCallFilters")?.addEventListener("click", () => { state.callKeyword = document.querySelector("#callKeyword")?.value || ""; state.callNameKeyword = document.querySelector("#callNameKeyword")?.value || ""; state.callAgentFilter = document.querySelector("#callAgentFilter")?.value || "全部坐席"; state.callDirectionFilter = document.querySelector("#callDirectionFilter")?.value || "全部"; state.callStatusFilter = document.querySelector("#callStatusFilter")?.value || "全部"; state.callPage = 1; refreshCallsFromApi(); });
   document.querySelectorAll("#callKeyword, #callNameKeyword").forEach(input => input.addEventListener("keydown", event => { if (event.key === "Enter") document.querySelector("#applyCallFilters")?.click(); }));
   document.querySelector("#resetCallFilters")?.addEventListener("click", () => { state.callKeyword = ""; state.callNameKeyword = ""; state.callAgentFilter = "全部坐席"; state.callDirectionFilter = "全部"; state.callStatusFilter = "全部"; state.callPage = 1; refreshCallsFromApi(); });
-  document.querySelector("#querySeatAgents")?.addEventListener("click", () => toast("坐席筛选已应用"));
-  document.querySelector("#resetSeatAgents")?.addEventListener("click", () => { const status = document.querySelector("#seatStatusFilter"); const agent = document.querySelector("#seatAgentFilter"); if (status) status.selectedIndex = 0; if (agent) agent.selectedIndex = 0; });
+  document.querySelector("#querySeatAgents")?.addEventListener("click", () => { state.seatStatusFilter = document.querySelector("#seatStatusFilter").value; state.seatAgentFilter = document.querySelector("#seatAgentFilter").value; render(); });
+  document.querySelector("#resetSeatAgents")?.addEventListener("click", () => { state.seatStatusFilter = ""; state.seatAgentFilter = ""; render(); });
   document.querySelectorAll("[data-seat-monitor]").forEach(button => button.addEventListener("click", () => toast(`${button.dataset.seatMonitor} 当前离线，暂时无法监听`)));
   document.querySelectorAll("[data-call-review]").forEach(button => button.addEventListener("click", () => toggleCallReview(button.dataset.callReview)));
   document.querySelector("#exportCallTasks")?.addEventListener("click", exportCallTasks);
@@ -8241,7 +8260,8 @@ navHoverMenu.className = "nav-hover-menu";
 document.body.appendChild(navHoverMenu);
 let navHoverTimer;
 function showNavHoverMenu(item) {
-  const items = (navHoverItems[item.dataset.view] || []).filter(label => item.dataset.view !== "customers" || canAccessCustomerSection(label));
+  const menuItems = item.dataset.view === "analytics" && !isAdmin() ? ["邀请券记录", "邀约记录", "知识库"] : (navHoverItems[item.dataset.view] || []);
+  const items = menuItems.filter(label => (item.dataset.view !== "customers" || canAccessCustomerSection(label)) && (item.dataset.view !== "orders" || canAccessOrderSection(label)) && (item.dataset.view !== "analytics" || canAccessAnalyticsSection(label)));
   if (!items.length) {
     navHoverMenu.classList.remove("open");
     return;
@@ -8265,8 +8285,10 @@ navHoverMenu.addEventListener("click", event => {
   const button = event.target.closest("[data-hover-subnav]");
   if (!button) return;
   const label = button.dataset.hoverSubnav;
-  if (!requireCustomerSectionAccess(label)) return;
   const view = navHoverMenu.dataset.view;
+  if (view === "customers" && !requireCustomerSectionAccess(label)) return;
+  if (view === "orders" && !canAccessOrderSection(label)) return;
+  if (view === "analytics" && !canAccessAnalyticsSection(label)) return;
   if (view === "dashboard") state.dashboardTab = label;
   if (view === "customers") state.customerSection = label;
   if (view === "tasks") state.taskMode = label === "日历视图" ? "calendar" : label === "跟进记录" ? "activity" : "board";
@@ -8523,6 +8545,208 @@ async function initialize() {
   } catch (_) {
     clearAuth();
     showLogin("无法验证登录状态，请重新登录");
+  }
+}
+
+// Independent filters for the legacy customer libraries. Query all API pages
+// before filtering so a match outside the first page is never silently lost.
+const libraryFilterState = {};
+const librarySections = ['诚意资源', '库存资源', '服务库', '过期VIP库'];
+const libraryFields = [
+  ['name', '姓名/昵称/备注', 'text'], ['owner', '归属人', 'text'],
+  ['servicePerson', '服务人', 'text'], ['stage', '客户阶段', 'text'],
+  ['level', '客户等级', 'text'], ['customerType', '客户类型', 'text'],
+  ['customerStatus', '客户状态', 'text'], ['gender', '性别', 'text'],
+  ['age', '年龄', 'number'], ['height', '身高', 'number'],
+  ['monthlyIncome', '月收入', 'number'], ['education', '学历', 'text'],
+  ['maritalStatus', '婚况', 'text'], ['nativePlace', '籍贯', 'text'],
+  ['workLocation', '工作地', 'text'], ['occupation', '职业', 'text'],
+  ['car', '购车', 'text'], ['housing', '购房', 'text'],
+  ['personality', '性格', 'text'], ['interest', '兴趣爱好', 'text'],
+  ['source', '会员来源', 'text'], ['note', '备注信息', 'text'],
+  ['collaborator', '协作人', 'text'], ['followUpCount', '跟进次数', 'number'],
+  ['avatar', '头像', 'text'],
+  ['uncontactedDays', '未联系天数', 'number'],
+  ['nextFollowAt', '下次跟进时间', 'date'], ['createdAt', '客户注册时间', 'date'],
+  ['lastLoginAt', '最近登录时间', 'date'], ['firstAllocationAt', '首次分配时间', 'date'],
+  ['lastAllocationAt', '最近分配时间', 'date'], ['lastContactAt', '最后跟进时间', 'date']
+];
+function currentLibraryFilters() {
+  const key = state.customerSection;
+  if (libraryFilterState[key]?.token !== state.auth.token) libraryFilterState[key] = { values: {}, rows: null, request: 0, token: state.auth.token };
+  return libraryFilterState[key];
+}
+function libraryCustomerValue(customer, key) {
+  if (key === 'avatar') return customerHasAvatar(customer) ? '有头像' : '无头像';
+  if (key === 'name') return [customer.name, customer.nickname, customer.note, customer.remark].join(' ');
+  if (key === 'owner' && state.customerSection === '过期VIP库') return customer.previousOwner || customer.owner;
+  if (key === 'followUpCount') return customerFollowUpCount(customer);
+  if (key === 'uncontactedDays') return customerUncontactedDays(customer);
+  if (key === 'note') return customer.note || customer.remark;
+  return customer[key];
+}
+function libraryCustomerMatches(customer, values) {
+  return libraryFields.every(([key, , type]) => {
+    const value = libraryCustomerValue(customer, key);
+    if (type === 'text') return !values[key] || String(value ?? '').toLowerCase().includes(values[key].toLowerCase());
+    const min = values[key + 'Min'], max = values[key + 'Max'];
+    if (!min && !max) return true;
+    if (value == null || String(value).trim() === '') return false;
+    const actual = type === 'date' ? String(value).slice(0, 10) : Number(value);
+    if (type === 'number' && !Number.isFinite(actual)) return false;
+    return (!min || actual >= (type === 'date' ? min : Number(min))) && (!max || actual <= (type === 'date' ? max : Number(max)));
+  });
+}
+function libraryCustomerRows() {
+  const filters = currentLibraryFilters();
+  return (filters.rows || customers).filter(customer => libraryCustomerMatches(customer, filters.values));
+}
+function libraryFilterControls(fields, values) {
+  return fields.map(([key, label, type]) => {
+    if (key === 'avatar') return `<label><strong>头像：</strong><select data-library-filter="avatar"><option value="">全部</option>${['有头像', '无头像'].map(value => `<option ${values.avatar === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label>`;
+    const input = (name, inputType, aria) => `<input data-library-filter="${name}" type="${inputType}" aria-label="${aria}" placeholder="${aria}" value="${escapeHtml(values[name] || '')}">`;
+    return `<label><strong>${label}：</strong>${type === 'text' ? input(key, 'text', label) : `<div class="advanced-range">${input(key + 'Min', type, label + '开始')}<b>–</b>${input(key + 'Max', type, label + '结束')}</div>`}</label>`;
+  }).join('');
+}
+function libraryAdvancedFilterView() {
+  const values = currentLibraryFilters().values;
+  return `<div class="modal-backdrop service-advanced-backdrop"><section class="whiteboard-advanced-modal service-advanced-modal" role="dialog" aria-modal="true" aria-label="高级筛选"><header><h2>高级筛选</h2><button id="closeServiceAdvanced" type="button">×</button></header><div class="whiteboard-advanced-body"><div class="advanced-profile-grid">${libraryFilterControls(libraryFields, values)}</div></div><footer><button class="button secondary" id="cancelServiceAdvanced" type="button">取消</button><button class="button primary" id="queryServiceAdvanced" type="button">查询</button></footer></section></div>`;
+}
+async function applyLibraryFilters(values) {
+  for (const [key, label, type] of libraryFields) {
+    if (type === 'text') continue;
+    const min = values[key + 'Min'], max = values[key + 'Max'];
+    if (type === 'number' && [min, max].some(v => v && (!Number.isFinite(Number(v)) || Number(v) < 0))) { toast(`${label}请输入有效的非负数字`); return; }
+    if (min && max && (type === 'date' ? min > max : Number(min) > Number(max))) { toast(`${label}开始值不能大于结束值`); return; }
+  }
+  const section = state.customerSection, filters = currentLibraryFilters();
+  const request = ++filters.request, token = state.auth.token;
+  try {
+    let rows = null;
+    if (token) {
+      rows = [];
+      for (let page = 0, pages = 1; page < pages; page++) {
+        const result = pageContent(await apiRequest(`/customers?page=${page}&size=100`));
+        if (request !== filters.request || token !== state.auth.token) return;
+        rows.push(...result.content.map(normalizeCustomer));
+        pages = result.totalPages;
+      }
+    }
+    filters.values = values;
+    filters.rows = rows;
+    if (state.customerSection === section) { state.serviceAdvancedOpen = false; render(); }
+  } catch (error) { if (request === filters.request) toast(`查询失败：${error.message}`); }
+}
+function bindLibraryFilters() {
+  if (state.view !== 'customers' || !librarySections.includes(state.customerSection)) return;
+  const panel = document.querySelector('.sincere-filter-panel, .inventory-filter-panel, .service-filter-panel, .expired-vip-filter');
+  if (!panel) return;
+  const filters = currentLibraryFilters();
+  const row = panel.querySelector('.sincere-filter-grid, .inventory-filter-row, .service-filter-row, .expired-vip-filter-row');
+  if (row) {
+    const search = row.querySelector('#customerSearch');
+    row.replaceChildren();
+    if (search) row.append(search);
+    row.insertAdjacentHTML('beforeend', libraryFilterControls(state.customerSection === '诚意资源' ? libraryFields : libraryFields.filter(([key]) => ['name', 'owner', 'followUpCount', 'lastAllocationAt'].includes(key)), filters.values));
+  }
+  const capture = selector => document.querySelector(selector)?.addEventListener('click', event => {
+    event.preventDefault(); event.stopImmediatePropagation();
+    const values = { ...filters.values };
+    document.querySelectorAll('[data-library-filter]').forEach(input => { values[input.dataset.libraryFilter] = input.value.trim(); });
+    applyLibraryFilters(values);
+  }, true);
+  capture('#applyCustomerFilters'); capture('#queryServiceAdvanced');
+  document.querySelector('#resetCustomerFilters')?.addEventListener('click', event => {
+    event.stopImmediatePropagation(); state.customerSearch = ''; applyLibraryFilters({});
+  }, true);
+  document.querySelector('#openInventoryAdvanced')?.addEventListener('click', event => {
+    event.stopImmediatePropagation(); state.serviceAdvancedOpen = true; render();
+  }, true);
+  panel.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); event.stopImmediatePropagation(); document.querySelector('#applyCustomerFilters')?.click(); } }, true);
+}
+
+// These legacy tables render the currently loaded records in one body.
+// Bind each filter to an explicit column instead of showing a success toast.
+const referenceTableFilterState = {};
+function bindReferenceTableFilters() {
+  const configs = [
+    ['.contract-filter-panel', '.order-contract-table', [null, 6, null]],
+    ['.payment-filter-panel', '.order-payment-table', [0, 1, null, 2, null, 9, 10, 8, null]],
+    ['.refund-filter-panel', '.order-refund-table', [null, null, null, null, null, 11, 13, null, null, null]],
+    ['.performance-filter-panel', '.order-performance-table', [2, 5, null, 9, 0]],
+    ['.system-user-filter', '.system-user-table', [3, 6, 7]]
+  ];
+  for (const [panelSelector, tableSelector, columns] of configs) {
+    const panel = document.querySelector(panelSelector), table = document.querySelector(tableSelector);
+    if (!panel) continue;
+    const saved = referenceTableFilterState[panelSelector] ||= [];
+    const rows = table ? [...table.querySelectorAll('tbody tr')].filter(row => row.cells.length > 1) : [];
+    const controls = [...panel.querySelectorAll('input, select')];
+    const criteria = [];
+    controls.forEach((control, index) => {
+      const column = columns[index];
+      if (column == null) {
+        control.disabled = true;
+        control.title = '当前记录没有此字段，暂不支持筛选';
+        return;
+      }
+      if (control.tagName === 'SELECT') {
+        const values = [...new Set(rows.map(row => row.cells[column]?.textContent.trim()).filter(Boolean))];
+        control.innerHTML = '<option value="">全部</option>' + values.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('');
+      }
+      const label = control.closest('label')?.textContent.split('：')[0].trim() || '日期';
+      if (/时间|日期/.test(label) || /日期/.test(control.placeholder || '')) {
+        const start = document.createElement('input'), end = document.createElement('input');
+        start.type = end.type = 'date';
+        start.setAttribute('aria-label', label + '开始'); end.setAttribute('aria-label', label + '结束');
+        start.value = saved[index]?.[0] || ''; end.value = saved[index]?.[1] || '';
+        control.replaceWith(start, document.createTextNode(' — '), end);
+        criteria.push({ index, column, start, end });
+      } else {
+        control.value = saved[index] || '';
+        criteria.push({ index, column, control });
+      }
+    });
+    const status = document.createElement('p');
+    status.setAttribute('role', 'status'); panel.append(status);
+    const summary = panel.parentElement.querySelector('.payment-summary, .refund-summary, .performance-summary');
+    if (summary && !summary.dataset.filterSummary) { summary.prepend('全部记录 · '); summary.dataset.filterSummary = 'true'; }
+    const apply = () => {
+      if (criteria.some(c => c.start && c.start.value && c.end.value && c.start.value > c.end.value)) { toast('开始日期不能晚于结束日期'); return; }
+      let count = 0;
+      rows.forEach(row => {
+        const matches = criteria.every(c => {
+          const value = row.cells[c.column]?.textContent.trim() || '';
+          if (c.start) return (!c.start.value || value.slice(0, 10) >= c.start.value) && (!c.end.value || (!!value && value.slice(0, 10) <= c.end.value));
+          return !c.control.value || (c.control.tagName === 'SELECT' ? value === c.control.value : value.toLowerCase().includes(c.control.value.trim().toLowerCase()));
+        });
+        row.hidden = !matches; if (matches) count++;
+      });
+      criteria.forEach(c => { saved[c.index] = c.start ? [c.start.value, c.end.value] : c.control.value; });
+      status.textContent = count ? `当前已加载记录中匹配 ${count} 条` : '当前已加载记录中没有匹配项';
+    };
+    panel.querySelectorAll('button').forEach(button => {
+      const text = button.textContent.trim();
+      if (!['查询', '重置'].includes(text)) return;
+      button.addEventListener('click', event => {
+        event.preventDefault(); event.stopImmediatePropagation();
+        if (text === '重置') criteria.forEach(c => { if (c.start) c.start.value = c.end.value = ''; else c.control.value = ''; });
+        apply();
+      }, true);
+    });
+    panel.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); apply(); } });
+    apply();
+  }
+  for (const selector of ['.sms-filter-panel', '.coupon-filter-panel']) {
+    const panel = document.querySelector(selector);
+    if (!panel) continue;
+    panel.querySelectorAll('input, select, button').forEach(control => { control.disabled = true; });
+    const notice = document.createElement('p');
+    notice.setAttribute('role', 'status');
+    notice.textContent = '此模块尚未接入记录数据，筛选暂不可用。';
+    panel.append(notice);
+    const summary = document.querySelector('.coupon-summary');
+    if (summary) summary.textContent = '尚未接入卡券数据';
   }
 }
 

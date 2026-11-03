@@ -97,7 +97,7 @@ function setup(overrides = {}, respond = () => page()) {
     render: () => { context.renderCount += 1; }, renderCount: 0
   });
   const names = ['selectedCustomerTagFilters', 'appendCustomerTagFilterParams', 'localDateValue', 'pageContent', 'parseCustomerDate', 'daysSince',
-    'customerFollowUpCount', 'customerMatchesScene', 'customerSceneItems', 'updateCustomerSearchFeedback', 'refreshCustomerSearchFromApi',
+    'customerFollowUpCount', 'customerMatchesScene', 'visibleCustomerLibraryRows', 'customerSceneItems', 'updateCustomerSearchFeedback', 'refreshCustomerSearchFromApi',
     'refreshVisibleCustomerList', 'refreshAssignedCustomers', 'mergeCustomerRecord', 'refreshCustomerFollowUpCounts'];
   // Include the production visibility predicate when the implementation shares one.
   for (const name of ['customerAssignedListVisible']) {
