@@ -2856,6 +2856,7 @@ function customerTagFilterButtons(isPool) {
 }
 
 function customerListView({ isPool = false } = {}) {
+  if (!isAdmin() && !["all", "duplicate-unfollowed"].includes(state.customerScene)) state.customerScene = "all";
   if (!isAdmin() && !["mine", "collab", "store"].includes(state.customerScope)) state.customerScope = "mine";
   const selectedStatuses = selectedCustomerStatuses();
   const meta = (isPool ? state.poolCustomerPageMeta : state.customerPageMeta) || { page: 0, size: state.customerPageSize, totalElements: 0, totalPages: 1 };
@@ -2885,7 +2886,7 @@ function customerListView({ isPool = false } = {}) {
     ${subnav(["客户列表", "公海列表", "客户导入"], state.customerSection, ["客户列表", "公海列表", "客户导入"])}
     <div class="page-content">
       ${isPool ? "" : `<div class="customer-reference-tabs">${[["all","全部客户"],["mine","我的客户"],["subordinates","下属客户"],["collab","我的协作"],["subordinate-collab","下属协作"],["store","到店客户"]].filter(([scope]) => isAdmin() || ["mine", "collab", "store"].includes(scope)).map(([scope, label]) => `<button class="${state.customerScope === scope ? "active" : ""}" type="button" data-customer-scope="${scope}">${label}</button>`).join("")}</div>`}
-      <div class="customer-scene-bar"><span>场景：</span>${customerSceneItems({ isPool }).map(item => `<button class="scene-chip ${state.customerScene === item.key ? "active" : ""}" type="button" data-customer-scene="${item.key}">${item.label}${item.count > 0 ? `<b>${item.count}</b>` : ""}</button>`).join("")}<span class="pool-label">标注/标签：</span>${customerTagFilterButtons(isPool)}<button class="text-button" type="button">更多</button></div>
+      <div class="customer-scene-bar"><span>场景：</span>${customerSceneItems({ isPool }).filter(item => isAdmin() || item.key === "duplicate-unfollowed").map(item => `<button class="scene-chip ${state.customerScene === item.key ? "active" : ""}" type="button" data-customer-scene="${item.key}">${item.label}${item.count > 0 ? `<b>${item.count}</b>` : ""}</button>`).join("")}<span class="pool-label">标注/标签：</span>${customerTagFilterButtons(isPool)}<button class="text-button" type="button">更多</button></div>
       <section class="filter-panel">
         <div class="filter-row">
           <label class="field"><span>筛选条件</span><input id="customerSearch" type="search" value="${state.customerSearch}" placeholder="ID/手机号"></label>
