@@ -1572,7 +1572,7 @@ async function refreshCustomerSearchFromApi({ silent = false, section = null } =
     avatar: state.customerAvatarFilter !== "all" ? state.customerAvatarFilter : "",
     quickFilter: state.quickFilter !== "全部客户" ? state.quickFilter : "",
     scene: state.customerScene !== "all" ? state.customerScene : "",
-    scope: !isWhiteboardPage && state.customerScope !== "all" ? state.customerScope : ""
+    scope: !isPoolPage && !isWhiteboardPage && state.customerScope !== "all" ? state.customerScope : ""
   };
   Object.entries(advanced).forEach(([key, value]) => { if (value != null && String(value).trim()) params.set(key, value); });
   if (!silent) {

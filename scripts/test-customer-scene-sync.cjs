@@ -373,3 +373,17 @@ test('administrator queries the selected list for unfollowed customers', async (
   await context.refreshCustomerSearchFromApi();
   assert.ok(requests.some(path => path.startsWith('/customers/pool?') && path.includes('scene=new-unfollowed')));
 });
+
+ test('sales pool queries ignore personal scopes while assigned queries retain them', async () => {
+  for (const scope of ['mine', 'collab', 'store']) {
+    const { context, state, requests } = setup({ customerScope: scope });
+    context.isAdmin = () => false;
+    await context.refreshCustomerSearchFromApi();
+    assert.ok(requests.some(path => path.startsWith('/customers?') && new URLSearchParams(path.split('?')[1]).get('scope') === scope));
+    state.customerSection = '公海列表';
+    await context.refreshCustomerSearchFromApi();
+    const pool = requests.filter(path => path.startsWith('/customers/pool?'));
+    assert.ok(pool.length);
+    assert.ok(pool.every(path => !new URLSearchParams(path.split('?')[1]).has('scope')));
+  }
+});
