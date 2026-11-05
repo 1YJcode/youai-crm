@@ -976,7 +976,10 @@ function saveAuth(auth) {
   state.auth.token = auth.accessToken;
   state.auth.refreshToken = auth.refreshToken || state.auth.refreshToken || "";
   state.auth.user = auth.user;
-  if (accountChanged || wasAdmin !== isAdmin()) resetCustomerImportState();
+  if (accountChanged || wasAdmin !== isAdmin()) {
+    state.customerScope = isAdmin() ? "all" : "mine";
+    resetCustomerImportState();
+  }
   loadCustomerTableColumns();
   localStorage.setItem("youai.crm.accessToken", auth.accessToken);
   if (state.auth.refreshToken) localStorage.setItem("youai.crm.refreshToken", state.auth.refreshToken);
@@ -1790,6 +1793,19 @@ async function hydrateFromApi() {
     state.dashboard = dashboardData;
     state.backendOnline = true;
     updateConnectionStatus("online", "MySQL 数据服务已连接");
+    if (state.customerDetailId) {
+      const tab = state.workspaceTabs.find(item => item.id === state.activeWorkspaceTabId);
+      if (tab?.detailId) {
+        try {
+          if (![...customers, ...state.poolCustomers].some(item => String(item.id) === String(tab.detailId))) customers.push(await loadWorkspaceCustomer(tab));
+          if (state.customerDetailTab === "follow") await loadCustomerFollowUps(tab.detailId, false);
+          if (state.customerDetailTab === "calls") await loadCustomerCalls(tab.detailId);
+          if (state.customerDetailTab === "transcript") await loadCustomerTranscript(tab.detailId);
+        } catch (error) {
+          toast(`客户详情加载失败：${error.message}`, "error");
+        }
+      }
+    }
     render();
     refreshVisibleCustomerList();
     checkUpcomingFollowupAlerts();
@@ -1885,6 +1901,7 @@ function loadWorkspaceTabs() {
       view: tab.view,
       section: tab.section,
       detailId: tab.detailId || null,
+      detailTab: tab.detailTab || "profile",
       importDetailId: tab.importDetailId || null,
       label: tab.importDetailId ? "导入详情" : tab.detailId ? (() => { const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(tab.detailId)); return customer ? `${customer.name}[${customer.id}]` : (tab.label || `客户详情[${tab.detailId}]`); })() : workspaceTabLabel(tab.view, tab.section)
     })) : [];
@@ -1897,6 +1914,8 @@ function loadWorkspaceTabs() {
 }
 
 function saveWorkspaceTabs() {
+  const active = state.workspaceTabs.find(tab => tab.id === state.activeWorkspaceTabId);
+  if (active?.detailId && String(active.detailId) === String(state.customerDetailId)) active.detailTab = state.customerDetailTab;
   localStorage.setItem("youai.crm.workspaceTabs", JSON.stringify(state.workspaceTabs));
   localStorage.setItem("youai.crm.activeWorkspaceTab", state.activeWorkspaceTabId);
 }
@@ -1913,6 +1932,7 @@ function restoreActiveWorkspaceTab() {
   state.view = restoredTab?.view || tab.view;
   setWorkspaceSection(state.view, restoredTab?.section || tab.section);
   state.customerDetailId = restoredTab?.detailId || null;
+  state.customerDetailTab = restoredTab?.detailTab || "profile";
   state.importDetailId = shouldOpenImportHistory ? null : (restoredTab?.importDetailId || null);
   state.activeWorkspaceTabId = restoredTab?.id || tab.id;
   saveWorkspaceTabs();
@@ -2836,6 +2856,7 @@ function customerTagFilterButtons(isPool) {
 }
 
 function customerListView({ isPool = false } = {}) {
+  if (!isAdmin() && !["mine", "collab", "store"].includes(state.customerScope)) state.customerScope = "mine";
   const selectedStatuses = selectedCustomerStatuses();
   const meta = (isPool ? state.poolCustomerPageMeta : state.customerPageMeta) || { page: 0, size: state.customerPageSize, totalElements: 0, totalPages: 1 };
   const sourceRows = isPool ? state.poolCustomers : visibleCustomerLibraryRows(customers);
@@ -2863,7 +2884,7 @@ function customerListView({ isPool = false } = {}) {
   return `<section class="page customer-list-page ${isPool ? "pool-page" : ""}">
     ${subnav(["客户列表", "公海列表", "客户导入"], state.customerSection, ["客户列表", "公海列表", "客户导入"])}
     <div class="page-content">
-      ${isPool ? "" : `<div class="customer-reference-tabs">${[["all","全部客户"],["mine","我的客户"],["subordinates","下属客户"],["collab","我的协作"],["subordinate-collab","下属协作"],["store","到店客户"]].map(([scope, label]) => `<button class="${state.customerScope === scope ? "active" : ""}" type="button" data-customer-scope="${scope}">${label}</button>`).join("")}</div>`}
+      ${isPool ? "" : `<div class="customer-reference-tabs">${[["all","全部客户"],["mine","我的客户"],["subordinates","下属客户"],["collab","我的协作"],["subordinate-collab","下属协作"],["store","到店客户"]].filter(([scope]) => isAdmin() || ["mine", "collab", "store"].includes(scope)).map(([scope, label]) => `<button class="${state.customerScope === scope ? "active" : ""}" type="button" data-customer-scope="${scope}">${label}</button>`).join("")}</div>`}
       <div class="customer-scene-bar"><span>场景：</span>${customerSceneItems({ isPool }).map(item => `<button class="scene-chip ${state.customerScene === item.key ? "active" : ""}" type="button" data-customer-scene="${item.key}">${item.label}${item.count > 0 ? `<b>${item.count}</b>` : ""}</button>`).join("")}<span class="pool-label">标注/标签：</span>${customerTagFilterButtons(isPool)}<button class="text-button" type="button">更多</button></div>
       <section class="filter-panel">
         <div class="filter-row">
@@ -3423,8 +3444,7 @@ function customersView() {
 function customerDetailView(id) {
   const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(id));
   if (!customer) {
-    state.customerDetailId = null;
-    return customerListView();
+    return `<div class="empty-state">正在加载客户详情…</div>`;
   }
   const value = item => escapeHtml(String(item ?? ""));
   const isWhiteboardCustomer = state.customerSection === "白板列表";
@@ -5710,6 +5730,55 @@ async function loadCustomerFollowUps(customerId, renderAfterLoad = true) {
   }
 }
 
+function openFollowUpCommentModal(trigger, comment, save) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  setSafeHtml(backdrop, `<section class="modal" role="dialog" aria-modal="true" aria-labelledby="followUpCommentTitle"><header class="modal-header"><h2 id="followUpCommentTitle">填写评论</h2><button class="icon-button" type="button" data-comment-close aria-label="关闭">${icon("close")}</button></header><form class="customer-form"><div class="form-grid"><label class="form-span-2"><span>评论内容</span><textarea name="comment" rows="5" placeholder="请输入评论内容">${escapeHtml(comment)}</textarea></label></div><footer class="modal-footer"><span class="modal-footer-spacer"></span><button class="button secondary" type="button" data-comment-close>取消</button><button class="button primary" type="submit">保存评论</button></footer></form></section>`);
+  const previousOverflow = document.body.style.overflow;
+  let saving = false;
+  const close = () => {
+    if (saving) return;
+    backdrop.remove();
+    document.removeEventListener("keydown", onKeyDown, true);
+    document.body.style.overflow = previousOverflow;
+    if (trigger.isConnected) trigger.focus();
+  };
+  const onKeyDown = event => {
+    if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); close(); }
+    if (event.key === "Tab") {
+      const fields = [...backdrop.querySelectorAll("button, textarea")].filter(field => !field.disabled);
+      const first = fields[0], last = fields[fields.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+  };
+  backdrop.querySelectorAll("[data-comment-close]").forEach(button => button.addEventListener("click", close));
+  backdrop.addEventListener("click", event => { if (event.target === backdrop) close(); });
+  backdrop.querySelector("form").addEventListener("submit", async event => {
+    event.preventDefault();
+    if (saving) return;
+    saving = true;
+    const submit = backdrop.querySelector('[type="submit"]');
+    submit.disabled = true;
+    submit.textContent = "保存中…";
+    try {
+      await save(backdrop.querySelector("textarea").value.trim());
+      saving = false;
+      close();
+    } catch (error) {
+      toast(`保存跟进标注失败：${error.message}`, "error");
+    } finally {
+      saving = false;
+      submit.disabled = false;
+      submit.textContent = "保存评论";
+    }
+  });
+  document.body.append(backdrop);
+  document.body.style.overflow = "hidden";
+  document.addEventListener("keydown", onKeyDown, true);
+  backdrop.querySelector("textarea").focus();
+}
+
 async function saveCustomerFollowUpAnnotation(customerId, recordId, recordType, patch = {}) {
   const annotations = state.customerFollowUpAnnotations[customerId] || {};
   const key = customerFollowUpAnnotationKey(recordId, recordType);
@@ -6629,9 +6698,8 @@ function bindViewEvents() {
     const current = state.customerFollowUpAnnotations[customerId]?.[key] || {};
     try {
       if (button.dataset.followupAnnotationAction === "comment") {
-        const comment = window.prompt("填写评论", current.comment || "");
-        if (comment === null) return;
-        await saveCustomerFollowUpAnnotation(customerId, recordId, recordType, { comment: comment.trim() });
+        openFollowUpCommentModal(button, current.comment || "", comment =>
+          saveCustomerFollowUpAnnotation(customerId, recordId, recordType, { comment }));
       } else {
         await saveCustomerFollowUpAnnotation(customerId, recordId, recordType, { favorite: !current.favorite });
       }
@@ -7530,7 +7598,7 @@ function bindViewEvents() {
     render();
     refreshCustomerSearchFromApi();
   }));
-  document.querySelectorAll("[data-customer-scope]").forEach(button => button.addEventListener("click", () => { if (state.customerScope === button.dataset.customerScope) return; state.customerScope = button.dataset.customerScope; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
+  document.querySelectorAll("[data-customer-scope]").forEach(button => button.addEventListener("click", () => { if (!isAdmin() && !["mine", "collab", "store"].includes(button.dataset.customerScope)) return; if (state.customerScope === button.dataset.customerScope) return; state.customerScope = button.dataset.customerScope; state.customerPage = 1; state.poolCustomerPage = 1; refreshCustomerSearchFromApi(); }));
   document.querySelectorAll("[data-customer-sort]").forEach(button => button.addEventListener("click", event => {
     event.stopPropagation();
     const key = event.currentTarget.dataset.customerSort;
