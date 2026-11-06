@@ -310,7 +310,7 @@ button.profile-private-value { cursor:pointer; font-family:inherit; }
 .order-performance-table { min-width: 1320px; table-layout: fixed; font-size: 13px; }
 .order-performance-table th, .order-performance-table td { height: 48px; padding: 0 10px; border-bottom: 1px solid #f1f2f4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .order-performance-table th { height: 58px; color: #667085; background: #fafbfc; font-weight: 600; }
-.order-performance-table th { text-align: center; }
+.order-performance-table th, .order-performance-table td { text-align: center; }
 .order-refund-reference { background: #f5f6f8; min-height: calc(100vh - var(--topbar-height)); }
 .order-refund-content { padding: 12px 14px 46px; }
 .refund-filter-panel { margin-bottom: 14px; padding: 18px 28px 20px; background: #fff; box-shadow: 0 1px 5px rgba(16,24,40,.05); }
