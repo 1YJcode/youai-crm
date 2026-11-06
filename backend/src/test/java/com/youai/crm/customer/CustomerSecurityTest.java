@@ -244,17 +244,17 @@ class CustomerSecurityTest {
         employee("order_identity_two", "订单同名员工");
         mvc.perform(post("/api/orders").with(user("admin").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"orderNo\":\"SO-IDENTITY-REGRESSION\",\"customer\":\"测试客户\",\"product\":\"服务\",\"amount\":100,\"paid\":0,\"owner\":\"user:" + first + "\"}"))
+                .content("{\"orderNo\":\"619999\",\"customer\":\"测试客户\",\"product\":\"服务\",\"amount\":100,\"paid\":0,\"owner\":\"user:" + first + "\"}"))
                 .andExpect(status().isCreated());
-        mvc.perform(get("/api/orders").param("keyword", "SO-IDENTITY-REGRESSION").with(user("order_identity_two").roles("SALES")))
+        mvc.perform(get("/api/orders").param("keyword", "619999").with(user("order_identity_two").roles("SALES")))
                 .andExpect(jsonPath("$.totalElements").value(0));
         mvc.perform(patch("/api/auth/users/" + first).with(user("admin").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"username\":\"order_identity_one\",\"displayName\":\"订单新姓名\",\"phone\":\"\",\"roles\":[\"SALES\"]}"))
                 .andExpect(status().isOk());
-        mvc.perform(get("/api/orders").param("keyword", "SO-IDENTITY-REGRESSION").with(user("order_identity_one").roles("SALES")))
+        mvc.perform(get("/api/orders").param("keyword", "619999").with(user("order_identity_one").roles("SALES")))
                 .andExpect(jsonPath("$.totalElements").value(1));
-        mvc.perform(get("/api/orders/SO-IDENTITY-REGRESSION").with(user("order_identity_one").roles("SALES")))
+        mvc.perform(get("/api/orders/619999").with(user("order_identity_one").roles("SALES")))
                 .andExpect(status().isOk());
     }
 }

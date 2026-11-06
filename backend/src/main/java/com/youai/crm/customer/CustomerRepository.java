@@ -21,6 +21,7 @@ public interface CustomerRepository extends JpaRepository<Customer, Long>, JpaSp
     @Query("select c.customerNo as customerNo, c.ownerId as ownerId from Customer c where c.customerNo in :customerNos")
     List<Ownership> findOwnershipByCustomerNos(@Param("customerNos") java.util.Collection<String> customerNos);
 
+    List<Customer> findAllByName(String name);
     Optional<Customer> findByCustomerNo(String customerNo);
     Optional<Customer> findByPhone(String phone);
     long countByOwner(String owner);

@@ -35,9 +35,12 @@ public class OrderController {
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String paymentStatus,
             @RequestParam(required = false) String serviceStatus,
+            @RequestParam(required = false) String customerId,
+            @RequestParam(required = false) java.time.LocalDate createdFrom,
+            @RequestParam(required = false) java.time.LocalDate createdTo,
             @PageableDefault(size = 20) Pageable pageable,
             Authentication authentication) {
-        return service.list(keyword, paymentStatus, serviceStatus, pageable, authentication);
+        return service.list(keyword, paymentStatus, serviceStatus, createdFrom, createdTo, customerId, pageable, authentication);
     }
 
     @GetMapping("/{orderNo}")

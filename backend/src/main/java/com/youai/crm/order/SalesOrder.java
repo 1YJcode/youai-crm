@@ -22,6 +22,9 @@ public class SalesOrder {
     @Column(name = "order_no", nullable = false, unique = true, length = 32)
     private String orderNo;
 
+    @Column(name = "customer_no", length = 32)
+    private String customerNo;
+
     @Column(name = "customer_name", nullable = false, length = 64)
     private String customerName;
 
@@ -43,6 +46,21 @@ public class SalesOrder {
     @Column(name = "performance_confirmed", nullable = false)
     private boolean performanceConfirmed;
 
+    @Column(name = "confirmation_sales_id")
+    private Long confirmationSalesId;
+    @Column(name = "confirmation_sales_name")
+    private String confirmationSalesName;
+    @Column(name = "confirmation_admin_id")
+    private Long confirmationAdminId;
+    @Column(name = "confirmation_admin_name")
+    private String confirmationAdminName;
+    @Column(name = "sales_confirmed_at")
+    private LocalDateTime salesConfirmedAt;
+    @Column(name = "admin_confirmed_at")
+    private LocalDateTime adminConfirmedAt;
+    @Column(name = "legacy_performance_confirmed", nullable = false)
+    private boolean legacyPerformanceConfirmed;
+
     @Column(nullable = false, length = 32)
     private String owner;
 
@@ -59,9 +77,28 @@ public class SalesOrder {
         if (createdAt == null) createdAt = LocalDateTime.now();
     }
 
+    public Long getConfirmationSalesId() { return confirmationSalesId; }
+    public void setConfirmationSalesId(Long value) { confirmationSalesId = value; }
+    public String getConfirmationSalesName() { return confirmationSalesName; }
+    public void setConfirmationSalesName(String value) { confirmationSalesName = value; }
+    public Long getConfirmationAdminId() { return confirmationAdminId; }
+    public void setConfirmationAdminId(Long value) { confirmationAdminId = value; }
+    public String getConfirmationAdminName() { return confirmationAdminName; }
+    public void setConfirmationAdminName(String value) { confirmationAdminName = value; }
+    public LocalDateTime getSalesConfirmedAt() { return salesConfirmedAt; }
+    public void setSalesConfirmedAt(LocalDateTime value) { salesConfirmedAt = value; }
+    public LocalDateTime getAdminConfirmedAt() { return adminConfirmedAt; }
+    public void setAdminConfirmedAt(LocalDateTime value) { adminConfirmedAt = value; }
+    public void resetConfirmations() {
+        salesConfirmedAt = null;
+        adminConfirmedAt = null;
+        performanceConfirmed = false;
+    }
     public Long getId() { return id; }
     public String getOrderNo() { return orderNo; }
     public void setOrderNo(String orderNo) { this.orderNo = orderNo; }
+    public String getCustomerNo() { return customerNo; }
+    public void setCustomerNo(String value) { customerNo = value; }
     public String getCustomerName() { return customerName; }
     public void setCustomerName(String customerName) { this.customerName = customerName; }
     public String getProduct() { return product; }

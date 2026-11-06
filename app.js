@@ -325,6 +325,8 @@ const state = {
   taskPageSize: 20,
   taskPageMeta: { page: 0, size: 20, totalElements: 0, totalPages: 1 },
   calendarDate: new Date(),
+  orderDateRange: { start: "", end: "", draftStart: "", draftEnd: "", picking: "start", viewMonth: "", open: false },
+  orderCustomerId: "",
   orderKeyword: "",
   orderPaymentStatus: "全部状态",
   orderServiceStatus: "全部状态",
@@ -1641,6 +1643,9 @@ async function refreshOrdersFromApi() {
   const params = new URLSearchParams({ page: String(Math.max(0, (state.orderPage || 1) - 1)), size: String(Math.min(Math.max(state.orderPageSize || 10, 1), 100)) });
   if (state.orderKeyword.trim()) params.set("keyword", state.orderKeyword.trim());
   if (state.orderPaymentStatus && state.orderPaymentStatus !== "全部状态") params.set("paymentStatus", state.orderPaymentStatus);
+  if (state.orderCustomerId.trim()) params.set("customerId", state.orderCustomerId.trim());
+  if (state.orderDateRange.start) params.set("createdFrom", state.orderDateRange.start);
+  if (state.orderDateRange.end) params.set("createdTo", state.orderDateRange.end);
   if (state.orderServiceStatus && state.orderServiceStatus !== "全部状态") params.set("serviceStatus", state.orderServiceStatus);
   try {
     const data = pageContent(await apiRequest(`/orders?${params.toString()}`));
@@ -2546,6 +2551,7 @@ function customerDateRangeSetViewMonth(target, year, month, calendarIndex = 0) {
     ? customerDateRangeShiftMonth(selectedMonth, -1)
     : selectedMonth;
   if (target === "followup") state.customerFollowUpDateViewMonth = viewMonth;
+  else if (target === "order") state.orderDateRange.viewMonth = viewMonth;
   else if (target === "advanced") state.customerAdvancedDatePickerViewMonth = viewMonth;
   else state.customerDateRangeViewMonth = viewMonth;
 }
@@ -2621,6 +2627,64 @@ function sharedCustomerDateRangePickerView({
     <div class="customer-date-range-calendars">${customerDateRangeCalendar(viewMonth, start, end, dateAttribute, viewTarget, 0)}${customerDateRangeCalendar(nextMonth, start, end, dateAttribute, viewTarget, 1)}</div>
     <div class="customer-date-range-footer"><span>${selectedLabel}</span><button type="button" ${clearAttribute}>清空</button></div>
   </div>`;
+}
+
+function sharedDateRangeControl(key, range) {
+  return `<div class="date-range-picker-wrap shared-date-range" data-shared-date-range="${key}"><button class="date-range-display" type="button" data-range-toggle aria-label="选择时间范围" aria-expanded="${Boolean(range.open)}"><span>${range.start || "开始日期"}</span><b>→</b><span>${range.end || "结束日期"}</span><span class="date-range-picker">${icon("calendar")}</span></button>${range.open ? sharedCustomerDateRangePickerView({ start: range.draftStart, end: range.draftEnd, viewMonth: range.viewMonth, picking: range.picking, dateAttribute: "data-range-date", shiftAttribute: "data-range-shift", clearAttribute: "data-range-clear", viewTarget: key }) : ""}</div>`;
+}
+
+function bindSharedDateRangeControls() {
+  const ranges = { order: state.orderDateRange };
+  document.querySelectorAll("[data-shared-date-range]").forEach(wrapper => {
+    const key = wrapper.dataset.sharedDateRange;
+    const range = ranges[key];
+    if (!range) return;
+    const repaint = () => {
+      const holder = document.createElement("div");
+      holder.innerHTML = sharedDateRangeControl(key, range);
+      wrapper.replaceWith(holder.firstElementChild);
+      bindSharedDateRangeControls();
+    };
+    wrapper.onclick = event => {
+      event.stopPropagation();
+      const button = event.target.closest("button");
+      if (!button) return;
+      if (button.hasAttribute("data-range-toggle")) {
+        range.open = !range.open;
+        if (range.open) {
+          range.draftStart = range.start;
+          range.draftEnd = range.end;
+          range.picking = "start";
+          range.viewMonth = customerDateRangeMonthValue(range.start);
+        }
+      } else if (button.hasAttribute("data-range-shift")) {
+        range.viewMonth = customerDateRangeShiftMonth(range.viewMonth, Number(button.dataset.rangeShift));
+      } else if (button.hasAttribute("data-range-clear")) {
+        Object.assign(range, { start: "", end: "", draftStart: "", draftEnd: "", picking: "start", open: false });
+      } else if (button.hasAttribute("data-range-date")) {
+        const date = button.dataset.rangeDate;
+        if (range.picking === "start" || !range.draftStart) {
+          range.draftStart = date;
+          range.draftEnd = "";
+          range.picking = "end";
+        } else {
+          if (date < range.draftStart) { toast("结束日期不能早于开始日期"); return; }
+          Object.assign(range, { start: range.draftStart, end: date, draftEnd: date, picking: "start", open: false });
+        }
+      } else return;
+      repaint();
+    };
+    wrapper.onkeydown = event => {
+      if (event.key === "Escape") { event.stopPropagation(); range.open = false; repaint(); document.querySelector(`[data-shared-date-range="${key}"] [data-range-toggle]`)?.focus(); }
+    };
+    wrapper.onchange = event => {
+      event.stopPropagation();
+      const calendar = event.target.closest("[data-date-range-calendar-index]");
+      if (!calendar) return;
+      customerDateRangeSetViewMonth(key, Number(calendar.querySelector("[data-date-range-view-year]").value), Number(calendar.querySelector("[data-date-range-view-month]").value), Number(calendar.dataset.dateRangeCalendarIndex));
+      repaint();
+    };
+  });
 }
 
 function customerDateRangePickerView() {
@@ -4105,9 +4169,24 @@ function orderRowsForSection() {
   return orders.filter(order => !state.orderKeyword.trim() || `${order.id} ${order.customer} ${order.product}`.toLowerCase().includes(state.orderKeyword.trim().toLowerCase()));
 }
 
+function orderConfirmationLabel(order) {
+  if (order.status === "已取消") return "已取消";
+  if (order.performanceConfirmed) return "双方已确认";
+  if (order.status !== "已支付" || order.paid < order.amount || order.paid <= 0) return "待支付完成";
+  if (order.salesConfirmedAt) return `待${order.confirmationAdminName || "赵娣"}确认`;
+  if (order.adminConfirmedAt) return "待销售确认";
+  return "待双方确认";
+}
+
+function orderCoSigners(order) {
+  if (order.status !== "已支付") return "—";
+  return `<div class="order-co-signers"><span>${escapeHtml(order.confirmationSalesName || order.owner || "待指定销售")}</span><span>${escapeHtml(order.confirmationAdminName || "赵娣")}</span></div>`;
+}
+
 function orderListView() {
   const meta = state.orderPageMeta || { page: 0, size: state.orderPageSize, totalElements: 0, totalPages: 1 };
   const rows = orders;
+  const storeName = customerOwnerTree(false).label;
   const pageSize = Number(meta.size || state.orderPageSize || 10);
   const totalElements = Number(meta.totalElements || 0);
   const totalPages = Math.max(1, Number(meta.totalPages || 1));
@@ -4116,15 +4195,15 @@ function orderListView() {
   const pageRows = rows;
   const firstPage = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
   const visiblePages = Array.from({ length: Math.min(totalPages, 5) }, (_, index) => firstPage + index);
-  const tableRows = pageRows.map((order, index) => {
-    const memberId = `14300${String(33376 - index * 846).padStart(5, "0")}`;
-    const invitee = index % 3 === 1 ? "管理员" : "赵娜";
-    return `<tr data-order-id="${escapeHtml(order.id)}"><td><button class="table-link legacy-order-id">${escapeHtml(order.id.replace(/^SO2026/, "27"))}</button></td><td>优爱天津店</td><td><button class="table-link">${memberId}</button></td><td>${escapeHtml(order.customer)}</td><td>线下VIP</td><td>${order.amount}/${order.paid}</td><td>${orderPill(order.status)}</td><td>${escapeHtml(order.service === "待开通" ? "待服务" : order.service)}</td><td>${escapeHtml(order.created)}</td><td>${invitee}</td><td>${escapeHtml(order.owner)}</td><td>—</td><td><button class="button ghost order-detail-button" type="button" data-order-detail="${escapeHtml(order.id)}">详情</button></td></tr>`;
+  const tableRows = pageRows.map(order => {
+    return `<tr data-order-id="${escapeHtml(order.id)}"><td><button type="button" class="table-link legacy-order-id">${escapeHtml(order.id)}</button></td><td>${escapeHtml(storeName)}</td><td>${escapeHtml(order.customerId || "—")}</td><td>${escapeHtml(order.customer)}</td><td>线下VIP</td><td>${order.amount}/${order.paid}</td><td>${escapeHtml(order.status === "已支付" ? "支付成功" : order.status)}</td><td>${order.status === "已支付" ? "待启用" : ""}</td><td>${escapeHtml(order.created)}</td><td>—</td><td>${escapeHtml(order.owner)}</td><td>${orderCoSigners(order)}</td><td><div class="order-row-actions">${order.canConfirmPerformance ? `<button class="button primary" type="button" data-confirm-performance="${escapeHtml(order.id)}">确认业绩</button>` : ""}<button class="button ghost order-detail-button" type="button" data-order-detail="${escapeHtml(order.id)}">详情</button></div></td></tr>`;
   }).join("");
+  const statusOptions = (values, selected) => `<option value="全部状态">请选择</option>${values.map(value => `<option value="${value}" ${value === selected ? "selected" : ""}>${value === "已支付" ? "支付成功" : value}</option>`).join("")}`;
+  const filters = `<form class="order-filter-panel" id="orderFilterForm"><div class="order-filter-grid"><label><span>会员姓名：</span><input id="orderKeyword" value="${escapeHtml(state.orderKeyword)}" placeholder="请输入用户姓名"></label><label><span>会员ID：</span><input id="orderCustomerId" value="${escapeHtml(state.orderCustomerId)}" placeholder="请输入用户ID"></label><label><span>销售：</span><input disabled placeholder="暂不支持筛选" title="当前订单接口未提供销售筛选"></label><label><span>邀约：</span><select disabled title="当前订单接口未提供邀约数据"><option>请选择</option></select></label><label><span>支付状态：</span><select id="orderPaymentFilter">${statusOptions(["待支付", "部分支付", "已支付", "已取消"], state.orderPaymentStatus)}</select></label><label><span>服务状态：</span><select id="orderServiceFilter">${statusOptions(["未开始", "待开通", "实施中", "已开通"], state.orderServiceStatus)}</select></label><div class="order-filter-date"><span>提交时间：</span>${sharedDateRangeControl("order", state.orderDateRange)}</div></div><div class="order-filter-actions"><button class="button primary" id="applyOrderFilters" type="submit">${icon("search")}查询</button><button class="button ghost" id="resetOrderFilters" type="button">${icon("repeat")}重置</button></div></form>`;
   const pageButtons = `<button class="page-button" type="button" data-order-page="${currentPage - 1}" ${currentPage === 1 ? "disabled" : ""}>‹</button>${visiblePages.map(page => `<button class="page-button ${page === currentPage ? "active" : ""}" type="button" data-order-page="${page}">${page}</button>`).join("")}<button class="page-button" type="button" data-order-page="${currentPage + 1}" ${currentPage === totalPages ? "disabled" : ""}>›</button>`;
   const rangeStart = totalElements && rows.length ? (currentPage - 1) * pageSize + 1 : 0;
   const rangeEnd = rows.length ? rangeStart + rows.length - 1 : 0;
-  return `<section class="page order-list-reference">${orderNav("订单列表")}<div class="order-reference-content"><section class="data-panel order-reference-panel"><div class="table-wrap">${rows.length ? `<table class="data-table order-reference-table"><thead><tr><th>订单ID</th><th>所属门店</th><th>会员ID</th><th>会员姓名</th><th>套餐</th><th>应付/实付金额</th><th>订单状态</th><th>服务状态</th><th>创建时间</th><th>邀约</th><th>销售</th><th>共同单人</th><th>操作</th></tr></thead><tbody>${tableRows}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("search")}</span><strong>暂无订单</strong><p>当前没有可展示的订单。</p></div>`}</div><footer class="order-reference-pagination"><span>${rangeStart}-${rangeEnd} 共${totalElements}条</span>${pageButtons}<select id="orderPageSize" aria-label="每页条数"><option value="10" ${state.orderPageSize===10?"selected":""}>10 条/页</option><option value="20" ${state.orderPageSize===20?"selected":""}>20 条/页</option><option value="50" ${state.orderPageSize===50?"selected":""}>50 条/页</option><option value="100" ${state.orderPageSize===100?"selected":""}>100 条/页</option></select>${totalPages > 1 ? `<span>跳至</span><input aria-label="跳转页码"><span>页</span>` : ""}</footer></section></div></section>`;
+  return `<section class="page order-list-reference">${orderNav("订单列表")}<div class="order-reference-content">${filters}<section class="data-panel order-reference-panel"><div class="table-wrap">${rows.length ? `<table class="data-table order-reference-table"><thead><tr><th>订单ID</th><th>所属门店</th><th>会员ID</th><th>会员姓名</th><th>套餐</th><th>应付/实付金额</th><th>订单状态</th><th>服务状态</th><th>创建时间</th><th>邀约</th><th>销售</th><th>共单人</th><th>操作</th></tr></thead><tbody>${tableRows}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("search")}</span><strong>暂无订单</strong><p>当前没有可展示的订单。</p></div>`}</div><footer class="order-reference-pagination"><span>${rangeStart}-${rangeEnd} 共${totalElements}条</span>${pageButtons}<select id="orderPageSize" aria-label="每页条数"><option value="10" ${state.orderPageSize===10?"selected":""}>10 条/页</option><option value="20" ${state.orderPageSize===20?"selected":""}>20 条/页</option><option value="50" ${state.orderPageSize===50?"selected":""}>50 条/页</option><option value="100" ${state.orderPageSize===100?"selected":""}>100 条/页</option></select>${totalPages > 1 ? `<span>跳至</span><input aria-label="跳转页码"><span>页</span>` : ""}</footer></section></div></section>`;
   /* legacy layout retained below for reference */
   /* return `<section class="page">${orderNav("订单列表")}<div class="page-content">
     ${pageHeading(`<button class="button secondary" id="exportOrders">${icon("download")}导出订单</button><button class="button primary" id="newOrder">${icon("plus")}新建订单</button>`)}
@@ -4135,7 +4214,7 @@ function orderListView() {
 
 function contractListView() {
   const rows = orderRowsForSection();
-  const contractRows = rows.map((order, index) => `<tr data-order-id="${escapeHtml(order.id)}"><td><button class="table-link legacy-order-id">${escapeHtml(order.id.replace(/^SO2026/, "27"))}</button></td><td><button class="table-link">14300${String(37960 - index * 430).padStart(5, "0")}</button></td><td>${escapeHtml(order.created)}</td><td>EYA2026082320${String(1063 - index * 77).padStart(4, "0")}</td><td><span class="pill green">审核通过</span></td><td>${escapeHtml(order.customer)}</td><td>${escapeHtml(order.owner)}</td><td><button class="button ghost order-detail-button" type="button" data-order-detail="${escapeHtml(order.id)}">详情</button></td></tr>`).join("");
+  const contractRows = rows.map((order, index) => `<tr data-order-id="${escapeHtml(order.id)}"><td><button class="table-link legacy-order-id">${escapeHtml(order.id)}</button></td><td><button class="table-link">14300${String(37960 - index * 430).padStart(5, "0")}</button></td><td>${escapeHtml(order.created)}</td><td>EYA2026082320${String(1063 - index * 77).padStart(4, "0")}</td><td><span class="pill green">审核通过</span></td><td>${escapeHtml(order.customer)}</td><td>${escapeHtml(order.owner)}</td><td><button class="button ghost order-detail-button" type="button" data-order-detail="${escapeHtml(order.id)}">详情</button></td></tr>`).join("");
   return `<section class="page order-contract-reference">${orderNav("合同列表")}<div class="order-contract-content"><section class="contract-filter-panel"><div class="contract-filter-row"><label>会员ID<input placeholder="请输入用户ID"></label><label>归属人<input placeholder="请选择"></label><label>状态<select><option>请选择</option><option>审核通过</option><option>待审核</option></select></label></div><div class="contract-filter-actions"><button class="button primary" type="button">${icon("search")}查询</button><button class="button secondary" type="button">${icon("repeat")}重置</button></div></section><section class="data-panel order-contract-panel"><div class="table-wrap">${rows.length ? `<table class="data-table order-contract-table"><thead><tr><th>订单ID</th><th>会员ID</th><th>创建时间</th><th>合同编号</th><th>状态</th><th>会员姓名</th><th>归属人</th><th>操作</th></tr></thead><tbody>${contractRows}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("order")}</span><strong>暂无合同</strong></div>`}</div></section></div></section>`;
   /* Existing CRM contract view retained below for reference. */
   /*
@@ -4189,13 +4268,13 @@ function refundView() {
 function performanceView() {
   const rows = orderRowsForSection();
   const pending = rows.filter(order => !order.performanceConfirmed && order.paid > 0);
-  const performanceRows = rows.map((order, index) => `<tr><td>${escapeHtml(order.created)}</td><td>29${String(2101 - index).padStart(4, "0")}</td><td><button class="table-link">${escapeHtml(order.id.replace(/^SO2026/, "16"))}</button></td><td><button class="table-link">14300${String(21483 - index * 528).padStart(5, "0")}</button></td><td>${escapeHtml(order.customer)}</td><td>${escapeHtml(order.owner)}</td><td>${order.amount}/${order.paid}</td><td>${index % 2 ? "80%" : "20%"}</td><td>${Math.round(order.paid * (index % 2 ? .8 : .2))}</td><td>${order.performanceConfirmed ? "已确认" : order.paid > 0 && isAdmin() ? `<button class="button primary" type="button" data-confirm-performance="${escapeHtml(order.id)}">确认业绩</button>` : "待确认"}</td></tr>`).join("");
+  const performanceRows = rows.map((order, index) => `<tr><td>${escapeHtml(order.created)}</td><td>29${String(2101 - index).padStart(4, "0")}</td><td><button class="table-link">${escapeHtml(order.id)}</button></td><td><button class="table-link">14300${String(21483 - index * 528).padStart(5, "0")}</button></td><td>${escapeHtml(order.customer)}</td><td>${escapeHtml(order.owner)}</td><td>${order.amount}/${order.paid}</td><td>${index % 2 ? "80%" : "20%"}</td><td>${Math.round(order.paid * (index % 2 ? .8 : .2))}</td><td>${order.performanceConfirmed ? "已确认" : order.canConfirmPerformance ? `<button class="button primary" type="button" data-confirm-performance="${escapeHtml(order.id)}">确认业绩</button>` : escapeHtml(orderConfirmationLabel(order))}</td></tr>`).join("");
   return `<section class="page order-performance-reference">${orderNav("业绩列表")}<div class="order-performance-content"><section class="performance-filter-panel"><div class="performance-filter-grid"><label>订单ID：<input placeholder="请输入订单ID"></label><label>员工姓名：<input placeholder="请选择"></label><label>会员ID：<input placeholder="请输入会员ID"></label><label>状态：<select><option>请选择</option><option>待确认</option><option>已确认</option></select></label><label>创建时间：<input placeholder="开始日期　—　结束日期"></label></div><div class="performance-filter-actions"><button class="button primary" type="button">${icon("search")}查询</button><button class="button secondary" type="button">${icon("repeat")}重置</button></div></section><section class="data-panel order-performance-panel"><div class="performance-summary">总收款业绩：${money(rows.filter(order => order.performanceConfirmed).reduce((sum, order) => sum + order.paid, 0))} <span>（定金、销售后订单不可计入提成）</span></div><div class="table-wrap"><table class="data-table order-performance-table"><thead><tr><th>创建时间</th><th>业绩ID</th><th>订单ID</th><th>会员ID</th><th>会员姓名</th><th>员工姓名</th><th>应付/实付金额</th><th>业绩比例</th><th>业绩</th><th>状态</th></tr></thead><tbody>${performanceRows || `<tr><td colspan="10"><div class="empty-state"><span class="empty-icon">${icon("check")}</span><strong>暂无数据</strong></div></td></tr>`}</tbody></table></div></section></div></section>`;
   /* Existing CRM performance view retained below for reference. */
   /* return `<section class="page">${orderNav("业绩列表")}<div class="page-content">
     ${pageHeading(`<button class="button secondary" id="exportPerformance" type="button">${icon("download")}导出业绩</button><button class="button primary" id="confirmAllPerformance" type="button" ${isAdmin() ? "" : "hidden"} ${pending.length ? "" : "disabled"}>${icon("check")}确认全部已付订单</button>`)}
     <section class="metric-grid">${metric("订单总数", String(rows.length), "个", "实时", "blue", "order")}${metric("待确认", String(pending.length), "个", "实时", "amber", "clock")}${metric("已确认金额", money(rows.filter(order => order.performanceConfirmed).reduce((sum, order) => sum + order.paid, 0)), "", "实时", "green", "check")}</section>
-    <section class="data-panel"><div class="data-toolbar"><div class="panel-title"><h2>业绩列表</h2><span>仅已回款订单可确认业绩，未回款订单需先登记回款</span></div><span class="pill gray">${pending.length} 个待确认</span></div><div class="table-wrap">${rows.length ? `<table class="data-table"><thead><tr><th>订单号</th><th>客户</th><th>销售</th><th>订单金额</th><th>已回款</th><th>支付状态</th><th>业绩状态</th><th>操作</th></tr></thead><tbody>${rows.map(order => `<tr><td>${escapeHtml(order.id)}</td><td>${escapeHtml(order.customer)}</td><td>${escapeHtml(order.owner)}</td><td>${money(order.amount)}</td><td>${money(order.paid)}</td><td>${orderPill(order.status)}</td><td><span class="pill ${order.performanceConfirmed ? "green" : order.paid > 0 ? "amber" : "gray"}">${order.performanceConfirmed ? "已确认" : order.paid > 0 ? "待确认" : "待回款"}</span></td><td>${order.performanceConfirmed ? "-" : order.paid > 0 && isAdmin() ? `<button class="button primary" type="button" data-confirm-performance="${escapeHtml(order.id)}">确认业绩</button>` : `<span class="muted">先登记回款</span>`}</td></tr>`).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("check")}</span><strong>暂无订单</strong><p>创建订单后可在这里确认业绩。</p></div>`}</div></section>
+    <section class="data-panel"><div class="data-toolbar"><div class="panel-title"><h2>业绩列表</h2><span>仅已回款订单可确认业绩，未回款订单需先登记回款</span></div><span class="pill gray">${pending.length} 个待确认</span></div><div class="table-wrap">${rows.length ? `<table class="data-table"><thead><tr><th>订单号</th><th>客户</th><th>销售</th><th>订单金额</th><th>已回款</th><th>支付状态</th><th>业绩状态</th><th>操作</th></tr></thead><tbody>${rows.map(order => `<tr><td>${escapeHtml(order.id)}</td><td>${escapeHtml(order.customer)}</td><td>${escapeHtml(order.owner)}</td><td>${money(order.amount)}</td><td>${money(order.paid)}</td><td>${orderPill(order.status)}</td><td><span class="pill ${order.performanceConfirmed ? "green" : order.paid > 0 ? "amber" : "gray"}">${escapeHtml(orderConfirmationLabel(order))}</span></td><td>${order.performanceConfirmed ? "-" : order.canConfirmPerformance ? `<button class="button primary" type="button" data-confirm-performance="${escapeHtml(order.id)}">确认业绩</button>` : `<span class="muted">先登记回款</span>`}</td></tr>`).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("check")}</span><strong>暂无订单</strong><p>创建订单后可在这里确认业绩。</p></div>`}</div></section>
   </div></section>`; */
 }
 
@@ -5046,8 +5125,8 @@ function businessModalFields(type, record) {
   }
   if (type === "order") {
     return `<input type="hidden" name="recordId" value="${escapeHtml(record?.id || "")}"><div class="form-grid">
-      <label><span>订单编号</span><input name="orderNo" maxlength="32" value="${escapeHtml(record?.id || "")}" ${record ? "readonly" : ""} placeholder="留空自动生成"></label>
-      <label><span>客户 *</span><select name="customer" required>${customers.map(customer => `<option value="${escapeHtml(customer.name)}" ${customer.name === record?.customer ? "selected" : ""}>${escapeHtml(customer.name)} · ${escapeHtml(customer.company)}</option>`).join("")}</select></label>
+      <label><span>订单编号</span><input name="orderNo" maxlength="6" value="${escapeHtml(record?.id || "")}" readonly placeholder="系统自动生成6位数字"></label>
+      <label><span>客户 *</span><select name="customerId" required>${record?.customerId && !customers.some(customer => customer.id === record.customerId) ? `<option value="${escapeHtml(record.customerId)}" selected>${escapeHtml(record.customer)} · ${escapeHtml(record.customerId)}</option>` : ""}${record?.id && !record.customerId ? `<option value="" selected disabled>请选择关联客户（原客户：${escapeHtml(record.customer)}）</option>` : ""}${customers.map(customer => `<option value="${escapeHtml(customer.id)}" ${(record?.customerId ? customer.id === record.customerId : !record?.id && customer.name === record?.customer) ? "selected" : ""}>${escapeHtml(customer.name)} · ${escapeHtml(customer.id)}</option>`).join("")}</select></label>
       <label class="form-span-2"><span>商品 / 套餐 *</span><input name="product" required maxlength="128" value="${escapeHtml(record?.product || "")}" placeholder="例如：专业版 · 20 席位"></label>
       <label><span>订单金额 *</span><input name="amount" type="number" min="0" step="0.01" required value="${record?.amount ?? ""}"></label>
       <label><span>已付金额</span><input name="paid" type="number" min="0" step="0.01" value="${record?.paid ?? 0}" ${isAdmin() ? "" : "readonly"}></label>
@@ -5879,7 +5958,7 @@ function openOrder(id) {
     created: escapeHtml(sourceOrder.created)
   };
   const drawer = document.querySelector("#detailDrawer");
-  drawer.innerHTML = `<header class="drawer-header"><div><p class="eyebrow">ORDER DETAIL</p><h2>订单详情</h2></div><button class="icon-button" data-close-drawer aria-label="关闭">${icon("close")}</button></header><div class="drawer-body"><div class="profile-head"><span class="person-avatar">单</span><div><h3>${order.id}</h3><p>${order.customer} · ${order.product}</p></div></div><div class="profile-actions"><button class="button secondary" data-edit-order="${order.id}">${icon("edit")}编辑订单</button><button class="button secondary" data-update-payment="${order.id}">${icon("wallet")}登记回款</button><button class="button secondary" data-update-service="${order.id}">${icon("check")}更新服务</button></div><section class="detail-section"><h4>订单信息</h4><div class="detail-grid"><div class="detail-item"><span>订单金额</span><strong>${money(order.amount)}</strong></div><div class="detail-item"><span>已付金额</span><strong>${money(order.paid)}</strong></div><div class="detail-item"><span>支付状态</span><strong>${orderPill(order.status)}</strong></div><div class="detail-item"><span>服务状态</span><strong>${order.service}</strong></div><div class="detail-item"><span>业绩状态</span><strong>${order.performanceConfirmed ? "已确认" : order.paid > 0 ? "待确认" : "待回款"}</strong></div><div class="detail-item"><span>销售负责人</span><strong>${order.owner}</strong></div><div class="detail-item"><span>创建时间</span><strong>${order.created}</strong></div></div></section><section class="detail-section"><h4>订单进度</h4><div class="timeline"><div class="timeline-item"><time>${order.created}</time><p>订单已创建，当前支付状态为“${order.status}”。</p></div><div class="timeline-item"><time>当前</time><p>服务状态为“${order.service}”。</p></div></div></section>${order.performanceConfirmed ? `<div class="confirmation-state pill green">${icon("check")}业绩已确认</div>` : order.paid > 0 ? `<button class="button primary" style="width:100%;margin-top:25px" data-confirm-order="${order.id}">${icon("check")}确认业绩</button>` : `<div class="confirmation-state pill gray">${icon("clock")}登记回款后可确认业绩</div>`}</div>`;
+  drawer.innerHTML = `<header class="drawer-header"><div><p class="eyebrow">ORDER DETAIL</p><h2>订单详情</h2></div><button class="icon-button" data-close-drawer aria-label="关闭">${icon("close")}</button></header><div class="drawer-body"><div class="profile-head"><span class="person-avatar">单</span><div><h3>${order.id}</h3><p>${order.customer} · ${order.product}</p></div></div><div class="profile-actions"><button class="button secondary" data-edit-order="${order.id}">${icon("edit")}编辑订单</button><button class="button secondary" data-update-payment="${order.id}">${icon("wallet")}登记回款</button><button class="button secondary" data-update-service="${order.id}">${icon("check")}更新服务</button></div><section class="detail-section"><h4>订单信息</h4><div class="detail-grid"><div class="detail-item"><span>订单金额</span><strong>${money(order.amount)}</strong></div><div class="detail-item"><span>已付金额</span><strong>${money(order.paid)}</strong></div><div class="detail-item"><span>支付状态</span><strong>${orderPill(order.status)}</strong></div><div class="detail-item"><span>服务状态</span><strong>${order.service}</strong></div><div class="detail-item"><span>业绩状态</span><strong>${escapeHtml(orderConfirmationLabel(order))}</strong></div><div class="detail-item"><span>共单人</span>${orderCoSigners(order)}</div><div class="detail-item"><span>销售负责人</span><strong>${order.owner}</strong></div><div class="detail-item"><span>创建时间</span><strong>${order.created}</strong></div></div></section><section class="detail-section"><h4>订单进度</h4><div class="timeline"><div class="timeline-item"><time>${order.created}</time><p>订单已创建，当前支付状态为“${order.status}”。</p></div><div class="timeline-item"><time>当前</time><p>服务状态为“${order.service}”。</p></div></div></section>${order.performanceConfirmed ? `<div class="confirmation-state pill green">${icon("check")}业绩已确认</div>` : order.canConfirmPerformance ? `<button class="button primary" style="width:100%;margin-top:25px" data-confirm-order="${order.id}">${icon("check")}确认业绩</button>` : `<div class="confirmation-state pill gray">${icon("clock")}${escapeHtml(orderConfirmationLabel(order))}</div>`}</div>`;
   document.querySelector("#drawerBackdrop").hidden = false;
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
@@ -6309,7 +6388,7 @@ function bindDrawerEvents() {
       const result = await apiRequest(`/orders/${encodeURIComponent(order.id)}/confirmation`, { method: "PATCH", body: JSON.stringify({ confirmed: true }) });
       Object.assign(order, result && normalizeOrder(result));
       closeDrawer();
-      toast("业绩已确认并写入 MySQL");
+      toast(order.performanceConfirmed ? "双方已确认，业绩确认完成" : `本人已确认，${orderConfirmationLabel(order)}`);
       if (state.view === "orders") render();
     } catch (error) {
       toast(`业绩确认失败：${error.message}`);
@@ -6549,7 +6628,8 @@ async function submitBusinessForm(event) {
       toast(id ? "任务已更新" : "任务已创建");
     } else if (type === "order") {
       const id = data.recordId;
-      const payload = { orderNo: data.orderNo || undefined, customer: data.customer, product: data.product, amount: Number(data.amount), paid: Number(data.paid || 0), service: data.service, owner: data.owner || currentOwner() };
+      const orderCustomer = customers.find(customer => customer.id === data.customerId);
+      const payload = { orderNo: data.orderNo || undefined, customerId: data.customerId, customer: orderCustomer?.name || orders.find(order => order.id === id)?.customer, product: data.product, amount: Number(data.amount), paid: Number(data.paid || 0), service: data.service, owner: data.owner || currentOwner() };
       const result = await apiRequest(id ? `/orders/${encodeURIComponent(id)}` : "/orders", { method: id ? "PUT" : "POST", body: JSON.stringify(payload) });
       const normalized = normalizeOrder(result);
       const index = orders.findIndex(item => item.id === normalized.id);
@@ -6601,10 +6681,12 @@ async function submitBusinessForm(event) {
 }
 
 function bindViewEvents() {
+  bindSharedDateRangeControls();
   bindLibraryFilters();
   bindReferenceTableFilters();
   document.querySelectorAll("[data-date-range-view-year], [data-date-range-view-month]").forEach(select => select.addEventListener("change", event => {
     event.stopPropagation();
+    if (select.closest("[data-shared-date-range]")) return;
     const calendar = select.closest("[data-date-range-calendar-index]");
     const yearSelect = calendar?.querySelector("[data-date-range-view-year]");
     const monthSelect = calendar?.querySelector("[data-date-range-view-month]");
@@ -7942,7 +8024,7 @@ function bindViewEvents() {
       state.nextCustomerPending = false;
     }
   }));
-  document.querySelector("[data-new-order-customer]")?.addEventListener("click", event => { const customer = customers.find(item => String(item.id) === String(event.currentTarget.dataset.newOrderCustomer)); if (customer) openBusinessModal("order", { customer: customer.name, owner: customer.owner }); });
+  document.querySelector("[data-new-order-customer]")?.addEventListener("click", event => { const customer = customers.find(item => String(item.id) === String(event.currentTarget.dataset.newOrderCustomer)); if (customer) openBusinessModal("order", { customerId: customer.id, customer: customer.name, owner: customer.owner }); });
   document.querySelectorAll("tr[data-customer-id]").forEach(row => row.addEventListener("click", event => {
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed && selection.toString().trim()) return;
@@ -7959,10 +8041,10 @@ function bindViewEvents() {
   document.querySelectorAll("[data-order-detail]").forEach(button => button.addEventListener("click", event => { event.stopPropagation(); openOrder(button.dataset.orderDetail); }));
   document.querySelectorAll("tr[data-order-id]").forEach(row => row.addEventListener("click", () => openOrder(row.dataset.orderId)));
   document.querySelectorAll("[data-payment-order]").forEach(button => button.addEventListener("click", () => { const order = orders.find(item => item.id === button.dataset.paymentOrder); if (order) openPaymentModal(order); }));
-  document.querySelectorAll("[data-confirm-performance]").forEach(button => button.addEventListener("click", () => confirmOrderPerformance(button.dataset.confirmPerformance)));
+  document.querySelectorAll("[data-confirm-performance]").forEach(button => button.addEventListener("click", event => { event.stopPropagation(); confirmOrderPerformance(button.dataset.confirmPerformance); }));
   document.querySelectorAll("[data-refund-review]").forEach(button => button.addEventListener("click", () => reviewRefund(button.dataset.refundReview)));
-  document.querySelector("#applyOrderFilters")?.addEventListener("click", () => { state.orderKeyword = document.querySelector("#orderKeyword")?.value || ""; state.orderPaymentStatus = document.querySelector("#orderPaymentFilter")?.value || "全部状态"; state.orderServiceStatus = document.querySelector("#orderServiceFilter")?.value || "全部状态"; state.orderPage = 1; refreshOrdersFromApi(); });
-  document.querySelector("#resetOrderFilters")?.addEventListener("click", () => { state.orderKeyword = ""; state.orderPaymentStatus = "全部状态"; state.orderServiceStatus = "全部状态"; state.orderPage = 1; refreshOrdersFromApi(); });
+  document.querySelector("#orderFilterForm")?.addEventListener("submit", event => { event.preventDefault(); state.orderCustomerId = document.querySelector("#orderCustomerId")?.value.trim() || ""; state.orderKeyword = document.querySelector("#orderKeyword")?.value || ""; state.orderPaymentStatus = document.querySelector("#orderPaymentFilter")?.value || "全部状态"; state.orderServiceStatus = document.querySelector("#orderServiceFilter")?.value || "全部状态"; state.orderPage = 1; refreshOrdersFromApi(); });
+  document.querySelector("#resetOrderFilters")?.addEventListener("click", () => { state.orderCustomerId = ""; Object.assign(state.orderDateRange, { start: "", end: "", draftStart: "", draftEnd: "", picking: "start", open: false }); state.orderKeyword = ""; state.orderPaymentStatus = "全部状态"; state.orderServiceStatus = "全部状态"; state.orderPage = 1; refreshOrdersFromApi(); });
   document.querySelector("#exportOrders")?.addEventListener("click", exportOrders);
   document.querySelector("#newContractOrder")?.addEventListener("click", () => openBusinessModal("order"));
   document.querySelector("#newPaymentRecord")?.addEventListener("click", openFirstPaymentModal);
@@ -8138,23 +8220,21 @@ async function reviewRefund(id) {
 }
 
 async function confirmOrderPerformance(id) {
-  if (!isAdmin()) { toast("仅管理员可以确认业绩"); return; }
   const order = orders.find(item => item.id === id);
   if (!order) return;
-  if (order.paid <= 0) { toast("订单尚未回款，暂不能确认业绩"); return; }
+  if (!order.canConfirmPerformance) { toast(orderConfirmationLabel(order)); return; }
   try {
     requireBackend();
     const result = await apiRequest(`/orders/${encodeURIComponent(id)}/confirmation`, { method: "PATCH", body: JSON.stringify({ confirmed: true }) });
     Object.assign(order, normalizeOrder(result));
-    render(); toast("业绩已确认并写入 MySQL");
+    render(); toast(order.performanceConfirmed ? "双方已确认，业绩确认完成" : `本人已确认，${orderConfirmationLabel(order)}`);
   } catch (error) { toast(`业绩确认失败：${error.message}`); }
 }
 
 async function confirmAllPerformance() {
-  if (!isAdmin()) { toast("仅管理员可以确认业绩"); return; }
-  const pending = orders.filter(order => !order.performanceConfirmed && order.paid > 0);
+  const pending = orders.filter(order => order.canConfirmPerformance);
   for (const order of pending) await confirmOrderPerformance(order.id);
-  if (pending.length) toast(`已确认 ${pending.length} 个订单业绩`);
+  if (pending.length) toast(`已完成本人对 ${pending.length} 个订单的确认`);
 }
 
 function exportContracts() {
@@ -8613,6 +8693,13 @@ document.addEventListener("click", event => {
     document.querySelectorAll("[data-system-user-more-menu]").forEach(item => { item.hidden = true; });
     document.querySelectorAll("[data-system-user-more-toggle]").forEach(item => item.setAttribute("aria-expanded", "false"));
   }
+  document.querySelectorAll("[data-shared-date-range]").forEach(wrapper => {
+    if (!wrapper.contains(event.target)) {
+      if (wrapper.dataset.sharedDateRange === "order") state.orderDateRange.open = false;
+      wrapper.querySelector(".date-range-popover")?.remove();
+      wrapper.querySelector("[data-range-toggle]")?.setAttribute("aria-expanded", "false");
+    }
+  });
   let filterStateChanged = false;
   if (!event.target.closest(".date-range-picker-wrap") && !event.target.closest(".advanced-date-range-control")) {
     if (state.customerDateRangePickerOpen || state.customerFollowUpDatePickerOpen || state.customerAdvancedDatePickerOpen) filterStateChanged = true;

@@ -2,10 +2,8 @@ package com.youai.crm.order;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
-import java.util.UUID;
 
 import com.youai.crm.common.NotFoundException;
 import com.youai.crm.account.AccessPolicy;
@@ -22,29 +20,48 @@ import org.springframework.util.StringUtils;
 @Transactional
 public class OrderService {
 
-    private static final DateTimeFormatter ORDER_DATE = DateTimeFormatter.ofPattern("yyyyMMddHHmmss", Locale.ROOT);
+    private static final java.security.SecureRandom ORDER_RANDOM = new java.security.SecureRandom();
+    private final com.youai.crm.account.CrmUserRepository users;
     private final SalesOrderRepository repository;
     private final AccessPolicy accessPolicy;
     private final com.youai.crm.account.UserIdentityResolver identities;
 
-    public OrderService(SalesOrderRepository repository, AccessPolicy accessPolicy, com.youai.crm.account.UserIdentityResolver identities) {
+    private final com.youai.crm.customer.CustomerRepository customers;
+    private final com.youai.crm.customer.CustomerQueryService customerQueries;
+
+    public OrderService(SalesOrderRepository repository, AccessPolicy accessPolicy, com.youai.crm.account.UserIdentityResolver identities,
+            com.youai.crm.customer.CustomerRepository customers, com.youai.crm.customer.CustomerQueryService customerQueries, com.youai.crm.account.CrmUserRepository users) {
+        this.users = users;
         this.repository = repository;
         this.accessPolicy = accessPolicy;
         this.identities = identities;
+        this.customers = customers;
+        this.customerQueries = customerQueries;
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
     public Page<OrderResponse> list(String keyword, String paymentStatus, String serviceStatus, Pageable pageable, Authentication authentication) {
+        return list(keyword, paymentStatus, serviceStatus, null, null, null, pageable, authentication);
+    }
+
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public Page<OrderResponse> list(String keyword, String paymentStatus, String serviceStatus,
+            java.time.LocalDate createdFrom, java.time.LocalDate createdTo, String customerId, Pageable pageable, Authentication authentication) {
+        if (createdFrom != null && createdTo != null && createdTo.isBefore(createdFrom))
+            throw new IllegalArgumentException("结束日期不能早于开始日期");
         String normalizedKeyword = StringUtils.hasText(keyword) ? keyword.trim().toLowerCase(Locale.ROOT) : null;
         accessPolicy.scopedOwner(authentication); // also rejects direct calls without an identity
         boolean admin = accessPolicy.isAdmin(authentication);
         var spec = (org.springframework.data.jpa.domain.Specification<SalesOrder>) (root, query, builder) -> {
             var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
-            if (!admin) predicates.add(builder.equal(root.get("ownerId"), accessPolicy.currentUserId(authentication)));
+            if (!admin) predicates.add(builder.or(builder.equal(root.get("ownerId"), accessPolicy.currentUserId(authentication)), builder.equal(root.get("confirmationSalesId"), accessPolicy.currentUserId(authentication))));
             if (normalizedKeyword != null) {
                 String like = "%" + normalizedKeyword + "%";
                 predicates.add(builder.or(builder.like(builder.lower(root.get("orderNo")), like), builder.like(builder.lower(root.get("customerName")), like)));
             }
+            if (StringUtils.hasText(customerId)) predicates.add(builder.equal(root.get("customerNo"), customerId.trim()));
+            if (createdFrom != null) predicates.add(builder.greaterThanOrEqualTo(root.get("createdAt"), createdFrom.atStartOfDay()));
+            if (createdTo != null) predicates.add(builder.lessThan(root.get("createdAt"), createdTo.plusDays(1).atStartOfDay()));
             if (StringUtils.hasText(paymentStatus)) predicates.add(builder.equal(root.get("paymentStatus"), paymentStatus.trim()));
             if (StringUtils.hasText(serviceStatus)) predicates.add(builder.equal(root.get("serviceStatus"), serviceStatus.trim()));
             return builder.and(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
@@ -52,12 +69,12 @@ public class OrderService {
         Pageable requested = pageable == null ? PageRequest.of(0, 20) : pageable;
         Pageable safe = PageRequest.of(Math.max(0, requested.getPageNumber()), Math.min(Math.max(requested.getPageSize(), 1), 100),
                 requested.getSort().isSorted() ? requested.getSort() : Sort.by(Sort.Direction.DESC, "createdAt"));
-        return repository.findAll(spec, safe).map(OrderResponse::from);
+        return repository.findAll(spec, safe).map(order -> response(order, authentication));
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
     public OrderResponse find(String orderNo, Authentication authentication) {
-        return OrderResponse.from(get(orderNo, authentication));
+        return response(get(orderNo, authentication), authentication);
     }
 
     public OrderResponse create(OrderRequest request, Authentication authentication) {
@@ -69,11 +86,11 @@ public class OrderService {
             order.setOwnerId(accessPolicy.currentUserId(authentication));
         }
         if (!accessPolicy.isAdmin(authentication)) order.setOwner(accessPolicy.currentOwner(authentication));
-        return OrderResponse.from(repository.save(order));
+        return response(repository.save(order), authentication);
     }
 
     public OrderResponse update(String orderNo, OrderRequest request, Authentication authentication) {
-        SalesOrder order = get(orderNo, authentication);
+        SalesOrder order = getForUpdate(orderNo, authentication);
         if (!accessPolicy.isAdmin(authentication) && (request.paid() == null ? BigDecimal.ZERO : request.paid()).compareTo(order.getPaidAmount()) != 0)
             throw new org.springframework.security.access.AccessDeniedException("只有管理员可以修改回款");
         apply(order, request, false, authentication);
@@ -82,36 +99,79 @@ public class OrderService {
             order.setPaymentStatus(paymentStatus(order.getAmount(), order.getPaidAmount()));
         }
         if (!accessPolicy.isAdmin(authentication)) order.setOwner(accessPolicy.currentOwner(authentication));
-        return OrderResponse.from(repository.save(order));
+        return response(repository.save(order), authentication);
     }
 
     public OrderResponse updatePayment(String orderNo, BigDecimal paid, Authentication authentication) {
         if (!accessPolicy.isAdmin(authentication)) throw new org.springframework.security.access.AccessDeniedException("只有管理员可以操作财务数据");
-        SalesOrder order = get(orderNo, authentication);
+        SalesOrder order = getForUpdate(orderNo, authentication);
         validatePaid(order.getAmount(), paid);
+        if (order.getPaidAmount().compareTo(paid) != 0) order.resetConfirmations();
         order.setPaidAmount(paid);
         order.setPaymentStatus(paymentStatus(order.getAmount(), paid));
-        return OrderResponse.from(repository.save(order));
+        return response(repository.save(order), authentication);
     }
 
     public OrderResponse updateService(String orderNo, String serviceStatus, Authentication authentication) {
         if (!StringUtils.hasText(serviceStatus)) throw new IllegalArgumentException("服务状态不能为空");
-        SalesOrder order = get(orderNo, authentication);
+        SalesOrder order = getForUpdate(orderNo, authentication);
         order.setServiceStatus(serviceStatus.trim());
-        return OrderResponse.from(repository.save(order));
+        return response(repository.save(order), authentication);
     }
 
     public OrderResponse updateConfirmation(String orderNo, boolean confirmed, Authentication authentication) {
-        if (!accessPolicy.isAdmin(authentication)) throw new org.springframework.security.access.AccessDeniedException("只有管理员可以操作财务数据");
-        SalesOrder order = get(orderNo, authentication);
-        if (confirmed && (order.getPaidAmount() == null || order.getPaidAmount().signum() <= 0)) {
-            throw new IllegalArgumentException("订单尚未回款，暂不能确认业绩");
+        SalesOrder order = repository.lockByOrderNo(orderNo)
+                .orElseThrow(() -> new NotFoundException("未找到订单：" + orderNo));
+        Long userId = accessPolicy.currentUserId(authentication);
+        boolean sales = java.util.Objects.equals(userId, order.getConfirmationSalesId()) && !accessPolicy.isAdmin(authentication);
+        boolean admin = java.util.Objects.equals(userId, order.getConfirmationAdminId()) && accessPolicy.isAdmin(authentication);
+        if (!sales && !admin) throw new org.springframework.security.access.AccessDeniedException("仅负责销售和指定管理员可分别确认本人的业绩");
+        if (!confirmed) throw new IllegalArgumentException("业绩确认不支持撤销");
+        if (!isPaymentSuccessful(order))
+            throw new IllegalArgumentException("订单支付成功后才能确认业绩");
+        if (sales && order.getSalesConfirmedAt() == null) order.setSalesConfirmedAt(LocalDateTime.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+        if (admin && order.getAdminConfirmedAt() == null) order.setAdminConfirmedAt(LocalDateTime.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+        order.setPerformanceConfirmed(order.getSalesConfirmedAt() != null && order.getAdminConfirmedAt() != null);
+        return response(repository.save(order), authentication);
+    }
+
+    private OrderResponse response(SalesOrder order, Authentication authentication) {
+        Long userId = accessPolicy.currentUserId(authentication);
+        boolean sales = !accessPolicy.isAdmin(authentication) && java.util.Objects.equals(userId, order.getConfirmationSalesId()) && order.getSalesConfirmedAt() == null;
+        boolean admin = accessPolicy.isAdmin(authentication) && java.util.Objects.equals(userId, order.getConfirmationAdminId()) && order.getAdminConfirmedAt() == null;
+        boolean canConfirm = isPaymentSuccessful(order) && !order.isPerformanceConfirmed() && (sales || admin);
+        return OrderResponse.from(order, canConfirm);
+    }
+
+    private boolean isPaymentSuccessful(SalesOrder order) {
+        return "已支付".equals(order.getPaymentStatus()) && order.getPaidAmount() != null
+                && order.getPaidAmount().signum() > 0 && order.getPaidAmount().compareTo(order.getAmount()) >= 0;
+    }
+
+    private boolean isSalesUser(com.youai.crm.account.CrmUser user) {
+        return user != null && user.isEnabled() && user.getRoles().stream().noneMatch(role -> "ADMIN".equals(role.getCode()));
+    }
+
+    private void assignConfirmers(SalesOrder order) {
+        var salesUser = order.getOwnerId() == null ? null : users.findById(order.getOwnerId()).orElse(null);
+        // The order's salesperson signs with Zhao Di; customer ownership may be unassigned or held by an administrator.
+        if (!isSalesUser(salesUser) && order.getCustomerNo() != null) {
+            var customer = customers.findByCustomerNo(order.getCustomerNo()).orElse(null);
+            salesUser = customer == null || customer.getOwnerId() == null ? null : users.findById(customer.getOwnerId()).orElse(null);
         }
-        order.setPerformanceConfirmed(confirmed);
-        return OrderResponse.from(repository.save(order));
+        Long salesId = isSalesUser(salesUser) ? salesUser.getId() : null;
+        String salesName = salesId == null ? order.getOwner() : salesUser.getDisplayName();
+        var administrator = users.findByUsernameIgnoreCase("admin").filter(user -> user.isEnabled() && user.getRoles().stream().anyMatch(role -> "ADMIN".equals(role.getCode()))).orElse(null);
+        Long adminId = administrator == null ? null : administrator.getId();
+        if (!java.util.Objects.equals(salesId, order.getConfirmationSalesId()) || !java.util.Objects.equals(adminId, order.getConfirmationAdminId())) order.resetConfirmations();
+        order.setConfirmationSalesId(salesId);
+        order.setConfirmationSalesName(salesName);
+        order.setConfirmationAdminId(adminId);
+        order.setConfirmationAdminName(administrator == null ? "赵娣" : administrator.getDisplayName());
     }
 
     private void apply(SalesOrder order, OrderRequest request, boolean creating, Authentication authentication) {
+        String originalCustomerNo = order.getCustomerNo();
         BigDecimal amount = request.amount();
         BigDecimal paid = request.paid() == null ? BigDecimal.ZERO : request.paid();
         validatePaid(amount, paid);
@@ -121,7 +181,22 @@ public class OrderService {
             order.setOrderNo(orderNo);
             order.setCreatedAt(LocalDateTime.now());
         }
-        order.setCustomerName(request.customer().trim());
+        String customerName = request.customer().trim();
+        if (StringUtils.hasText(request.customerId())) {
+            var customer = customerQueries.find(request.customerId().trim(), authentication);
+            order.setCustomerNo(customer.id());
+            customerName = customer.name();
+        } else if (creating || !customerName.equals(order.getCustomerName())) {
+            // Compatibility for callers that still send names. Never guess between namesakes.
+            var matches = customers.findAllByName(customerName).stream()
+                    .filter(customer -> accessPolicy.canAccessUserId(customer.getOwnerId(), authentication)).toList();
+            order.setCustomerNo(matches.size() == 1 ? matches.getFirst().getCustomerNo() : null);
+        }
+        if (!creating && (!java.util.Objects.equals(originalCustomerNo, order.getCustomerNo()) || !java.util.Objects.equals(order.getCustomerName(), customerName)
+                || !java.util.Objects.equals(order.getProduct(), request.product().trim())
+                || order.getAmount().compareTo(amount) != 0 || order.getPaidAmount().compareTo(paid) != 0
+                || "已取消".equals(request.status()))) order.resetConfirmations();
+        order.setCustomerName(customerName);
         order.setProduct(request.product().trim());
         order.setAmount(amount);
         order.setPaidAmount(paid);
@@ -136,6 +211,7 @@ public class OrderService {
             order.setOwner(accessPolicy.currentDisplayName(authentication));
             order.setOwnerId(accessPolicy.currentUserId(authentication));
         }
+        assignConfirmers(order);
     }
 
     private void validatePaid(BigDecimal amount, BigDecimal paid) {
@@ -150,18 +226,24 @@ public class OrderService {
     }
 
     private String nextOrderNo() {
-        String prefix = "SO" + LocalDateTime.now().format(ORDER_DATE);
-        String candidate = prefix + "01";
-        while (repository.findByOrderNo(candidate).isPresent()) {
-            candidate = prefix + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase(Locale.ROOT);
+        for (int attempt = 0; attempt < 1000; attempt++) {
+            String candidate = String.valueOf(100000 + ORDER_RANDOM.nextInt(900000));
+            if (repository.findByOrderNo(candidate).isEmpty()) return candidate;
         }
-        return candidate;
+        throw new IllegalStateException("暂时无法生成可用订单编号，请稍后重试");
+    }
+
+    private SalesOrder getForUpdate(String orderNo, Authentication authentication) {
+        SalesOrder order = repository.lockByOrderNo(orderNo).orElseThrow(() -> new NotFoundException("未找到订单：" + orderNo));
+        accessPolicy.requireUserId(order.getOwnerId(), authentication);
+        return order;
     }
 
     private SalesOrder get(String orderNo, Authentication authentication) {
         SalesOrder order = repository.findByOrderNo(orderNo)
                 .orElseThrow(() -> new NotFoundException("未找到订单：" + orderNo));
-        accessPolicy.requireUserId(order.getOwnerId(), authentication);
+        if (!accessPolicy.canAccessUserId(order.getOwnerId(), authentication) && !accessPolicy.canAccessUserId(order.getConfirmationSalesId(), authentication))
+            throw new org.springframework.security.access.AccessDeniedException("只能查看本人负责的订单");
         return order;
     }
 }

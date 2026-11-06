@@ -8,7 +8,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
 public record OrderRequest(
-        @Size(max = 32, message = "订单编号不能超过 32 个字符")
+        @jakarta.validation.constraints.Pattern(regexp = "(?:[1-9][0-9]{5})?", message = "订单编号必须为6位数字")
         String orderNo,
 
         @NotBlank(message = "客户名称不能为空")
@@ -34,5 +34,8 @@ public record OrderRequest(
 
         @NotBlank(message = "销售负责人不能为空")
         @Size(max = 32, message = "销售负责人不能超过 32 个字符")
-        String owner) {
+        String owner,
+
+        @Size(max = 32, message = "客户ID不能超过 32 个字符")
+        String customerId) {
 }

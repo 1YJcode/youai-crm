@@ -12,6 +12,10 @@ import java.util.List;
 
 public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long>, JpaSpecificationExecutor<SalesOrder> {
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select o from SalesOrder o where o.orderNo = :orderNo")
+    Optional<SalesOrder> lockByOrderNo(@Param("orderNo") String orderNo);
+
     Optional<SalesOrder> findByOrderNo(String orderNo);
 
     @Query("select coalesce(sum(o.amount), 0) from SalesOrder o where o.paymentStatus <> '已取消'")
