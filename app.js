@@ -357,7 +357,7 @@ const state = {
   editingTemplateId: null,
   activeMessageChannel: "",
   messageFilters: { keyword: "", from: "", to: "" },
-  messageListTab: "unread",
+  messageListTab: "",
   activeConversationId: 1,
   dashboardTab: "经营概览",
   dashboardFilters: { store: "", from: localDateValue(dashboardMonthStart), to: localDateValue(dashboardToday) },
@@ -3679,6 +3679,7 @@ function customerMessagesView() {
 function customerMessagesInteractiveView(active, messages) {
   const systemActive = state.activeMessageChannel === "system";
   const reminders = systemReminderRows();
+  const latestReminder = reminders.find(row => row.at && Number.isFinite(new Date(row.at).getTime()));
   const unreadReminders = reminders.filter(row => {
     const task = tasks.find(item => String(item.id) === String(row.taskId));
     return !task?.done && notificationIsDue(row) && !state.notificationRead[row.id];
@@ -3691,18 +3692,18 @@ function customerMessagesInteractiveView(active, messages) {
     const day = String(conversation.lastMessageAt || "").slice(0, 10);
     if ((filters.from || filters.to) && !day) return false;
     if (filters.from && day < filters.from || filters.to && day > filters.to) return false;
-    return state.messageListTab === "replies" || conversation.unread > 0;
+    return state.messageListTab !== "unread" || conversation.unread > 0;
   });
-  const showSystem = state.messageListTab === "unread" && !filters.keyword && !filters.from && !filters.to;
+  const showSystem = state.messageListTab !== "replies" && (state.messageListTab !== "unread" || unreadReminders.length > 0) && !filters.keyword && !filters.from && !filters.to;
   const totalUnread = unreadReminders.length + conversations.reduce((sum, item) => sum + item.unread, 0);
   return `<section class="page compact-message-page">${subnav(["消息管理", "短信记录"], "消息管理", ["消息管理", "短信记录"])}<div class="page-content compact-message-content">
     <form class="message-management-filters" id="messageFilterForm"><label>ID/手机号码：<input id="messageIdentity" placeholder="输入ID/手机号" value="${escapeHtml(filters.keyword)}"></label><fieldset><legend>回复时间</legend><span>回复时间：</span><div class="message-date-range"><label class="message-date-field" data-empty="${!filters.from}"><input id="messageReplyFrom" type="date" aria-label="回复开始日期" value="${escapeHtml(filters.from)}"><span class="message-date-placeholder" aria-hidden="true">开始日期</span></label><span class="date-separator">—</span><label class="message-date-field" data-empty="${!filters.to}"><input id="messageReplyTo" type="date" aria-label="回复结束日期" value="${escapeHtml(filters.to)}"><span class="message-date-placeholder" aria-hidden="true">结束日期</span></label></div></fieldset><button class="button primary" type="submit">查询</button><button class="button ghost" id="resetMessageFilters" type="button">重置</button></form>
-    <section class="message-layout"><aside class="conversation-list"><header class="message-list-heading"><h2>消息${totalUnread ? `<span class="unread">${totalUnread}</span>` : ""}</h2><span>共 ${conversations.length + 1} 个会话</span></header><div class="message-list-tabs"><button type="button" data-message-list-tab="unread" class="${state.messageListTab === "unread" ? "active" : ""}">尚未阅读</button><button type="button" data-message-list-tab="replies" class="${state.messageListTab === "replies" ? "active" : ""}">客户回复</button></div><div class="message-list-items">${showSystem ? `<article class="conversation-item system-conversation ${systemActive ? "active" : ""}" data-system-message-channel><span class="system-message-avatar">${icon("bell")}</span><div class="conversation-copy"><strong>系统消息</strong><span>${reminders.length ? `共 ${reminders.length} 条跟进提醒，${unreadReminders.length} 条未读` : "暂无跟进提醒"}</span></div><div class="conversation-meta">${unreadReminders.length ? `<span class="unread">${unreadReminders.length}</span>` : ""}</div></article>` : ""}${visibleConversations.map(conversation => `<article class="conversation-item ${state.activeMessageChannel === "conversation" && conversation.id === active?.id ? "active" : ""}" data-conversation="${escapeHtml(conversation.id)}"><span class="person-avatar">${escapeHtml(conversation.name?.[0] || "客")}</span><div class="conversation-copy"><strong>${escapeHtml(conversation.name)}</strong><span>${escapeHtml(conversation.preview || "")}</span></div><div class="conversation-meta"><time>${escapeHtml(conversation.time || "")}</time>${conversation.unread ? `<span class="unread">${conversation.unread}</span>` : ""}</div></article>`).join("")}<div class="message-list-end">${visibleConversations.length || showSystem ? "没有更多了" : "暂无符合条件的消息"}</div></div><footer class="message-list-actions"><button class="button ghost" id="markAllRead" type="button">全部已读</button><button class="button ghost" id="newConversation" type="button">新建会话</button></footer></aside><div class="chat-pane">${systemActive ? systemMessageThreadView(reminders) : state.activeMessageChannel === "conversation" && active ? `<header class="chat-header"><h2>${escapeHtml(active.name)}</h2><p>${escapeHtml(active.company || "")}</p></header><div class="messages" id="messageThread">${messages.map(message => `<div class="message ${message.outgoing ? "outgoing" : ""}"><span class="person-avatar">${escapeHtml(message.sender?.[0] || "客")}</span><div class="message-bubble">${escapeHtml(message.content)}<time>${escapeHtml(message.time || "")}</time></div></div>`).join("") || `<div class="empty-state">暂无消息，发送第一条消息开始沟通</div>`}</div><form class="composer" id="messageForm"><textarea id="messageInput" placeholder="输入消息内容，Enter 发送"></textarea><button class="button primary" type="submit">发送</button></form>` : ""}</div></section></div></section>`;
+    <section class="message-layout"><aside class="conversation-list"><header class="message-list-heading"><h2>消息${totalUnread ? `<span class="unread">${totalUnread}</span>` : ""}</h2><span>共 ${conversations.length} 个会话</span></header><div class="message-list-tabs"><button type="button" data-message-list-tab="unread" class="${state.messageListTab === "unread" ? "active" : ""}">尚未阅读</button><button type="button" data-message-list-tab="replies" class="${state.messageListTab === "replies" ? "active" : ""}">客户回复</button></div><div class="message-list-items">${showSystem ? `<article class="conversation-item system-conversation ${systemActive ? "active" : ""}" data-system-message-channel><span class="system-message-avatar">${icon("bell")}</span><div class="conversation-copy"><strong>系统消息</strong><span>${reminders.length ? `共 ${reminders.length} 条跟进提醒，${unreadReminders.length} 条未读` : "暂无跟进提醒"}</span></div><div class="conversation-meta">${latestReminder ? `<time datetime="${escapeHtml(latestReminder.at)}" title="提醒时间：${escapeHtml(formatDateTime(latestReminder.at))}">${escapeHtml(formatDateTime(latestReminder.at).slice(5))}</time>` : ""}${unreadReminders.length ? `<span class="unread">${unreadReminders.length}</span>` : ""}</div></article>` : ""}${visibleConversations.map(conversation => `<article class="conversation-item ${state.activeMessageChannel === "conversation" && conversation.id === active?.id ? "active" : ""}" data-conversation="${escapeHtml(conversation.id)}"><span class="person-avatar">${escapeHtml(conversation.name?.[0] || "客")}</span><div class="conversation-copy"><strong>${escapeHtml(conversation.name)}</strong><span>${escapeHtml(conversation.preview || "")}</span></div><div class="conversation-meta"><time>${escapeHtml(conversation.time || "")}</time>${conversation.unread ? `<span class="unread">${conversation.unread}</span>` : ""}</div></article>`).join("")}<div class="message-list-end">${visibleConversations.length || showSystem ? "没有更多了" : "暂无符合条件的消息"}</div></div></aside><div class="chat-pane">${systemActive ? systemMessageThreadView(reminders) : state.activeMessageChannel === "conversation" && active ? `<header class="chat-header"><h2>${escapeHtml(active.name)}</h2><p>${escapeHtml(active.company || "")}</p></header><div class="messages" id="messageThread">${messages.map(message => `<div class="message ${message.outgoing ? "outgoing" : ""}"><span class="person-avatar">${escapeHtml(message.sender?.[0] || "客")}</span><div class="message-bubble">${escapeHtml(message.content)}<time>${escapeHtml(message.time || "")}</time></div></div>`).join("") || `<div class="empty-state">暂无消息，发送第一条消息开始沟通</div>`}</div><form class="composer" id="messageForm"><textarea id="messageInput" placeholder="输入消息内容，Enter 发送"></textarea><button class="button primary" type="submit">发送</button></form>` : ""}</div></section></div></section>`;
 }
 
 function systemMessageThreadView(reminders) {
   const now = Date.now();
-  return `<header class="chat-header system-message-header"><div><h2>系统消息</h2><p>跟进任务提醒仅对任务所属员工显示</p></div>${reminders.length ? `<button class="button secondary" id="markAllSystemMessages" type="button">${icon("check")}全部已读</button>` : ""}</header><div class="messages system-message-thread" id="messageThread">${reminders.length ? reminders.map(row => {
+  return `<header class="chat-header system-message-header"><div><h2>系统消息</h2><p>跟进任务提醒仅对任务所属员工显示</p></div><div class="inline-actions">${reminders.length ? `<button class="button secondary" id="markAllSystemMessages" type="button">${icon("check")}全部已读</button>` : ""}<button class="button secondary" id="closeSystemMessages" type="button" aria-label="关闭系统消息">关闭</button></div></header><div class="messages system-message-thread" id="messageThread">${reminders.length ? reminders.map(row => {
     const task = tasks.find(item => String(item.id) === String(row.taskId));
     const read = Boolean(task?.done || state.notificationRead[row.id]);
     const dueTime = new Date(task?.dueAt || row.at).getTime();
@@ -8037,11 +8038,13 @@ function bindViewEvents() {
     render();
   });
   document.querySelectorAll("[data-message-list-tab]").forEach(button => button.addEventListener("click", () => {
-    state.messageListTab = button.dataset.messageListTab;
+    state.messageListTab = state.messageListTab === button.dataset.messageListTab ? "" : button.dataset.messageListTab;
+    state.activeMessageChannel = "";
     render();
   }));
   document.querySelectorAll("[data-conversation]").forEach(item => item.addEventListener("click", () => selectConversation(item.dataset.conversation)));
-  document.querySelector("[data-system-message-channel]")?.addEventListener("click", () => { state.activeMessageChannel = "system"; render(); });
+  document.querySelector("[data-system-message-channel]")?.addEventListener("click", () => { state.activeMessageChannel = state.activeMessageChannel === "system" ? "" : "system"; render(); });
+  document.querySelector("#closeSystemMessages")?.addEventListener("click", () => { state.activeMessageChannel = ""; render(); });
   if (state.view === "messages" && state.messageSection === "消息管理" && state.activeMessageChannel === "system") {
     markViewedSystemRemindersRead();
   }
