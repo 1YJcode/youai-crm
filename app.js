@@ -355,7 +355,9 @@ const state = {
   messageTemplates: JSON.parse(localStorage.getItem("youai.crm.messageTemplates") || "null") || defaultMessageTemplates,
   messageTemplateSearch: "",
   editingTemplateId: null,
-  activeMessageChannel: "system",
+  activeMessageChannel: "",
+  messageFilters: { keyword: "", from: "", to: "" },
+  messageListTab: "unread",
   activeConversationId: 1,
   dashboardTab: "经营概览",
   dashboardFilters: { store: "", from: localDateValue(dashboardMonthStart), to: localDateValue(dashboardToday) },
@@ -3671,14 +3673,7 @@ function customerMessagesView() {
   const active = conversations.find(item => item.id === state.activeConversationId) || conversations[0];
   const messages = active ? (conversationMessages.get(active.id) || []) : [];
   return customerMessagesInteractiveView(active, messages);
-  const messageDates = ["2025-08-19", "2025-08-18", "2025-08-18", "2025-08-18"];
-  return `<section class="page message-reference-page">${subnav(["消息管理", "短信记录"], "消息管理", ["消息管理", "短信记录"])}<div class="message-reference-content"><section class="message-reference-layout"><aside class="message-reference-list"><h2>消息</h2><span class="message-count">共 ${conversations.length + 1} 个会话</span><div class="message-reference-tabs"><button class="active">尚未阅读</button><button>客户回复</button></div><div class="message-reference-items"><article class="message-reference-item active"><span class="system-message-icon">${icon("bell")}</span><div><strong>系统消息</strong><time>星期六 10:38</time><p>修改需求提醒</p></div></article>${conversations.map((conversation, index) => `<article class="message-reference-item" data-conversation="${conversation.id}"><span class="person-avatar" style="background:${conversation.color}">${escapeHtml(conversation.name[0])}</span><div><strong>${escapeHtml(conversation.name.replace(/(.{1,3}).*/, "$1****"))}</strong><time>${messageDates[index] || "2025-08-18"}</time><p>${escapeHtml(conversation.preview)}</p></div></article>`).join("")}</div></aside><div class="message-reference-empty"></div></section></div></section>`;
-  /* Existing CRM conversation layout retained below for reference. */
-  /* return `<section class="page">${subnav(["消息管理", "短信记录"], "消息管理", ["消息管理", "短信记录"])}<div class="page-content">
-    ${pageHeading(`<button class="button secondary" id="markAllRead" type="button">${icon("check")}全部已读</button><button class="button primary" id="newConversation" type="button">${icon("plus")}新建会话</button>`)}
-    <section class="message-layout"><aside class="conversation-list"><div class="conversation-search"><label class="global-search">${icon("search")}<input id="conversationSearch" placeholder="搜索会话"></label></div>${conversations.map(conversation => `<article class="conversation-item ${conversation.id === active?.id ? "active" : ""}" data-conversation="${conversation.id}"><span class="person-avatar" style="background:${conversation.color}">${escapeHtml(conversation.name[0])}</span><div class="conversation-copy"><strong>${escapeHtml(conversation.name)}</strong><span>${escapeHtml(conversation.preview)}</span></div><div class="conversation-meta"><time>${escapeHtml(conversation.time)}</time>${conversation.unread ? `<span class="unread">${conversation.unread}</span>` : ""}</div></article>`).join("")}</aside>
-    <div class="chat-pane">${active ? `<header class="chat-header"><div><h2>${escapeHtml(active.name)} <span class="pill blue">重点客户</span></h2><p>在线 · ${escapeHtml(active.company)}</p></div><div class="inline-actions"><button class="icon-button" data-call-name="${escapeHtml(active.name)}" aria-label="记录通话">${icon("phone")}</button><button class="icon-button" data-open-customer="${escapeHtml(active.customerId)}" aria-label="客户详情">${icon("users")}</button></div></header><div class="messages" id="messageThread">${messages.map(message => `<div class="message ${message.outgoing ? "outgoing" : ""}"><span class="person-avatar">${escapeHtml(message.sender?.[0] || "客")}</span><div class="message-bubble">${escapeHtml(message.content)}<time>${escapeHtml(message.time)}</time></div></div>`).join("") || `<div class="empty-state">暂无消息，发送第一条消息开始沟通</div>`}</div><form class="composer" id="messageForm"><textarea id="messageInput" placeholder="输入消息内容，Enter 发送"></textarea><button class="button primary" type="submit">发送</button></form>` : `<div class="empty-state"><strong>还没有会话</strong><p>点击“新建会话”选择客户</p></div>`}</div></section>
-  </div></section>`; */
+
 }
 
 function customerMessagesInteractiveView(active, messages) {
@@ -3688,9 +3683,21 @@ function customerMessagesInteractiveView(active, messages) {
     const task = tasks.find(item => String(item.id) === String(row.taskId));
     return !task?.done && notificationIsDue(row) && !state.notificationRead[row.id];
   });
+  const filters = state.messageFilters;
+  const visibleConversations = conversations.filter(conversation => {
+    const customer = customers.find(item => String(item.id) === String(conversation.customerId));
+    const identity = [conversation.customerId, conversation.name, customer?.phone].filter(Boolean).join(" ").toLowerCase();
+    if (filters.keyword && !identity.includes(filters.keyword.toLowerCase())) return false;
+    const day = String(conversation.lastMessageAt || "").slice(0, 10);
+    if ((filters.from || filters.to) && !day) return false;
+    if (filters.from && day < filters.from || filters.to && day > filters.to) return false;
+    return state.messageListTab === "replies" || conversation.unread > 0;
+  });
+  const showSystem = state.messageListTab === "unread" && !filters.keyword && !filters.from && !filters.to;
+  const totalUnread = unreadReminders.length + conversations.reduce((sum, item) => sum + item.unread, 0);
   return `<section class="page compact-message-page">${subnav(["消息管理", "短信记录"], "消息管理", ["消息管理", "短信记录"])}<div class="page-content compact-message-content">
-    ${pageHeading(`<button class="button secondary" id="markAllRead" type="button">${icon("check")}全部已读</button><button class="button primary" id="newConversation" type="button">${icon("plus")}新建会话</button>`)}
-    <section class="message-layout"><aside class="conversation-list"><div class="conversation-search"><label class="global-search">${icon("search")}<input id="conversationSearch" placeholder="搜索会话"></label></div><article class="conversation-item system-conversation ${systemActive ? "active" : ""}" data-system-message-channel><span class="system-message-avatar">${icon("bell")}</span><div class="conversation-copy"><strong>系统消息</strong><span>${reminders.length ? `共 ${reminders.length} 条跟进提醒，${unreadReminders.length} 条未读` : "暂无跟进提醒"}</span></div><div class="conversation-meta">${unreadReminders.length ? `<span class="unread">${unreadReminders.length}</span>` : ""}</div></article>${conversations.map(conversation => `<article class="conversation-item ${!systemActive && conversation.id === active?.id ? "active" : ""}" data-conversation="${escapeHtml(conversation.id)}"><span class="person-avatar">${escapeHtml(conversation.name?.[0] || "客")}</span><div class="conversation-copy"><strong>${escapeHtml(conversation.name)}</strong><span>${escapeHtml(conversation.preview || "")}</span></div><div class="conversation-meta"><time>${escapeHtml(conversation.time || "")}</time>${conversation.unread ? `<span class="unread">${conversation.unread}</span>` : ""}</div></article>`).join("")}</aside><div class="chat-pane">${systemActive ? systemMessageThreadView(reminders) : active ? `<header class="chat-header"><h2>${escapeHtml(active.name)}</h2><p>${escapeHtml(active.company || "")}</p></header><div class="messages" id="messageThread">${messages.map(message => `<div class="message ${message.outgoing ? "outgoing" : ""}"><span class="person-avatar">${escapeHtml(message.sender?.[0] || "客")}</span><div class="message-bubble">${escapeHtml(message.content)}<time>${escapeHtml(message.time || "")}</time></div></div>`).join("") || `<div class="empty-state">暂无消息，发送第一条消息开始沟通</div>`}</div><form class="composer" id="messageForm"><textarea id="messageInput" placeholder="输入消息内容，Enter 发送"></textarea><button class="button primary" type="submit">发送</button></form>` : `<div class="empty-state">还没有会话</div>`}</div></section></div></section>`;
+    <form class="message-management-filters" id="messageFilterForm"><label>ID/手机号码：<input id="messageIdentity" placeholder="输入ID/手机号" value="${escapeHtml(filters.keyword)}"></label><fieldset><legend>回复时间</legend><span>回复时间：</span><div class="message-date-range"><label class="message-date-field" data-empty="${!filters.from}"><input id="messageReplyFrom" type="date" aria-label="回复开始日期" value="${escapeHtml(filters.from)}"><span class="message-date-placeholder" aria-hidden="true">开始日期</span></label><span class="date-separator">—</span><label class="message-date-field" data-empty="${!filters.to}"><input id="messageReplyTo" type="date" aria-label="回复结束日期" value="${escapeHtml(filters.to)}"><span class="message-date-placeholder" aria-hidden="true">结束日期</span></label></div></fieldset><button class="button primary" type="submit">查询</button><button class="button ghost" id="resetMessageFilters" type="button">重置</button></form>
+    <section class="message-layout"><aside class="conversation-list"><header class="message-list-heading"><h2>消息${totalUnread ? `<span class="unread">${totalUnread}</span>` : ""}</h2><span>共 ${conversations.length + 1} 个会话</span></header><div class="message-list-tabs"><button type="button" data-message-list-tab="unread" class="${state.messageListTab === "unread" ? "active" : ""}">尚未阅读</button><button type="button" data-message-list-tab="replies" class="${state.messageListTab === "replies" ? "active" : ""}">客户回复</button></div><div class="message-list-items">${showSystem ? `<article class="conversation-item system-conversation ${systemActive ? "active" : ""}" data-system-message-channel><span class="system-message-avatar">${icon("bell")}</span><div class="conversation-copy"><strong>系统消息</strong><span>${reminders.length ? `共 ${reminders.length} 条跟进提醒，${unreadReminders.length} 条未读` : "暂无跟进提醒"}</span></div><div class="conversation-meta">${unreadReminders.length ? `<span class="unread">${unreadReminders.length}</span>` : ""}</div></article>` : ""}${visibleConversations.map(conversation => `<article class="conversation-item ${state.activeMessageChannel === "conversation" && conversation.id === active?.id ? "active" : ""}" data-conversation="${escapeHtml(conversation.id)}"><span class="person-avatar">${escapeHtml(conversation.name?.[0] || "客")}</span><div class="conversation-copy"><strong>${escapeHtml(conversation.name)}</strong><span>${escapeHtml(conversation.preview || "")}</span></div><div class="conversation-meta"><time>${escapeHtml(conversation.time || "")}</time>${conversation.unread ? `<span class="unread">${conversation.unread}</span>` : ""}</div></article>`).join("")}<div class="message-list-end">${visibleConversations.length || showSystem ? "没有更多了" : "暂无符合条件的消息"}</div></div><footer class="message-list-actions"><button class="button ghost" id="markAllRead" type="button">全部已读</button><button class="button ghost" id="newConversation" type="button">新建会话</button></footer></aside><div class="chat-pane">${systemActive ? systemMessageThreadView(reminders) : state.activeMessageChannel === "conversation" && active ? `<header class="chat-header"><h2>${escapeHtml(active.name)}</h2><p>${escapeHtml(active.company || "")}</p></header><div class="messages" id="messageThread">${messages.map(message => `<div class="message ${message.outgoing ? "outgoing" : ""}"><span class="person-avatar">${escapeHtml(message.sender?.[0] || "客")}</span><div class="message-bubble">${escapeHtml(message.content)}<time>${escapeHtml(message.time || "")}</time></div></div>`).join("") || `<div class="empty-state">暂无消息，发送第一条消息开始沟通</div>`}</div><form class="composer" id="messageForm"><textarea id="messageInput" placeholder="输入消息内容，Enter 发送"></textarea><button class="button primary" type="submit">发送</button></form>` : ""}</div></section></div></section>`;
 }
 
 function systemMessageThreadView(reminders) {
@@ -7999,6 +8006,40 @@ function bindViewEvents() {
   document.querySelector("#ledgerForm")?.addEventListener("submit", async event => { event.preventDefault(); const submit=event.currentTarget.querySelector('[type="submit"]'); submit.disabled=true; try { const saved=normalizeLedger(await apiRequest("/ledger-accounts",{method:"POST",body:JSON.stringify(Object.fromEntries(new FormData(event.currentTarget)))})); ledgerAccounts.unshift(saved); state.ledgerModalOpen=false; render(); toast("分账记录已创建并写入数据库"); } catch(error){ toast(`创建失败：${error.message}`); submit.disabled=false; } });
   document.querySelectorAll("[data-execute-ledger]").forEach(button => button.addEventListener("click", async () => { if(!window.confirm("确认执行这笔分账吗？")) return; try { const saved=normalizeLedger(await apiRequest(`/ledger-accounts/${encodeURIComponent(button.dataset.executeLedger)}/execute`,{method:"PATCH"})); const index=ledgerAccounts.findIndex(row=>row.id===saved.id); if(index>=0) ledgerAccounts[index]=saved; render(); toast("分账执行成功"); } catch(error){ toast(`执行失败：${error.message}`); } }));
 
+  document.querySelectorAll(".message-date-field input").forEach(input => {
+    input.addEventListener("input", () => {
+      input.closest(".message-date-field").dataset.empty = String(!input.value);
+    });
+    const openCalendar = () => {
+      if (typeof input.showPicker === "function") {
+        try { input.showPicker(); } catch { /* Keep native date entry available. */ }
+      }
+    };
+    input.addEventListener("focus", openCalendar);
+    input.addEventListener("click", openCalendar);
+  });
+  document.querySelector("#messageReplyFrom")?.addEventListener("change", event => {
+    if (event.target.value) {
+      // Moving focus opens the end-date calendar through its focus handler.
+      document.querySelector("#messageReplyTo")?.focus();
+    }
+  });
+  document.querySelector("#messageFilterForm")?.addEventListener("submit", event => {
+    event.preventDefault();
+    const from = document.querySelector("#messageReplyFrom").value;
+    const to = document.querySelector("#messageReplyTo").value;
+    if (from && to && from > to) { toast("开始日期不能晚于结束日期"); return; }
+    state.messageFilters = { keyword: document.querySelector("#messageIdentity").value.trim(), from, to };
+    render();
+  });
+  document.querySelector("#resetMessageFilters")?.addEventListener("click", () => {
+    state.messageFilters = { keyword: "", from: "", to: "" };
+    render();
+  });
+  document.querySelectorAll("[data-message-list-tab]").forEach(button => button.addEventListener("click", () => {
+    state.messageListTab = button.dataset.messageListTab;
+    render();
+  }));
   document.querySelectorAll("[data-conversation]").forEach(item => item.addEventListener("click", () => selectConversation(item.dataset.conversation)));
   document.querySelector("[data-system-message-channel]")?.addEventListener("click", () => { state.activeMessageChannel = "system"; render(); });
   if (state.view === "messages" && state.messageSection === "消息管理" && state.activeMessageChannel === "system") {
