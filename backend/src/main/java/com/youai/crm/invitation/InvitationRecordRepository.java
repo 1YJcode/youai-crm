@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 public interface InvitationRecordRepository extends JpaRepository<InvitationRecord, Long>, JpaSpecificationExecutor<InvitationRecord> {
+    Optional<InvitationRecord> findFirstByRelatedOrderNoOrderByIdDesc(String orderNo);
     Optional<InvitationRecord> findByInvitationNo(String invitationNo);
 
     @Query("select count(distinct i.customerNo) from InvitationRecord i where (:owner is null or i.inviter = :owner) "

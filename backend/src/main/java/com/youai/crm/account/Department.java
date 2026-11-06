@@ -24,12 +24,17 @@ public class Department {
     @Column(nullable = false, length = 64)
     private String name;
 
+    @Column(name = "store_name", length = 64)
+    private String storeName;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
     @PrePersist
     void onCreate() { createdAt = LocalDateTime.now(); }
 
+    public String getStoreName() { return storeName; }
+    public void setStoreName(String value) { storeName = value; }
     public Long getId() { return id; }
     public String getCode() { return code; }
     public void setCode(String code) { this.code = code; }

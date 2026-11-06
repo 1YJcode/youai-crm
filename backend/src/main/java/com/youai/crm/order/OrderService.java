@@ -23,14 +23,18 @@ public class OrderService {
     private static final java.security.SecureRandom ORDER_RANDOM = new java.security.SecureRandom();
     private final com.youai.crm.account.CrmUserRepository users;
     private final SalesOrderRepository repository;
+    private final com.youai.crm.invitation.InvitationRecordRepository invitations;
+    private final SalesContractRepository contracts;
     private final AccessPolicy accessPolicy;
     private final com.youai.crm.account.UserIdentityResolver identities;
 
     private final com.youai.crm.customer.CustomerRepository customers;
     private final com.youai.crm.customer.CustomerQueryService customerQueries;
 
-    public OrderService(SalesOrderRepository repository, AccessPolicy accessPolicy, com.youai.crm.account.UserIdentityResolver identities,
-            com.youai.crm.customer.CustomerRepository customers, com.youai.crm.customer.CustomerQueryService customerQueries, com.youai.crm.account.CrmUserRepository users) {
+    public OrderService(SalesContractRepository contracts, SalesOrderRepository repository, AccessPolicy accessPolicy, com.youai.crm.account.UserIdentityResolver identities,
+            com.youai.crm.customer.CustomerRepository customers, com.youai.crm.customer.CustomerQueryService customerQueries, com.youai.crm.account.CrmUserRepository users, com.youai.crm.invitation.InvitationRecordRepository invitations) {
+        this.invitations = invitations;
+        this.contracts = contracts;
         this.users = users;
         this.repository = repository;
         this.accessPolicy = accessPolicy;
@@ -47,6 +51,13 @@ public class OrderService {
     @Transactional(Transactional.TxType.SUPPORTS)
     public Page<OrderResponse> list(String keyword, String paymentStatus, String serviceStatus,
             java.time.LocalDate createdFrom, java.time.LocalDate createdTo, String customerId, Pageable pageable, Authentication authentication) {
+        return list(keyword, paymentStatus, serviceStatus, createdFrom, createdTo, customerId, null, null, pageable, authentication);
+    }
+
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public Page<OrderResponse> list(String keyword, String paymentStatus, String serviceStatus,
+            java.time.LocalDate createdFrom, java.time.LocalDate createdTo, String customerId,
+            Long ownerId, String inviter, Pageable pageable, Authentication authentication) {
         if (createdFrom != null && createdTo != null && createdTo.isBefore(createdFrom))
             throw new IllegalArgumentException("结束日期不能早于开始日期");
         String normalizedKeyword = StringUtils.hasText(keyword) ? keyword.trim().toLowerCase(Locale.ROOT) : null;
@@ -63,13 +74,65 @@ public class OrderService {
             if (createdFrom != null) predicates.add(builder.greaterThanOrEqualTo(root.get("createdAt"), createdFrom.atStartOfDay()));
             if (createdTo != null) predicates.add(builder.lessThan(root.get("createdAt"), createdTo.plusDays(1).atStartOfDay()));
             if (StringUtils.hasText(paymentStatus)) predicates.add(builder.equal(root.get("paymentStatus"), paymentStatus.trim()));
-            if (StringUtils.hasText(serviceStatus)) predicates.add(builder.equal(root.get("serviceStatus"), serviceStatus.trim()));
+            if (StringUtils.hasText(serviceStatus)) {
+                if ("__empty__".equals(serviceStatus)) predicates.add(builder.or(builder.isNull(root.get("serviceStatus")), builder.equal(root.get("serviceStatus"), "")));
+                else predicates.add(builder.equal(root.get("serviceStatus"), serviceStatus.trim()));
+            }
+            if (ownerId != null) predicates.add(builder.equal(root.get("ownerId"), ownerId));
+            if (StringUtils.hasText(inviter)) {
+                if ("__empty__".equals(inviter)) {
+                    var linked = query.subquery(Long.class);
+                    var invitation = linked.from(com.youai.crm.invitation.InvitationRecord.class);
+                    linked.select(invitation.get("id")).where(builder.equal(invitation.get("relatedOrderNo"), root.get("orderNo")));
+                    predicates.add(builder.not(builder.exists(linked)));
+                } else {
+                    var latest = query.subquery(Long.class);
+                    var allInvitations = latest.from(com.youai.crm.invitation.InvitationRecord.class);
+                    latest.select(builder.max(allInvitations.<Long>get("id"))).where(builder.equal(allInvitations.get("relatedOrderNo"), root.get("orderNo")));
+                    var matching = query.subquery(Long.class);
+                    var invitation = matching.from(com.youai.crm.invitation.InvitationRecord.class);
+                    matching.select(invitation.get("id")).where(builder.equal(invitation.get("id"), latest), builder.equal(invitation.get("inviter"), inviter.trim()));
+                    predicates.add(builder.exists(matching));
+                }
+            }
             return builder.and(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
         };
         Pageable requested = pageable == null ? PageRequest.of(0, 20) : pageable;
         Pageable safe = PageRequest.of(Math.max(0, requested.getPageNumber()), Math.min(Math.max(requested.getPageSize(), 1), 100),
                 requested.getSort().isSorted() ? requested.getSort() : Sort.by(Sort.Direction.DESC, "createdAt"));
         return repository.findAll(spec, safe).map(order -> response(order, authentication));
+    }
+
+    public record FilterOption(String value, String label) {}
+    public record FilterOptions(List<FilterOption> sales, List<FilterOption> inviters, List<FilterOption> paymentStatuses, List<FilterOption> serviceStatuses) {}
+
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public FilterOptions filterOptions(Authentication authentication) {
+        Long userId = accessPolicy.currentUserId(authentication);
+        boolean admin = accessPolicy.isAdmin(authentication);
+        var sales = new java.util.TreeMap<String, String>();
+        var payments = new java.util.TreeMap<String, String>();
+        var services = new java.util.TreeMap<String, String>();
+        for (Object[] row : repository.visibleFilterValues(admin, userId)) {
+            if (admin && row[0] != null) sales.put(row[0].toString(), (String) row[1]);
+            if (row[2] != null) payments.put(row[2].toString(), "已支付".equals(row[2]) ? "支付成功" : row[2].toString());
+            String service = row[3] == null ? "" : row[3].toString();
+            services.put(service.isEmpty() ? "__empty__" : service, service.isEmpty() ? "空" : service);
+        }
+        // The account directory supplies the complete selectable roster, including people with no orders.
+        // Keep historical order owners for administrators so old orders remain searchable after an account is disabled.
+        for (var employee : users.findAllByEnabledTrueOrderByDisplayNameAsc()) {
+            if (isSalesUser(employee) && (admin || employee.getId().equals(userId)))
+                sales.put(employee.getId().toString(), employee.getDisplayName());
+        }
+        var inviters = new java.util.ArrayList<FilterOption>();
+        inviters.add(new FilterOption("__empty__", "未关联邀约"));
+        repository.visibleInviters(admin, userId).forEach(value -> inviters.add(new FilterOption(value, value)));
+        return new FilterOptions(options(sales), inviters, options(payments), options(services));
+    }
+
+    private List<FilterOption> options(java.util.Map<String, String> values) {
+        return values.entrySet().stream().map(entry -> new FilterOption(entry.getKey(), entry.getValue())).toList();
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
@@ -86,7 +149,9 @@ public class OrderService {
             order.setOwnerId(accessPolicy.currentUserId(authentication));
         }
         if (!accessPolicy.isAdmin(authentication)) order.setOwner(accessPolicy.currentOwner(authentication));
-        return response(repository.save(order), authentication);
+        repository.saveAndFlush(order);
+        contracts.save(SalesContract.from(order));
+        return response(order, authentication);
     }
 
     public OrderResponse update(String orderNo, OrderRequest request, Authentication authentication) {
@@ -109,13 +174,16 @@ public class OrderService {
         if (order.getPaidAmount().compareTo(paid) != 0) order.resetConfirmations();
         order.setPaidAmount(paid);
         order.setPaymentStatus(paymentStatus(order.getAmount(), paid));
+        order.setServiceStatus("已支付".equals(order.getPaymentStatus()) ? "待启用" : "");
         return response(repository.save(order), authentication);
     }
 
     public OrderResponse updateService(String orderNo, String serviceStatus, Authentication authentication) {
         if (!StringUtils.hasText(serviceStatus)) throw new IllegalArgumentException("服务状态不能为空");
         SalesOrder order = getForUpdate(orderNo, authentication);
-        order.setServiceStatus(serviceStatus.trim());
+        String expected = "已支付".equals(order.getPaymentStatus()) ? "待启用" : "";
+        if (!expected.equals(serviceStatus.trim())) throw new IllegalArgumentException("服务状态由订单支付状态确定");
+        order.setServiceStatus(expected);
         return response(repository.save(order), authentication);
     }
 
@@ -140,7 +208,8 @@ public class OrderService {
         boolean sales = !accessPolicy.isAdmin(authentication) && java.util.Objects.equals(userId, order.getConfirmationSalesId()) && order.getSalesConfirmedAt() == null;
         boolean admin = accessPolicy.isAdmin(authentication) && java.util.Objects.equals(userId, order.getConfirmationAdminId()) && order.getAdminConfirmedAt() == null;
         boolean canConfirm = isPaymentSuccessful(order) && !order.isPerformanceConfirmed() && (sales || admin);
-        return OrderResponse.from(order, canConfirm);
+        String inviter = invitations.findFirstByRelatedOrderNoOrderByIdDesc(order.getOrderNo()).map(com.youai.crm.invitation.InvitationRecord::getInviter).orElse(null);
+        return OrderResponse.from(order, canConfirm, inviter);
     }
 
     private boolean isPaymentSuccessful(SalesOrder order) {
@@ -171,6 +240,7 @@ public class OrderService {
     }
 
     private void apply(SalesOrder order, OrderRequest request, boolean creating, Authentication authentication) {
+        Long originalOwnerId = order.getOwnerId();
         String originalCustomerNo = order.getCustomerNo();
         BigDecimal amount = request.amount();
         BigDecimal paid = request.paid() == null ? BigDecimal.ZERO : request.paid();
@@ -201,7 +271,7 @@ public class OrderService {
         order.setAmount(amount);
         order.setPaidAmount(paid);
         order.setPaymentStatus(StringUtils.hasText(request.status()) ? request.status().trim() : paymentStatus(amount, paid));
-        order.setServiceStatus(StringUtils.hasText(request.service()) ? request.service().trim() : "未开始");
+        order.setServiceStatus("已支付".equals(order.getPaymentStatus()) ? "待启用" : "");
         // Resolve ownership once when writing; display names are snapshots.
         if (accessPolicy.isAdmin(authentication)) {
             var employee = identities.enabledEmployee(request.owner());
@@ -211,6 +281,9 @@ public class OrderService {
             order.setOwner(accessPolicy.currentDisplayName(authentication));
             order.setOwnerId(accessPolicy.currentUserId(authentication));
         }
+        var salesperson = users.findById(order.getOwnerId()).orElseThrow();
+        if (creating || !java.util.Objects.equals(order.getOwnerId(), originalOwnerId))
+            order.setStoreName(salesperson.getDepartment().getStoreName());
         assignConfirmers(order);
     }
 

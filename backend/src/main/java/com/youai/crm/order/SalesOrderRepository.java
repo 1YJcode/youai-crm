@@ -18,6 +18,14 @@ public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long>, J
 
     Optional<SalesOrder> findByOrderNo(String orderNo);
 
+    @Query("select distinct o.ownerId, o.owner, o.paymentStatus, o.serviceStatus from SalesOrder o where (:admin=true or o.ownerId=:userId or o.confirmationSalesId=:userId)")
+    List<Object[]> visibleFilterValues(@Param("admin") boolean admin, @Param("userId") Long userId);
+
+    @Query("select distinct i.inviter from InvitationRecord i, SalesOrder o where i.relatedOrderNo=o.orderNo "
+            + "and i.id=(select max(i2.id) from InvitationRecord i2 where i2.relatedOrderNo=o.orderNo) "
+            + "and (:admin=true or o.ownerId=:userId or o.confirmationSalesId=:userId) order by i.inviter")
+    List<String> visibleInviters(@Param("admin") boolean admin, @Param("userId") Long userId);
+
     @Query("select coalesce(sum(o.amount), 0) from SalesOrder o where o.paymentStatus <> '已取消'")
     BigDecimal sumActiveOrderAmount();
 

@@ -28,13 +28,7 @@ let customers = [
   { id: "YK-260805-021", name: "杜文静", phone: "131 9460 2218", company: "青岛屿见旅业", source: "线上咨询", owner: "赵磊", stage: "已流失", level: "普通客户", amount: 42000, lastContact: "8月9日", nextFollow: "-", city: "青岛", tags: ["价格敏感"], note: "客户本期选择价格更低的本地服务商，三个月后再次触达。" }
 ];
 
-let orders = [
-  { id: "SO20260817008", customer: "刘思远", product: "专业版 · 20 席位", amount: 98000, paid: 98000, status: "已支付", service: "待开通", owner: "林夕", created: "2026-08-17 09:42" },
-  { id: "SO20260816023", customer: "王泽", product: "企业版 · 35 席位", amount: 176000, paid: 88000, status: "部分支付", service: "实施中", owner: "赵磊", created: "2026-08-16 16:18" },
-  { id: "SO20260815017", customer: "陈嘉宇", product: "标准版 · 25 席位", amount: 86000, paid: 0, status: "待支付", service: "未开始", owner: "陈晨", created: "2026-08-15 13:06" },
-  { id: "SO20260812006", customer: "马骁", product: "呼叫中心增值包", amount: 56000, paid: 56000, status: "已支付", service: "已开通", owner: "陈晨", created: "2026-08-12 11:27" },
-  { id: "SO20260809031", customer: "宋晓婉", product: "标准版 · 8 席位", amount: 32000, paid: 0, status: "已取消", service: "未开始", owner: "周倩", created: "2026-08-09 15:44" }
-];
+let orders = [];
 
 let tasks = [
   { id: 1, title: "回访周雨桐，确认门店数量", customer: "周雨桐", owner: "林夕", due: "今天 16:00", type: "电话跟进", status: "today", done: false, priority: "紧急" },
@@ -326,6 +320,12 @@ const state = {
   taskPageMeta: { page: 0, size: 20, totalElements: 0, totalPages: 1 },
   calendarDate: new Date(),
   orderDateRange: { start: "", end: "", draftStart: "", draftEnd: "", picking: "start", viewMonth: "", open: false },
+  orderOwnerId: "",
+  orderInviter: "",
+  orderFilterOptions: { sales: [], inviters: [], paymentStatuses: [], serviceStatuses: [] },
+  orderQuerySequence: 0,
+  orderQueryError: "",
+  orderLoading: false,
   orderCustomerId: "",
   orderKeyword: "",
   orderPaymentStatus: "全部状态",
@@ -947,6 +947,9 @@ async function apiRequest(path, options = {}, allowRefresh = true) {
 function clearAuth() {
   if (typeof closeKnowledgeDialog === "function") closeKnowledgeDialog();
   if (typeof closeCallRecording === "function") closeCallRecording();
+  state.orderQuerySequence++;
+  orders = [];
+  state.orderFilterOptions = { sales: [], inviters: [], paymentStatuses: [], serviceStatuses: [] };
   state.auth.token = "";
   state.auth.refreshToken = "";
   state.auth.user = null;
@@ -1640,20 +1643,37 @@ async function refreshTasksFromApi() {
 
 async function refreshOrdersFromApi() {
   if (!state.auth.token) return;
+  const request = ++state.orderQuerySequence;
+  const accountId = state.auth.user?.id;
+  state.orderLoading = true;
+  state.orderQueryError = "";
   const params = new URLSearchParams({ page: String(Math.max(0, (state.orderPage || 1) - 1)), size: String(Math.min(Math.max(state.orderPageSize || 10, 1), 100)) });
   if (state.orderKeyword.trim()) params.set("keyword", state.orderKeyword.trim());
-  if (state.orderPaymentStatus && state.orderPaymentStatus !== "全部状态") params.set("paymentStatus", state.orderPaymentStatus);
+  if (state.orderPaymentStatus !== "全部状态") params.set("paymentStatus", state.orderPaymentStatus);
   if (state.orderCustomerId.trim()) params.set("customerId", state.orderCustomerId.trim());
+  if (state.orderOwnerId) params.set("ownerId", state.orderOwnerId);
+  if (state.orderInviter) params.set("inviter", state.orderInviter);
   if (state.orderDateRange.start) params.set("createdFrom", state.orderDateRange.start);
   if (state.orderDateRange.end) params.set("createdTo", state.orderDateRange.end);
-  if (state.orderServiceStatus && state.orderServiceStatus !== "全部状态") params.set("serviceStatus", state.orderServiceStatus);
+  if (state.orderServiceStatus !== "全部状态") params.set("serviceStatus", state.orderServiceStatus);
+  render();
   try {
-    const data = pageContent(await apiRequest(`/orders?${params.toString()}`));
+    const [response, options] = await Promise.all([apiRequest(`/orders?${params}`), apiRequest("/orders/filter-options")]);
+    if (request !== state.orderQuerySequence || (!state.auth.token || accountId !== state.auth.user?.id)) return;
+    const data = pageContent(response);
     orders = data.content.map(normalizeOrder);
+    state.orderFilterOptions = options;
     state.orderPageMeta = data;
     state.orderPage = data.page + 1;
-    render();
-  } catch (error) { toast(error.message); }
+  } catch (error) {
+    if (request !== state.orderQuerySequence || (!state.auth.token || accountId !== state.auth.user?.id)) return;
+    orders = [];
+    state.orderPageMeta = { page: 0, size: state.orderPageSize, totalElements: 0, totalPages: 1 };
+    state.orderQueryError = error.message;
+    toast(`订单查询失败：${error.message}`);
+  } finally {
+    if (request === state.orderQuerySequence && state.auth.token && accountId === state.auth.user?.id) { state.orderLoading = false; render(); }
+  }
 }
 
 async function refreshCallsFromApi() {
@@ -1725,8 +1745,10 @@ function bindServerPaginationControls() {
 
 async function hydrateFromApi() {
   if (!state.auth.token) return;
+  const hydrationAccountId = state.auth.user?.id;
+  const hydrationOrderQuery = state.orderQuerySequence;
   try {
-    const [customerData, taskData, orderData, dashboardData, callData, conversationData, poolData, refundData, templateData, notificationReadData, callReviewData, systemUserData, invitationData, ledgerData, systemNotificationData, customerPoolRuleData] = await Promise.all([
+    const [customerData, taskData, orderData, dashboardData, callData, conversationData, poolData, refundData, templateData, notificationReadData, callReviewData, systemUserData, invitationData, ledgerData, systemNotificationData, customerPoolRuleData, orderFilterOptions] = await Promise.all([
       apiRequest("/customers?page=0&size=20"),
       apiRequest("/tasks?page=0&size=20"),
       apiRequest("/orders?page=0&size=10"),
@@ -1742,8 +1764,11 @@ async function hydrateFromApi() {
       apiRequest("/invitations"),
       isAdmin() ? apiRequest("/ledger-accounts") : Promise.resolve([]),
       apiRequest("/system-notifications"),
-      apiRequest("/business-settings/customer-pool")
+      apiRequest("/business-settings/customer-pool"),
+      apiRequest("/orders/filter-options")
     ]);
+    if (!state.auth.token || hydrationAccountId !== state.auth.user?.id) return;
+    state.orderFilterOptions = orderFilterOptions;
     const customerPageData = pageContent(customerData);
     const taskPageData = pageContent(taskData);
     const orderPageData = pageContent(orderData);
@@ -1753,8 +1778,11 @@ async function hydrateFromApi() {
     state.customerPageMeta = customerPageData;
     tasks = taskPageData.content.map(normalizeTask);
     state.taskPageMeta = taskPageData;
-    orders = orderPageData.content.map(normalizeOrder);
-    state.orderPageMeta = orderPageData;
+    if (hydrationOrderQuery === state.orderQuerySequence) {
+      orders = orderPageData.content.map(normalizeOrder);
+      state.orderPageMeta = orderPageData;
+      state.orderQueryError = "";
+    }
     state.orderRefunds = refundData.map(normalizeRefund);
     saveOrderRefunds();
     calls = callPageData.content.map(normalizeCall);
@@ -4180,13 +4208,12 @@ function orderConfirmationLabel(order) {
 
 function orderCoSigners(order) {
   if (order.status !== "已支付") return "—";
-  return `<div class="order-co-signers"><span>${escapeHtml(order.confirmationSalesName || order.owner || "待指定销售")}</span><span>${escapeHtml(order.confirmationAdminName || "赵娣")}</span></div>`;
+  return `<div class="order-co-signers"><span>${escapeHtml(order.confirmationSalesName || "—")}</span><span>${escapeHtml(order.confirmationAdminName || "—")}</span></div>`;
 }
 
 function orderListView() {
   const meta = state.orderPageMeta || { page: 0, size: state.orderPageSize, totalElements: 0, totalPages: 1 };
   const rows = orders;
-  const storeName = customerOwnerTree(false).label;
   const pageSize = Number(meta.size || state.orderPageSize || 10);
   const totalElements = Number(meta.totalElements || 0);
   const totalPages = Math.max(1, Number(meta.totalPages || 1));
@@ -4196,34 +4223,75 @@ function orderListView() {
   const firstPage = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
   const visiblePages = Array.from({ length: Math.min(totalPages, 5) }, (_, index) => firstPage + index);
   const tableRows = pageRows.map(order => {
-    return `<tr data-order-id="${escapeHtml(order.id)}"><td><button type="button" class="table-link legacy-order-id">${escapeHtml(order.id)}</button></td><td>${escapeHtml(storeName)}</td><td>${escapeHtml(order.customerId || "—")}</td><td>${escapeHtml(order.customer)}</td><td>线下VIP</td><td>${order.amount}/${order.paid}</td><td>${escapeHtml(order.status === "已支付" ? "支付成功" : order.status)}</td><td>${order.status === "已支付" ? "待启用" : ""}</td><td>${escapeHtml(order.created)}</td><td>—</td><td>${escapeHtml(order.owner)}</td><td>${orderCoSigners(order)}</td><td><div class="order-row-actions">${order.canConfirmPerformance ? `<button class="button primary" type="button" data-confirm-performance="${escapeHtml(order.id)}">确认业绩</button>` : ""}<button class="button ghost order-detail-button" type="button" data-order-detail="${escapeHtml(order.id)}">详情</button></div></td></tr>`;
+    return `<tr data-order-id="${escapeHtml(order.id)}"><td><button type="button" class="table-link legacy-order-id">${escapeHtml(order.id)}</button></td><td>${escapeHtml(order.storeName || "—")}</td><td>${escapeHtml(order.customerId || "—")}</td><td>${escapeHtml(order.customer)}</td><td>${escapeHtml(order.product)}</td><td>${order.amount}/${order.paid}</td><td>${escapeHtml(order.statusLabel || order.status)}</td><td>${escapeHtml(order.service || "")}</td><td>${escapeHtml(order.created)}</td><td>${escapeHtml(order.inviter || "—")}</td><td>${escapeHtml(order.owner)}</td><td>${orderCoSigners(order)}</td><td><div class="order-row-actions">${order.canConfirmPerformance ? `<button class="button primary" type="button" data-confirm-performance="${escapeHtml(order.id)}">确认业绩</button>` : ""}<button class="button ghost order-detail-button" type="button" data-order-detail="${escapeHtml(order.id)}">详情</button></div></td></tr>`;
   }).join("");
-  const statusOptions = (values, selected) => `<option value="全部状态">请选择</option>${values.map(value => `<option value="${value}" ${value === selected ? "selected" : ""}>${value === "已支付" ? "支付成功" : value}</option>`).join("")}`;
-  const filters = `<form class="order-filter-panel" id="orderFilterForm"><div class="order-filter-grid"><label><span>会员姓名：</span><input id="orderKeyword" value="${escapeHtml(state.orderKeyword)}" placeholder="请输入用户姓名"></label><label><span>会员ID：</span><input id="orderCustomerId" value="${escapeHtml(state.orderCustomerId)}" placeholder="请输入用户ID"></label><label><span>销售：</span><input disabled placeholder="暂不支持筛选" title="当前订单接口未提供销售筛选"></label><label><span>邀约：</span><select disabled title="当前订单接口未提供邀约数据"><option>请选择</option></select></label><label><span>支付状态：</span><select id="orderPaymentFilter">${statusOptions(["待支付", "部分支付", "已支付", "已取消"], state.orderPaymentStatus)}</select></label><label><span>服务状态：</span><select id="orderServiceFilter">${statusOptions(["未开始", "待开通", "实施中", "已开通"], state.orderServiceStatus)}</select></label><div class="order-filter-date"><span>提交时间：</span>${sharedDateRangeControl("order", state.orderDateRange)}</div></div><div class="order-filter-actions"><button class="button primary" id="applyOrderFilters" type="submit">${icon("search")}查询</button><button class="button ghost" id="resetOrderFilters" type="button">${icon("repeat")}重置</button></div></form>`;
+  const filterOptions = (values, selected, all = "全部状态") => `<option value="${all}">请选择</option>${values.map(option => `<option value="${escapeHtml(option.value)}" ${String(option.value) === String(selected) ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}`;
+  const options = state.orderFilterOptions;
+  const filters = `<form class="order-filter-panel" id="orderFilterForm"><div class="order-filter-grid"><label><span>会员姓名：</span><input id="orderKeyword" value="${escapeHtml(state.orderKeyword)}" placeholder="请输入用户姓名"></label><label><span>会员ID：</span><input id="orderCustomerId" value="${escapeHtml(state.orderCustomerId)}" placeholder="请输入用户ID"></label><label><span>销售：</span><select id="orderOwnerFilter">${filterOptions(options.sales, state.orderOwnerId, "")}</select></label><label><span>邀约：</span><select id="orderInviterFilter">${filterOptions(options.inviters, state.orderInviter, "")}</select></label><label><span>支付状态：</span><select id="orderPaymentFilter">${filterOptions(options.paymentStatuses, state.orderPaymentStatus)}</select></label><label><span>服务状态：</span><select id="orderServiceFilter">${filterOptions(options.serviceStatuses, state.orderServiceStatus)}</select></label><div class="order-filter-date"><span>提交时间：</span>${sharedDateRangeControl("order", state.orderDateRange)}</div></div><div class="order-filter-actions"><button class="button primary" id="applyOrderFilters" type="submit">${icon("search")}查询</button><button class="button ghost" id="resetOrderFilters" type="button">${icon("repeat")}重置</button></div></form>`;
   const pageButtons = `<button class="page-button" type="button" data-order-page="${currentPage - 1}" ${currentPage === 1 ? "disabled" : ""}>‹</button>${visiblePages.map(page => `<button class="page-button ${page === currentPage ? "active" : ""}" type="button" data-order-page="${page}">${page}</button>`).join("")}<button class="page-button" type="button" data-order-page="${currentPage + 1}" ${currentPage === totalPages ? "disabled" : ""}>›</button>`;
   const rangeStart = totalElements && rows.length ? (currentPage - 1) * pageSize + 1 : 0;
   const rangeEnd = rows.length ? rangeStart + rows.length - 1 : 0;
-  return `<section class="page order-list-reference">${orderNav("订单列表")}<div class="order-reference-content">${filters}<section class="data-panel order-reference-panel"><div class="table-wrap">${rows.length ? `<table class="data-table order-reference-table"><thead><tr><th>订单ID</th><th>所属门店</th><th>会员ID</th><th>会员姓名</th><th>套餐</th><th>应付/实付金额</th><th>订单状态</th><th>服务状态</th><th>创建时间</th><th>邀约</th><th>销售</th><th>共单人</th><th>操作</th></tr></thead><tbody>${tableRows}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("search")}</span><strong>暂无订单</strong><p>当前没有可展示的订单。</p></div>`}</div><footer class="order-reference-pagination"><span>${rangeStart}-${rangeEnd} 共${totalElements}条</span>${pageButtons}<select id="orderPageSize" aria-label="每页条数"><option value="10" ${state.orderPageSize===10?"selected":""}>10 条/页</option><option value="20" ${state.orderPageSize===20?"selected":""}>20 条/页</option><option value="50" ${state.orderPageSize===50?"selected":""}>50 条/页</option><option value="100" ${state.orderPageSize===100?"selected":""}>100 条/页</option></select>${totalPages > 1 ? `<span>跳至</span><input aria-label="跳转页码"><span>页</span>` : ""}</footer></section></div></section>`;
-  /* legacy layout retained below for reference */
-  /* return `<section class="page">${orderNav("订单列表")}<div class="page-content">
-    ${pageHeading(`<button class="button secondary" id="exportOrders">${icon("download")}导出订单</button><button class="button primary" id="newOrder">${icon("plus")}新建订单</button>`)}
-    <section class="filter-panel"><div class="filter-row"><label class="field"><span>订单 / 客户</span><input id="orderKeyword" value="${escapeHtml(state.orderKeyword)}" placeholder="订单号或客户姓名"></label><label class="field"><span>支付状态</span><select id="orderPaymentFilter">${["全部状态","待支付","部分支付","已支付","已取消"].map(option => `<option ${option === state.orderPaymentStatus ? "selected" : ""}>${option}</option>`).join("")}</select></label><label class="field"><span>服务状态</span><select id="orderServiceFilter">${["全部状态","未开始","待开通","实施中","已开通"].map(option => `<option ${option === state.orderServiceStatus ? "selected" : ""}>${option}</option>`).join("")}</select></label></div><div class="filter-footer"><span class="pill gray">筛选订单金额 ${money(totalAmount)}</span><div class="inline-actions"><button class="button secondary" id="resetOrderFilters">重置</button><button class="button primary" id="applyOrderFilters">${icon("search")}查询</button></div></div></section>
-    <section class="data-panel"><div class="data-toolbar"><div class="data-tabs"><button class="data-tab active">全部订单 <span class="count">${rows.length}</span></button></div><span class="pill green">筛选回款 ${money(paidAmount)}</span></div><div class="table-wrap">${rows.length ? `<table class="data-table"><thead><tr><th>订单号</th><th>客户</th><th>商品 / 套餐</th><th>订单金额</th><th>已付金额</th><th>支付状态</th><th>服务状态</th><th>销售</th><th>创建时间</th><th>操作</th></tr></thead><tbody>${rows.map(order => `<tr data-order-id="${order.id}"><td><button class="table-link">${order.id}</button></td><td>${order.customer}</td><td>${order.product}</td><td><strong>${money(order.amount)}</strong></td><td>${money(order.paid)}</td><td>${orderPill(order.status)}</td><td><span class="pill ${order.service === "已开通" ? "green" : order.service === "实施中" ? "purple" : "gray"}">${order.service}</span></td><td>${order.owner}</td><td>${order.created}</td><td><button class="button ghost" data-order-detail="${order.id}">详情${icon("chevron")}</button></td></tr>`).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("search")}</span><strong>没有匹配的订单</strong><p>调整筛选条件后再试一次</p></div>`}</div><footer class="pagination"><span>共 ${rows.length} 条</span><button class="page-button active">1</button><span>20 条/页</span></footer></section>
-  </div></section>`; */
+  return `<section class="page order-list-reference">${orderNav("订单列表")}<div class="order-reference-content">${filters}<section class="data-panel order-reference-panel"><div class="table-wrap">${rows.length ? `<table class="data-table order-reference-table"><thead><tr><th>订单ID</th><th>所属门店</th><th>会员ID</th><th>会员姓名</th><th>套餐</th><th>应付/实付金额</th><th>订单状态</th><th>服务状态</th><th>创建时间</th><th>邀约</th><th>销售</th><th>共单人</th><th>操作</th></tr></thead><tbody>${tableRows}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("search")}</span><strong>${state.orderLoading ? "正在查询订单…" : state.orderQueryError ? "订单查询失败" : "暂无订单"}</strong><p>${state.orderQueryError ? escapeHtml(state.orderQueryError) : "当前筛选条件下没有订单。"}</p></div>`}</div><footer class="order-reference-pagination"><span>${rangeStart}-${rangeEnd} 共${totalElements}条</span>${pageButtons}<select id="orderPageSize" aria-label="每页条数"><option value="10" ${state.orderPageSize===10?"selected":""}>10 条/页</option><option value="20" ${state.orderPageSize===20?"selected":""}>20 条/页</option><option value="50" ${state.orderPageSize===50?"selected":""}>50 条/页</option><option value="100" ${state.orderPageSize===100?"selected":""}>100 条/页</option></select>${totalPages > 1 ? `<span>跳至</span><input aria-label="跳转页码"><span>页</span>` : ""}</footer></section></div></section>`;
+}
+
+const contractData = { rows: [], owners: [], filters: { customerId: "", owner: "", status: "" }, page: 0, pages: 1, total: 0, loading: false, token: null, request: 0 };
+async function loadContracts() {
+  if (!state.auth.token) return;
+  const request = ++contractData.request;
+  const token = state.auth.token;
+  contractData.loading = true;
+  try {
+    const params = new URLSearchParams({ ...contractData.filters, page: String(contractData.page), size: "10" });
+    const [data, owners] = await Promise.all([apiRequest(`/contracts?${params}`), apiRequest('/contracts/owners')]);
+    if (request !== contractData.request) return;
+    if (token !== state.auth.token) { contractData.loading = false; contractData.rows = []; contractData.token = null; render(); return; }
+    const result = pageContent(data);
+    Object.assign(contractData, { rows: result.content, owners, total: result.totalElements, pages: result.totalPages, loading: false, token });
+  } catch (error) {
+    if (request !== contractData.request) return;
+    contractData.loading = false;
+    toast(`合同查询失败：${error.message}`, 'error');
+  }
+  if (state.view === 'orders' && state.orderSection === '合同列表') render();
+}
+function bindContractPage() {
+  const form = document.querySelector('#contractFilterForm');
+  if (!form) return;
+  if (contractData.token !== state.auth.token && !contractData.loading) { contractData.token = state.auth.token; queueMicrotask(loadContracts); }
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    contractData.filters = { customerId: form.querySelector('[aria-label="会员ID"]').value.trim(), owner: form.querySelector('[aria-label="归属人"]').value, status: form.querySelector('[aria-label="状态"]').value };
+    contractData.page = 0; loadContracts();
+  });
+  form.addEventListener('reset', event => { event.preventDefault(); contractData.filters = { customerId: '', owner: '', status: '' }; contractData.page = 0; loadContracts(); });
+  document.querySelectorAll('[data-contract-page]').forEach(button => button.addEventListener('click', () => { contractData.page = Number(button.dataset.contractPage); loadContracts(); }));
+  document.querySelectorAll('[data-contract-detail]').forEach(button => button.addEventListener('click', () => openContract(button.dataset.contractDetail)));
+}
+async function openContract(no) {
+  try {
+    const c = await apiRequest(`/contracts/${encodeURIComponent(no)}`);
+    const drawer = document.querySelector('#detailDrawer');
+    const fields = [['合同编号', c.contractNo], ['订单ID', c.orderId], ['会员ID', c.customerId || '—'], ['会员姓名', c.customer], ['归属人', c.owner], ['状态', c.status], ['创建时间', formatDateTime(c.createdAt)], ['审核时间', c.reviewedAt ? formatDateTime(c.reviewedAt) : '—'], ['审核人ID', c.reviewedBy || '—'], ['审核备注', c.reviewNote || '—']];
+    drawer.innerHTML = `<header class="drawer-header"><h2>合同详情</h2><button class="icon-button" data-close-drawer aria-label="关闭">${icon('close')}</button></header><div class="drawer-body"><div class="detail-grid">${fields.map(([label, value]) => `<div class="detail-item"><span>${label}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('')}</div>${isAdmin() ? `<form id="contractReviewForm"><label class="field"><span>审核备注</span><textarea name="note" maxlength="500"></textarea></label><div class="profile-actions"><button class="button primary" name="decision" value="审核通过">审核通过</button><button class="button secondary" name="decision" value="审核驳回">审核驳回</button></div></form>` : ''}</div>`;
+    document.querySelector('#drawerBackdrop').hidden = false;
+    drawer.classList.add('open'); drawer.setAttribute('aria-hidden', 'false'); document.body.style.overflow = 'hidden';
+    drawer.querySelector('[data-close-drawer]').addEventListener('click', closeDrawer);
+    drawer.querySelector('#contractReviewForm')?.addEventListener('submit', async event => {
+      event.preventDefault(); const form = event.currentTarget;
+      form.querySelectorAll('button').forEach(button => button.disabled = true);
+      try {
+        await apiRequest(`/contracts/${encodeURIComponent(no)}/review`, { method: 'PATCH', body: JSON.stringify({ status: event.submitter.value, note: form.elements.note.value.trim() }) });
+        toast('合同审核已保存'); await loadContracts(); await openContract(no);
+      } catch (error) { toast(error.message, 'error'); form.querySelectorAll('button').forEach(button => button.disabled = false); }
+    });
+  } catch (error) { toast(error.message, 'error'); }
 }
 
 function contractListView() {
-  const rows = orderRowsForSection();
-  const contractRows = rows.map((order, index) => `<tr data-order-id="${escapeHtml(order.id)}"><td><button class="table-link legacy-order-id">${escapeHtml(order.id)}</button></td><td><button class="table-link">14300${String(37960 - index * 430).padStart(5, "0")}</button></td><td>${escapeHtml(order.created)}</td><td>EYA2026082320${String(1063 - index * 77).padStart(4, "0")}</td><td><span class="pill green">审核通过</span></td><td>${escapeHtml(order.customer)}</td><td>${escapeHtml(order.owner)}</td><td><button class="button ghost order-detail-button" type="button" data-order-detail="${escapeHtml(order.id)}">详情</button></td></tr>`).join("");
-  return `<section class="page order-contract-reference">${orderNav("合同列表")}<div class="order-contract-content"><section class="contract-filter-panel"><div class="contract-filter-row"><label>会员ID<input placeholder="请输入用户ID"></label><label>归属人<input placeholder="请选择"></label><label>状态<select><option>请选择</option><option>审核通过</option><option>待审核</option></select></label></div><div class="contract-filter-actions"><button class="button primary" type="button">${icon("search")}查询</button><button class="button secondary" type="button">${icon("repeat")}重置</button></div></section><section class="data-panel order-contract-panel"><div class="table-wrap">${rows.length ? `<table class="data-table order-contract-table"><thead><tr><th>订单ID</th><th>会员ID</th><th>创建时间</th><th>合同编号</th><th>状态</th><th>会员姓名</th><th>归属人</th><th>操作</th></tr></thead><tbody>${contractRows}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("order")}</span><strong>暂无合同</strong></div>`}</div></section></div></section>`;
-  /* Existing CRM contract view retained below for reference. */
-  /*
-  const active = rows.filter(order => order.status !== "已取消");
-  return `<section class="page">${orderNav("合同列表")}<div class="page-content">
-    ${pageHeading(`<button class="button secondary" id="exportContracts" type="button">${icon("download")}导出合同</button><button class="button primary" id="newContractOrder" type="button">${icon("plus")}新建合同订单</button>`)}
-    <section class="metric-grid">${metric("合同总数", String(active.length), "份", "实时", "blue", "order")}${metric("合同金额", money(active.reduce((sum, order) => sum + order.amount, 0)), "", "实时", "purple", "wallet")}${metric("待回款", money(active.reduce((sum, order) => sum + order.amount - order.paid, 0)), "", "实时", "amber", "clock")}</section>
-    <section class="data-panel"><div class="data-toolbar"><div class="panel-title"><h2>合同列表</h2><span>订单即合同，展示合同金额、回款和履约状态</span></div><span class="pill gray">${rows.length} 份</span></div><div class="table-wrap">${rows.length ? `<table class="data-table"><thead><tr><th>合同编号</th><th>客户</th><th>产品 / 套餐</th><th>合同金额</th><th>已回款</th><th>回款状态</th><th>履约状态</th><th>销售</th><th>创建时间</th><th>操作</th></tr></thead><tbody>${rows.map(order => `<tr data-order-id="${escapeHtml(order.id)}"><td><button class="table-link">${escapeHtml(order.id)}</button></td><td>${escapeHtml(order.customer)}</td><td>${escapeHtml(order.product)}</td><td><strong>${money(order.amount)}</strong></td><td>${money(order.paid)}</td><td>${orderPill(order.status)}</td><td><span class="pill ${order.service === "已开通" ? "green" : order.service === "实施中" ? "purple" : "gray"}">${escapeHtml(order.service)}</span></td><td>${escapeHtml(order.owner)}</td><td>${escapeHtml(order.created)}</td><td><button class="button ghost" type="button" data-order-detail="${escapeHtml(order.id)}">详情${icon("chevron")}</button></td></tr>`).join("")}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("order")}</span><strong>暂无合同</strong><p>新建订单后会自动生成合同记录。</p></div>`}</div></section>
-  </div></section>`; */
+  const rows = contractData.token === state.auth.token ? contractData.rows : [];
+  const contractRows = rows.map(c => `<tr><td>${escapeHtml(c.orderId)}</td><td>${escapeHtml(c.customerId || "—")}</td><td>${escapeHtml(formatDateTime(c.createdAt))}</td><td>${escapeHtml(c.contractNo)}</td><td><span class="pill ${c.status === "审核通过" ? "green" : c.status === "审核驳回" ? "red" : "amber"}">${escapeHtml(c.status)}</span></td><td>${escapeHtml(c.customer)}</td><td>${escapeHtml(c.owner)}</td><td><button class="button ghost order-detail-button" type="button" data-contract-detail="${escapeHtml(c.contractNo)}">详情</button></td></tr>`).join("");
+  return `<section class="page order-contract-reference">${orderNav("合同列表")}<div class="order-contract-content"><form class="contract-filter-panel" id="contractFilterForm"><div class="contract-filter-row"><label><span>会员ID：</span><input placeholder="请输入用户ID" aria-label="会员ID" value="${escapeHtml(contractData.filters.customerId)}"></label><label><span>归属人：</span><select aria-label="归属人"><option value="">请选择</option>${contractData.owners.map(owner => `<option ${owner === contractData.filters.owner ? "selected" : ""}>${escapeHtml(owner)}</option>`).join("")}</select></label><label><span>状态：</span><select aria-label="状态"><option value="">请选择</option>${["待审核", "审核通过", "审核驳回"].map(status => `<option ${status === contractData.filters.status ? "selected" : ""}>${status}</option>`).join("")}</select></label></div><div class="contract-filter-actions"><button class="button primary" type="submit">${icon("search")}查询</button><button class="button ghost" type="reset">${icon("repeat")}重置</button></div></form><section class="data-panel order-contract-panel"><div class="table-wrap"><table class="data-table order-contract-table"><thead><tr><th>订单ID</th><th>会员ID</th><th>创建时间</th><th>合同编号</th><th>状态</th><th>会员姓名</th><th>归属人</th><th>操作</th></tr></thead><tbody>${rows.length ? contractRows : `<tr class="contract-empty-row"><td colspan="8"><div class="contract-empty-state"><span class="contract-empty-icon" aria-hidden="true"><svg viewBox="0 0 64 48"><path d="M12 18 22 5h20l10 13v23H12Z"/><path d="M12 18h13l4 7h6l4-7h13"/></svg></span><span>暂无数据</span></div></td></tr>`}</tbody></table></div><footer class="order-reference-pagination"><span>${contractData.loading ? "加载中…" : `共 ${contractData.total} 条`}</span><button class="page-button" data-contract-page="${contractData.page - 1}" ${contractData.page === 0 ? "disabled" : ""}>‹</button><span>${contractData.page + 1} / ${Math.max(1, contractData.pages)}</span><button class="page-button" data-contract-page="${contractData.page + 1}" ${contractData.page + 1 >= contractData.pages ? "disabled" : ""}>›</button></footer></section></div></section>`;
+
 }
 
 function paymentRecordsView() {
@@ -4817,6 +4885,7 @@ function navigate(view) {
   location.hash = nextView;
   document.querySelector("#primaryNav").classList.remove("open");
   render();
+  if (state.view === "orders" && state.orderSection === "合同列表" && !contractData.loading) loadContracts();
   refreshVisibleCustomerList();
   document.querySelector("#app").focus({ preventScroll: true });
   window.scrollTo({ top: 0, behavior: "instant" });
@@ -5127,10 +5196,10 @@ function businessModalFields(type, record) {
     return `<input type="hidden" name="recordId" value="${escapeHtml(record?.id || "")}"><div class="form-grid">
       <label><span>订单编号</span><input name="orderNo" maxlength="6" value="${escapeHtml(record?.id || "")}" readonly placeholder="系统自动生成6位数字"></label>
       <label><span>客户 *</span><select name="customerId" required>${record?.customerId && !customers.some(customer => customer.id === record.customerId) ? `<option value="${escapeHtml(record.customerId)}" selected>${escapeHtml(record.customer)} · ${escapeHtml(record.customerId)}</option>` : ""}${record?.id && !record.customerId ? `<option value="" selected disabled>请选择关联客户（原客户：${escapeHtml(record.customer)}）</option>` : ""}${customers.map(customer => `<option value="${escapeHtml(customer.id)}" ${(record?.customerId ? customer.id === record.customerId : !record?.id && customer.name === record?.customer) ? "selected" : ""}>${escapeHtml(customer.name)} · ${escapeHtml(customer.id)}</option>`).join("")}</select></label>
-      <label class="form-span-2"><span>商品 / 套餐 *</span><input name="product" required maxlength="128" value="${escapeHtml(record?.product || "")}" placeholder="例如：专业版 · 20 席位"></label>
+      <label class="form-span-2"><span>商品 / 套餐 *</span><input name="product" required maxlength="128" value="${escapeHtml(record?.product || "线下VIP")}" placeholder="例如：专业版 · 20 席位"></label>
       <label><span>订单金额 *</span><input name="amount" type="number" min="0" step="0.01" required value="${record?.amount ?? ""}"></label>
       <label><span>已付金额</span><input name="paid" type="number" min="0" step="0.01" value="${record?.paid ?? 0}" ${isAdmin() ? "" : "readonly"}></label>
-      <label><span>服务状态</span><select name="service">${["未开始","待开通","实施中","已开通"].map(value => `<option ${value === record?.service ? "selected" : ""}>${value}</option>`).join("")}</select></label>
+      <label><span>服务状态</span><input name="service" readonly value="${escapeHtml(record?.service || "")}" placeholder="支付成功后自动为待启用"></label>
       <label><span>销售负责人 *</span><select name="owner" required ${isAdmin() ? "" : "disabled"}>${ownerOptions(record?.owner || currentOwner())}</select></label>
     </div>${businessModalFooter(false, "保存订单")}`;
   }
@@ -5958,7 +6027,7 @@ function openOrder(id) {
     created: escapeHtml(sourceOrder.created)
   };
   const drawer = document.querySelector("#detailDrawer");
-  drawer.innerHTML = `<header class="drawer-header"><div><p class="eyebrow">ORDER DETAIL</p><h2>订单详情</h2></div><button class="icon-button" data-close-drawer aria-label="关闭">${icon("close")}</button></header><div class="drawer-body"><div class="profile-head"><span class="person-avatar">单</span><div><h3>${order.id}</h3><p>${order.customer} · ${order.product}</p></div></div><div class="profile-actions"><button class="button secondary" data-edit-order="${order.id}">${icon("edit")}编辑订单</button><button class="button secondary" data-update-payment="${order.id}">${icon("wallet")}登记回款</button><button class="button secondary" data-update-service="${order.id}">${icon("check")}更新服务</button></div><section class="detail-section"><h4>订单信息</h4><div class="detail-grid"><div class="detail-item"><span>订单金额</span><strong>${money(order.amount)}</strong></div><div class="detail-item"><span>已付金额</span><strong>${money(order.paid)}</strong></div><div class="detail-item"><span>支付状态</span><strong>${orderPill(order.status)}</strong></div><div class="detail-item"><span>服务状态</span><strong>${order.service}</strong></div><div class="detail-item"><span>业绩状态</span><strong>${escapeHtml(orderConfirmationLabel(order))}</strong></div><div class="detail-item"><span>共单人</span>${orderCoSigners(order)}</div><div class="detail-item"><span>销售负责人</span><strong>${order.owner}</strong></div><div class="detail-item"><span>创建时间</span><strong>${order.created}</strong></div></div></section><section class="detail-section"><h4>订单进度</h4><div class="timeline"><div class="timeline-item"><time>${order.created}</time><p>订单已创建，当前支付状态为“${order.status}”。</p></div><div class="timeline-item"><time>当前</time><p>服务状态为“${order.service}”。</p></div></div></section>${order.performanceConfirmed ? `<div class="confirmation-state pill green">${icon("check")}业绩已确认</div>` : order.canConfirmPerformance ? `<button class="button primary" style="width:100%;margin-top:25px" data-confirm-order="${order.id}">${icon("check")}确认业绩</button>` : `<div class="confirmation-state pill gray">${icon("clock")}${escapeHtml(orderConfirmationLabel(order))}</div>`}</div>`;
+  drawer.innerHTML = `<header class="drawer-header"><div><p class="eyebrow">ORDER DETAIL</p><h2>订单详情</h2></div><button class="icon-button" data-close-drawer aria-label="关闭">${icon("close")}</button></header><div class="drawer-body"><div class="profile-head"><span class="person-avatar">单</span><div><h3>${order.id}</h3><p>${order.customer} · ${order.product}</p></div></div><div class="profile-actions"><button class="button secondary" data-edit-order="${order.id}">${icon("edit")}编辑订单</button><button class="button secondary" data-update-payment="${order.id}">${icon("wallet")}登记回款</button></div><section class="detail-section"><h4>订单信息</h4><div class="detail-grid"><div class="detail-item"><span>订单金额</span><strong>${money(order.amount)}</strong></div><div class="detail-item"><span>已付金额</span><strong>${money(order.paid)}</strong></div><div class="detail-item"><span>支付状态</span><strong>${orderPill(order.status)}</strong></div><div class="detail-item"><span>服务状态</span><strong>${order.service}</strong></div><div class="detail-item"><span>业绩状态</span><strong>${escapeHtml(orderConfirmationLabel(order))}</strong></div><div class="detail-item"><span>共单人</span>${orderCoSigners(order)}</div><div class="detail-item"><span>销售负责人</span><strong>${order.owner}</strong></div><div class="detail-item"><span>创建时间</span><strong>${order.created}</strong></div></div></section><section class="detail-section"><h4>订单进度</h4><div class="timeline"><div class="timeline-item"><time>${order.created}</time><p>订单已创建，当前支付状态为“${order.status}”。</p></div><div class="timeline-item"><time>当前</time><p>服务状态为“${order.service}”。</p></div></div></section>${order.performanceConfirmed ? `<div class="confirmation-state pill green">${icon("check")}业绩已确认</div>` : order.canConfirmPerformance ? `<button class="button primary" style="width:100%;margin-top:25px" data-confirm-order="${order.id}">${icon("check")}确认业绩</button>` : `<div class="confirmation-state pill gray">${icon("clock")}${escapeHtml(orderConfirmationLabel(order))}</div>`}</div>`;
   document.querySelector("#drawerBackdrop").hidden = false;
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
@@ -6684,6 +6753,7 @@ function bindViewEvents() {
   bindSharedDateRangeControls();
   bindLibraryFilters();
   bindReferenceTableFilters();
+  bindContractPage();
   document.querySelectorAll("[data-date-range-view-year], [data-date-range-view-month]").forEach(select => select.addEventListener("change", event => {
     event.stopPropagation();
     if (select.closest("[data-shared-date-range]")) return;
@@ -6911,7 +6981,7 @@ function bindViewEvents() {
     }
     if (state.view === "calls") { state.callSection = button.dataset.subnavValue; render(); }
     if (state.view === "messages") { state.messageSection = button.dataset.subnavValue; render(); }
-    if (state.view === "orders") { state.orderSection = button.dataset.subnavValue; state.orderPage = 1; render(); }
+    if (state.view === "orders") { state.orderSection = button.dataset.subnavValue; state.orderPage = 1; render(); if (state.orderSection === "合同列表") loadContracts(); }
     if (state.view === "system") { state.systemSection = button.dataset.subnavValue; render(); }
     if (state.view === "analytics") { state.analyticsSection = button.dataset.subnavValue; render(); }
     if (state.view === "finance") { state.financeSection = button.dataset.subnavValue; render(); }
@@ -8043,8 +8113,8 @@ function bindViewEvents() {
   document.querySelectorAll("[data-payment-order]").forEach(button => button.addEventListener("click", () => { const order = orders.find(item => item.id === button.dataset.paymentOrder); if (order) openPaymentModal(order); }));
   document.querySelectorAll("[data-confirm-performance]").forEach(button => button.addEventListener("click", event => { event.stopPropagation(); confirmOrderPerformance(button.dataset.confirmPerformance); }));
   document.querySelectorAll("[data-refund-review]").forEach(button => button.addEventListener("click", () => reviewRefund(button.dataset.refundReview)));
-  document.querySelector("#orderFilterForm")?.addEventListener("submit", event => { event.preventDefault(); state.orderCustomerId = document.querySelector("#orderCustomerId")?.value.trim() || ""; state.orderKeyword = document.querySelector("#orderKeyword")?.value || ""; state.orderPaymentStatus = document.querySelector("#orderPaymentFilter")?.value || "全部状态"; state.orderServiceStatus = document.querySelector("#orderServiceFilter")?.value || "全部状态"; state.orderPage = 1; refreshOrdersFromApi(); });
-  document.querySelector("#resetOrderFilters")?.addEventListener("click", () => { state.orderCustomerId = ""; Object.assign(state.orderDateRange, { start: "", end: "", draftStart: "", draftEnd: "", picking: "start", open: false }); state.orderKeyword = ""; state.orderPaymentStatus = "全部状态"; state.orderServiceStatus = "全部状态"; state.orderPage = 1; refreshOrdersFromApi(); });
+  document.querySelector("#orderFilterForm")?.addEventListener("submit", event => { event.preventDefault(); state.orderOwnerId = document.querySelector("#orderOwnerFilter")?.value || ""; state.orderInviter = document.querySelector("#orderInviterFilter")?.value || ""; state.orderCustomerId = document.querySelector("#orderCustomerId")?.value.trim() || ""; state.orderKeyword = document.querySelector("#orderKeyword")?.value || ""; state.orderPaymentStatus = document.querySelector("#orderPaymentFilter")?.value || "全部状态"; state.orderServiceStatus = document.querySelector("#orderServiceFilter")?.value || "全部状态"; state.orderPage = 1; refreshOrdersFromApi(); });
+  document.querySelector("#resetOrderFilters")?.addEventListener("click", () => { state.orderOwnerId = ""; state.orderInviter = ""; state.orderCustomerId = ""; Object.assign(state.orderDateRange, { start: "", end: "", draftStart: "", draftEnd: "", picking: "start", open: false }); state.orderKeyword = ""; state.orderPaymentStatus = "全部状态"; state.orderServiceStatus = "全部状态"; state.orderPage = 1; refreshOrdersFromApi(); });
   document.querySelector("#exportOrders")?.addEventListener("click", exportOrders);
   document.querySelector("#newContractOrder")?.addEventListener("click", () => openBusinessModal("order"));
   document.querySelector("#newPaymentRecord")?.addEventListener("click", openFirstPaymentModal);
@@ -8879,7 +8949,6 @@ function bindLibraryFilters() {
 const referenceTableFilterState = {};
 function bindReferenceTableFilters() {
   const configs = [
-    ['.contract-filter-panel', '.order-contract-table', [null, 6, null]],
     ['.payment-filter-panel', '.order-payment-table', [0, 1, null, 2, null, 9, 10, 8, null]],
     ['.refund-filter-panel', '.order-refund-table', [null, null, null, null, null, 11, 13, null, null, null]],
     ['.performance-filter-panel', '.order-performance-table', [2, 5, null, 9, 0]],
@@ -8901,7 +8970,9 @@ function bindReferenceTableFilters() {
       }
       if (control.tagName === 'SELECT') {
         const values = [...new Set(rows.map(row => row.cells[column]?.textContent.trim()).filter(Boolean))];
-        control.innerHTML = '<option value="">全部</option>' + values.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('');
+        const placeholder = panelSelector === '.contract-filter-panel' ? '请选择' : '全部';
+        if (panelSelector === '.contract-filter-panel' && index === 2) values.push(...['审核通过', '待审核'].filter(value => !values.includes(value)));
+        control.innerHTML = `<option value="">${placeholder}</option>` + values.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('');
       }
       const label = control.closest('label')?.textContent.split('：')[0].trim() || '日期';
       if (/时间|日期/.test(label) || /日期/.test(control.placeholder || '')) {
@@ -8932,7 +9003,19 @@ function bindReferenceTableFilters() {
         row.hidden = !matches; if (matches) count++;
       });
       criteria.forEach(c => { saved[c.index] = c.start ? [c.start.value, c.end.value] : c.control.value; });
-      status.textContent = count ? `当前已加载记录中匹配 ${count} 条` : '当前已加载记录中没有匹配项';
+      if (panelSelector === '.contract-filter-panel' && table) {
+        let empty = table.querySelector('.contract-empty-row');
+        if (!empty) {
+          empty = document.createElement('tr');
+          empty.className = 'contract-empty-row';
+          empty.innerHTML = '<td colspan="8"><div class="contract-empty-state"><span>暂无数据</span></div></td>';
+          table.tBodies[0].append(empty);
+        }
+        empty.hidden = count > 0;
+        status.textContent = '';
+      } else {
+        status.textContent = count ? `当前已加载记录中匹配 ${count} 条` : '当前已加载记录中没有匹配项';
+      }
     };
     panel.querySelectorAll('button').forEach(button => {
       const text = button.textContent.trim();

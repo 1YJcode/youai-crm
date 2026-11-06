@@ -39,6 +39,7 @@ public class AccountCatalogInitializer implements CommandLineRunner {
         Department department = new Department();
         department.setCode(code);
         department.setName(name);
+        department.setStoreName("优爱天津店");
         departments.save(department);
     }
 

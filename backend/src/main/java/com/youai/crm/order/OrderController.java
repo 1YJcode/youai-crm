@@ -36,12 +36,17 @@ public class OrderController {
             @RequestParam(required = false) String paymentStatus,
             @RequestParam(required = false) String serviceStatus,
             @RequestParam(required = false) String customerId,
+            @RequestParam(required = false) Long ownerId,
+            @RequestParam(required = false) String inviter,
             @RequestParam(required = false) java.time.LocalDate createdFrom,
             @RequestParam(required = false) java.time.LocalDate createdTo,
             @PageableDefault(size = 20) Pageable pageable,
             Authentication authentication) {
-        return service.list(keyword, paymentStatus, serviceStatus, createdFrom, createdTo, customerId, pageable, authentication);
+        return service.list(keyword, paymentStatus, serviceStatus, createdFrom, createdTo, customerId, ownerId, inviter, pageable, authentication);
     }
+
+    @GetMapping("/filter-options")
+    public OrderService.FilterOptions filterOptions(Authentication authentication) { return service.filterOptions(authentication); }
 
     @GetMapping("/{orderNo}")
     public OrderResponse find(@PathVariable String orderNo, Authentication authentication) {

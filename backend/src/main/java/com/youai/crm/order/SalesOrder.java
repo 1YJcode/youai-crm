@@ -22,6 +22,9 @@ public class SalesOrder {
     @Column(name = "order_no", nullable = false, unique = true, length = 32)
     private String orderNo;
 
+    @Column(name = "store_name", length = 64)
+    private String storeName;
+
     @Column(name = "customer_no", length = 32)
     private String customerNo;
 
@@ -94,6 +97,8 @@ public class SalesOrder {
         adminConfirmedAt = null;
         performanceConfirmed = false;
     }
+    public String getStoreName() { return storeName; }
+    public void setStoreName(String value) { storeName = value; }
     public Long getId() { return id; }
     public String getOrderNo() { return orderNo; }
     public void setOrderNo(String orderNo) { this.orderNo = orderNo; }
