@@ -1,0 +1,1 @@
+ALTER TABLE crm_sales_contract ADD COLUMN version BIGINT NOT NULL DEFAULT 0;

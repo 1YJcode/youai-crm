@@ -32,8 +32,14 @@ class ContractControllerTest {
    .andExpect(status().isOk()).andExpect(jsonPath("$.content[?(@.contractNo == 'HT-619901')].status").value(org.hamcrest.Matchers.hasItem("待审核")));
   mvc.perform(get("/api/contracts").param("customerId","missing-member"))
    .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(0));
-  mvc.perform(patch("/api/contracts/HT-619901/review").contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"审核通过\",\"note\":\"核验完成\"}"))
+  mvc.perform(patch("/api/contracts/HT-619901/review").contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"审核通过\",\"note\":\"核验完成\",\"version\":0}"))
    .andExpect(status().isOk()).andExpect(jsonPath("$.reviewedBy").isNumber()).andExpect(jsonPath("$.reviewedAt").isNotEmpty());
+  mvc.perform(patch("/api/contracts/HT-619901/review").contentType(MediaType.APPLICATION_JSON)
+    .content("{\"status\":\"审核驳回\",\"version\":0}"))
+   .andExpect(status().isConflict());
+  mvc.perform(patch("/api/contracts/HT-619901/review").contentType(MediaType.APPLICATION_JSON)
+    .content("{\"status\":\"审核通过\"}"))
+   .andExpect(status().isBadRequest());
   em.flush(); em.clear();
   mvc.perform(get("/api/contracts/HT-619901"))
    .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("审核通过")).andExpect(jsonPath("$.reviewNote").value("核验完成"));

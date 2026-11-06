@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name="crm_sales_contract")
 public class SalesContract {
+ @Version @Column(nullable=false) public long version;
  @Id @GeneratedValue(strategy=GenerationType.IDENTITY) public Long id;
  @Column(name="contract_no", nullable=false, unique=true, length=64) public String contractNo;
  @OneToOne(optional=false) @JoinColumn(name="order_no", referencedColumnName="order_no", unique=true) public SalesOrder order;

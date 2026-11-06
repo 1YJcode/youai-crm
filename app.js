@@ -4234,42 +4234,57 @@ function orderListView() {
   return `<section class="page order-list-reference">${orderNav("订单列表")}<div class="order-reference-content">${filters}<section class="data-panel order-reference-panel"><div class="table-wrap">${rows.length ? `<table class="data-table order-reference-table"><thead><tr><th>订单ID</th><th>所属门店</th><th>会员ID</th><th>会员姓名</th><th>套餐</th><th>应付/实付金额</th><th>订单状态</th><th>服务状态</th><th>创建时间</th><th>邀约</th><th>销售</th><th>共单人</th><th>操作</th></tr></thead><tbody>${tableRows}</tbody></table>` : `<div class="empty-state"><span class="empty-icon">${icon("search")}</span><strong>${state.orderLoading ? "正在查询订单…" : state.orderQueryError ? "订单查询失败" : "暂无订单"}</strong><p>${state.orderQueryError ? escapeHtml(state.orderQueryError) : "当前筛选条件下没有订单。"}</p></div>`}</div><footer class="order-reference-pagination"><span>${rangeStart}-${rangeEnd} 共${totalElements}条</span>${pageButtons}<select id="orderPageSize" aria-label="每页条数"><option value="10" ${state.orderPageSize===10?"selected":""}>10 条/页</option><option value="20" ${state.orderPageSize===20?"selected":""}>20 条/页</option><option value="50" ${state.orderPageSize===50?"selected":""}>50 条/页</option><option value="100" ${state.orderPageSize===100?"selected":""}>100 条/页</option></select>${totalPages > 1 ? `<span>跳至</span><input aria-label="跳转页码"><span>页</span>` : ""}</footer></section></div></section>`;
 }
 
-const contractData = { rows: [], owners: [], filters: { customerId: "", owner: "", status: "" }, page: 0, pages: 1, total: 0, loading: false, token: null, request: 0 };
+const contractData = { rows: [], owners: [], filters: { customerId: "", owner: "", status: "" }, page: 0, pages: 1, total: 0, loading: false, error: "", token: null, request: 0 };
+let contractDetailRequest = 0;
 async function loadContracts() {
   if (!state.auth.token) return;
   const request = ++contractData.request;
   const token = state.auth.token;
-  contractData.loading = true;
+  if (contractData.token !== token) Object.assign(contractData, { rows: [], owners: [], filters: { customerId: '', owner: '', status: '' }, page: 0, total: 0, pages: 1, token });
+  contractData.loading = true; contractData.error = '';
+  const visible = () => state.view === 'orders' && state.orderSection === '合同列表';
+  if (visible()) render();
   try {
-    const params = new URLSearchParams({ ...contractData.filters, page: String(contractData.page), size: "10" });
+    const params = new URLSearchParams({ ...contractData.filters, page: String(contractData.page), size: '10' });
     const [data, owners] = await Promise.all([apiRequest(`/contracts?${params}`), apiRequest('/contracts/owners')]);
     if (request !== contractData.request) return;
-    if (token !== state.auth.token) { contractData.loading = false; contractData.rows = []; contractData.token = null; render(); return; }
+    if (token !== state.auth.token) { contractData.loading = false; contractData.rows = []; contractData.token = null; if (visible()) render(); return; }
     const result = pageContent(data);
-    Object.assign(contractData, { rows: result.content, owners, total: result.totalElements, pages: result.totalPages, loading: false, token });
+    if (contractData.page > 0 && contractData.page >= Math.max(1, result.totalPages)) {
+      contractData.page = Math.max(0, result.totalPages - 1); return loadContracts();
+    }
+    Object.assign(contractData, { rows: result.content, owners, total: result.totalElements, pages: result.totalPages, loading: false });
   } catch (error) {
     if (request !== contractData.request) return;
-    contractData.loading = false;
-    toast(`合同查询失败：${error.message}`, 'error');
+    Object.assign(contractData, { loading: false, rows: [], total: 0, pages: 1, error: error.message });
+    if (token !== state.auth.token) { contractData.token = null; contractData.owners = []; }
   }
-  if (state.view === 'orders' && state.orderSection === '合同列表') render();
+  if (visible()) render();
 }
 function bindContractPage() {
   const form = document.querySelector('#contractFilterForm');
   if (!form) return;
-  if (contractData.token !== state.auth.token && !contractData.loading) { contractData.token = state.auth.token; queueMicrotask(loadContracts); }
+  if (contractData.token !== state.auth.token && !contractData.loading) queueMicrotask(loadContracts);
   form.addEventListener('submit', event => {
-    event.preventDefault();
+    event.preventDefault(); if (contractData.loading) return;
     contractData.filters = { customerId: form.querySelector('[aria-label="会员ID"]').value.trim(), owner: form.querySelector('[aria-label="归属人"]').value, status: form.querySelector('[aria-label="状态"]').value };
     contractData.page = 0; loadContracts();
   });
-  form.addEventListener('reset', event => { event.preventDefault(); contractData.filters = { customerId: '', owner: '', status: '' }; contractData.page = 0; loadContracts(); });
-  document.querySelectorAll('[data-contract-page]').forEach(button => button.addEventListener('click', () => { contractData.page = Number(button.dataset.contractPage); loadContracts(); }));
+  form.addEventListener('reset', event => { event.preventDefault(); if (contractData.loading) return; contractData.filters = { customerId: '', owner: '', status: '' }; contractData.page = 0; loadContracts(); });
+  document.querySelector('[data-contract-retry]')?.addEventListener('click', loadContracts);
+  document.querySelectorAll('[data-contract-page]').forEach(button => button.addEventListener('click', () => {
+    const page = Number(button.dataset.contractPage);
+    if (contractData.loading || page < 0 || page >= contractData.pages) return;
+    contractData.page = page; loadContracts();
+  }));
   document.querySelectorAll('[data-contract-detail]').forEach(button => button.addEventListener('click', () => openContract(button.dataset.contractDetail)));
 }
 async function openContract(no) {
+  const request = ++contractDetailRequest, token = state.auth.token;
+  const active = () => request === contractDetailRequest && token === state.auth.token && state.view === 'orders' && state.orderSection === '合同列表';
   try {
     const c = await apiRequest(`/contracts/${encodeURIComponent(no)}`);
+    if (!active()) return;
     const drawer = document.querySelector('#detailDrawer');
     const fields = [['合同编号', c.contractNo], ['订单ID', c.orderId], ['会员ID', c.customerId || '—'], ['会员姓名', c.customer], ['归属人', c.owner], ['状态', c.status], ['创建时间', formatDateTime(c.createdAt)], ['审核时间', c.reviewedAt ? formatDateTime(c.reviewedAt) : '—'], ['审核人ID', c.reviewedBy || '—'], ['审核备注', c.reviewNote || '—']];
     drawer.innerHTML = `<header class="drawer-header"><h2>合同详情</h2><button class="icon-button" data-close-drawer aria-label="关闭">${icon('close')}</button></header><div class="drawer-body"><div class="detail-grid">${fields.map(([label, value]) => `<div class="detail-item"><span>${label}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('')}</div>${isAdmin() ? `<form id="contractReviewForm"><label class="field"><span>审核备注</span><textarea name="note" maxlength="500"></textarea></label><div class="profile-actions"><button class="button primary" name="decision" value="审核通过">审核通过</button><button class="button secondary" name="decision" value="审核驳回">审核驳回</button></div></form>` : ''}</div>`;
@@ -4278,19 +4293,21 @@ async function openContract(no) {
     drawer.querySelector('[data-close-drawer]').addEventListener('click', closeDrawer);
     drawer.querySelector('#contractReviewForm')?.addEventListener('submit', async event => {
       event.preventDefault(); const form = event.currentTarget;
+      if (form.dataset.saving === 'true' || !event.submitter) return;
+      form.dataset.saving = 'true'; const decision = event.submitter.value;
       form.querySelectorAll('button').forEach(button => button.disabled = true);
       try {
-        await apiRequest(`/contracts/${encodeURIComponent(no)}/review`, { method: 'PATCH', body: JSON.stringify({ status: event.submitter.value, note: form.elements.note.value.trim() }) });
-        toast('合同审核已保存'); await loadContracts(); await openContract(no);
-      } catch (error) { toast(error.message, 'error'); form.querySelectorAll('button').forEach(button => button.disabled = false); }
+        await apiRequest(`/contracts/${encodeURIComponent(no)}/review`, { method: 'PATCH', body: JSON.stringify({ status: decision, note: form.elements.note.value.trim(), version: c.version }) });
+        toast('合同审核已保存'); if (token !== state.auth.token) return; await loadContracts(); if (active()) await openContract(no);
+      } catch (error) { if (active()) toast(error.message, 'error'); form.dataset.saving = 'false'; form.querySelectorAll('button').forEach(button => button.disabled = false); }
     });
   } catch (error) { toast(error.message, 'error'); }
 }
 
 function contractListView() {
-  const rows = contractData.token === state.auth.token ? contractData.rows : [];
+  const rows = !contractData.loading && !contractData.error && contractData.token === state.auth.token ? contractData.rows : [];
   const contractRows = rows.map(c => `<tr><td>${escapeHtml(c.orderId)}</td><td>${escapeHtml(c.customerId || "—")}</td><td>${escapeHtml(formatDateTime(c.createdAt))}</td><td>${escapeHtml(c.contractNo)}</td><td><span class="pill ${c.status === "审核通过" ? "green" : c.status === "审核驳回" ? "red" : "amber"}">${escapeHtml(c.status)}</span></td><td>${escapeHtml(c.customer)}</td><td>${escapeHtml(c.owner)}</td><td><button class="button ghost order-detail-button" type="button" data-contract-detail="${escapeHtml(c.contractNo)}">详情</button></td></tr>`).join("");
-  return `<section class="page order-contract-reference">${orderNav("合同列表")}<div class="order-contract-content"><form class="contract-filter-panel" id="contractFilterForm"><div class="contract-filter-row"><label><span>会员ID：</span><input placeholder="请输入用户ID" aria-label="会员ID" value="${escapeHtml(contractData.filters.customerId)}"></label><label><span>归属人：</span><select aria-label="归属人"><option value="">请选择</option>${contractData.owners.map(owner => `<option ${owner === contractData.filters.owner ? "selected" : ""}>${escapeHtml(owner)}</option>`).join("")}</select></label><label><span>状态：</span><select aria-label="状态"><option value="">请选择</option>${["待审核", "审核通过", "审核驳回"].map(status => `<option ${status === contractData.filters.status ? "selected" : ""}>${status}</option>`).join("")}</select></label></div><div class="contract-filter-actions"><button class="button primary" type="submit">${icon("search")}查询</button><button class="button ghost" type="reset">${icon("repeat")}重置</button></div></form><section class="data-panel order-contract-panel"><div class="table-wrap"><table class="data-table order-contract-table"><thead><tr><th>订单ID</th><th>会员ID</th><th>创建时间</th><th>合同编号</th><th>状态</th><th>会员姓名</th><th>归属人</th><th>操作</th></tr></thead><tbody>${rows.length ? contractRows : `<tr class="contract-empty-row"><td colspan="8"><div class="contract-empty-state"><span class="contract-empty-icon" aria-hidden="true"><svg viewBox="0 0 64 48"><path d="M12 18 22 5h20l10 13v23H12Z"/><path d="M12 18h13l4 7h6l4-7h13"/></svg></span><span>暂无数据</span></div></td></tr>`}</tbody></table></div><footer class="order-reference-pagination"><span>${contractData.loading ? "加载中…" : `共 ${contractData.total} 条`}</span><button class="page-button" data-contract-page="${contractData.page - 1}" ${contractData.page === 0 ? "disabled" : ""}>‹</button><span>${contractData.page + 1} / ${Math.max(1, contractData.pages)}</span><button class="page-button" data-contract-page="${contractData.page + 1}" ${contractData.page + 1 >= contractData.pages ? "disabled" : ""}>›</button></footer></section></div></section>`;
+  return `<section class="page order-contract-reference">${orderNav("合同列表")}<div class="order-contract-content"><form class="contract-filter-panel" id="contractFilterForm"><fieldset class="contract-filter-row" style="border:0;padding:0;margin:0;min-width:0" ${contractData.loading ? "disabled" : ""}><label><span>会员ID：</span><input placeholder="请输入用户ID" aria-label="会员ID" value="${escapeHtml(contractData.filters.customerId)}"></label><label><span>归属人：</span><select aria-label="归属人"><option value="">请选择</option>${contractData.owners.map(owner => `<option ${owner === contractData.filters.owner ? "selected" : ""}>${escapeHtml(owner)}</option>`).join("")}</select></label><label><span>状态：</span><select aria-label="状态"><option value="">请选择</option>${["待审核", "审核通过", "审核驳回"].map(status => `<option ${status === contractData.filters.status ? "selected" : ""}>${status}</option>`).join("")}</select></label></fieldset><div class="contract-filter-actions"><button class="button primary" type="submit" ${contractData.loading ? "disabled" : ""}>${icon("search")}查询</button><button class="button ghost" type="reset" ${contractData.loading ? "disabled" : ""}>${icon("repeat")}重置</button></div></form><section class="data-panel order-contract-panel"><div class="table-wrap"><table class="data-table order-contract-table"><thead><tr><th>订单ID</th><th>会员ID</th><th>创建时间</th><th>合同编号</th><th>状态</th><th>会员姓名</th><th>归属人</th><th>操作</th></tr></thead><tbody>${rows.length ? contractRows : `<tr class="contract-empty-row"><td colspan="8"><div class="contract-empty-state"><span class="contract-empty-icon" aria-hidden="true"><svg viewBox="0 0 64 48"><path d="M12 18 22 5h20l10 13v23H12Z"/><path d="M12 18h13l4 7h6l4-7h13"/></svg></span><span>${contractData.loading ? "正在查询合同…" : contractData.error ? "合同查询失败" : "暂无数据"}</span>${contractData.error ? `<span>${escapeHtml(contractData.error)}</span><button class="button secondary" data-contract-retry>重试</button>` : ""}</div></td></tr>`}</tbody></table></div><footer class="order-reference-pagination"><span>${contractData.loading ? "加载中…" : `共 ${contractData.total} 条`}</span><button class="page-button" data-contract-page="${contractData.page - 1}" ${(contractData.loading || !!contractData.error || contractData.page === 0) ? "disabled" : ""}>‹</button><span>${contractData.page + 1} / ${Math.max(1, contractData.pages)}</span><button class="page-button" data-contract-page="${contractData.page + 1}" ${(contractData.loading || !!contractData.error || contractData.page + 1 >= contractData.pages) ? "disabled" : ""}>›</button></footer></section></div></section>`;
 
 }
 
@@ -6036,6 +6053,7 @@ function openOrder(id) {
 }
 
 function closeDrawer() {
+  contractDetailRequest++;
   const drawer = document.querySelector("#detailDrawer");
   drawer.classList.remove("open");
   drawer.classList.remove("system-user-drawer");

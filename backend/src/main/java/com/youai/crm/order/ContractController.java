@@ -21,9 +21,9 @@ public class ContractController {
   this.repository=repository; this.policy=policy; this.orders=orders; this.users=users;
  }
  public record ContractResponse(String contractNo,String orderId,String customerId,String customer,String owner,
-   String status,LocalDateTime createdAt,LocalDateTime reviewedAt,Long reviewedBy,String reviewNote) {
+   String status,LocalDateTime createdAt,LocalDateTime reviewedAt,Long reviewedBy,String reviewNote,long version) {
   static ContractResponse from(SalesContract c) { return new ContractResponse(c.contractNo,c.order.getOrderNo(),
-   c.order.getCustomerNo(),c.order.getCustomerName(),c.order.getOwner(),c.status,c.createdAt,c.reviewedAt,c.reviewedBy,c.reviewNote); }
+   c.order.getCustomerNo(),c.order.getCustomerName(),c.order.getOwner(),c.status,c.createdAt,c.reviewedAt,c.reviewedBy,c.reviewNote,c.version); }
  }
  private Specification<SalesContract> scope(Authentication auth) {
   policy.scopedOwner(auth);
@@ -62,14 +62,17 @@ public class ContractController {
  public ContractResponse detail(@PathVariable String no,Authentication auth) {
   SalesContract c=get(no); orders.find(c.order.getOrderNo(),auth); return ContractResponse.from(c);
  }
- public record ReviewRequest(String status,String note) {}
+ public record ReviewRequest(String status,String note,Long version) {}
  @PatchMapping("/{no}/review")
  public ContractResponse review(@PathVariable String no,@RequestBody ReviewRequest request,Authentication auth) {
   if(!policy.isAdmin(auth))throw new AccessDeniedException("只有管理员可以审核合同");
   if(!Set.of("审核通过","审核驳回").contains(Objects.toString(request.status(),"")))throw new IllegalArgumentException("审核状态无效");
   if(request.note()!=null&&request.note().length()>500)throw new IllegalArgumentException("审核备注不能超过500字");
-  SalesContract c=get(no); c.status=request.status();c.reviewNote=request.note();c.reviewedAt=LocalDateTime.now();c.reviewedBy=policy.currentUserId(auth);
-  return ContractResponse.from(repository.save(c));
+  SalesContract c=get(no);
+  if(request.version()==null)throw new IllegalArgumentException("请刷新合同详情后提交审核");
+  if(request.version()!=c.version)throw new com.youai.crm.common.ConflictException("合同已被其他人更新，请刷新详情后重试");
+  c.status=request.status();c.reviewNote=request.note();c.reviewedAt=LocalDateTime.now();c.reviewedBy=policy.currentUserId(auth);
+  return ContractResponse.from(repository.saveAndFlush(c));
  }
  private SalesContract get(String no) { return repository.findByContractNo(no).orElseThrow(()->new NotFoundException("未找到合同："+no)); }
 }
