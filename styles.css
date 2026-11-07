@@ -260,7 +260,7 @@ button.profile-private-value { cursor:pointer; font-family:inherit; }
 .order-contract-panel { margin: 0; padding: 0 30px; border: 0; border-radius: 0; box-shadow: none; background: #fff; }
 .order-contract-table { width: 100%; min-width: 1000px; table-layout: fixed; font-size: 14px; }
 .order-contract-reference .order-contract-table th, .order-contract-reference .order-contract-table td { height: 48px; padding: 0 14px; border-bottom: 1px solid #f1f2f4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; vertical-align: middle; }
-.order-contract-reference .order-contract-table th { height: 72px; color: #595959; background: #fff; font-weight: 400; border-bottom: 0; }
+.order-contract-reference .order-contract-table th { height: 46px; color: #667085; background: #fafbfc; font-size: 11px; font-weight: 700; border-bottom: 1px solid var(--line); }
 .order-contract-table th:nth-child(1), .order-contract-table th:nth-child(2) { width: 11%; }
 .order-contract-table th:nth-child(3) { width: 13%; }
 .order-contract-table th:nth-child(4) { width: 15%; }
@@ -3153,3 +3153,43 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 .performance-filter-grid .shared-date-range { flex: 1; min-width: 0; }
 .payment-filter-grid .shared-date-range > .date-range-display,
 .performance-filter-grid .shared-date-range > .date-range-display { display: grid; grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) 20px; gap: 8px; padding: 0 12px; }
+/* 数据中心 · 邀请券记录，参考界面 */
+.invitation-coupon-page { min-height: calc(100vh - var(--topbar-height)); background: #f5f6f8; color: #555; }
+.invitation-coupon-page .coupon-nav { height: 62px; gap: 0; justify-content: space-between; padding: 0 32px; }
+.coupon-nav button { padding: 0 16px; font-size: 14px; font-weight: 400; }
+.coupon-nav button.active { font-weight: 400; }
+.coupon-content { padding: 16px 24px 28px; }
+.coupon-filter { padding: 32px 28px 24px; background: #fff; }
+.coupon-filter-grid { display: grid; grid-template-columns: 1fr 1.1fr 1.35fr; gap: 28px 34px; }
+.coupon-filter-grid label, .coupon-date-field { display: flex; min-width: 0; align-items: center; gap: 8px; font-size: 14px; }
+.coupon-filter-grid label > span, .coupon-date-field > span { flex: 0 0 70px; text-align: right; white-space: nowrap; }
+.coupon-filter-grid input, .coupon-filter-grid select { width: 100%; min-width: 0; height: 38px; padding: 0 12px; background: #fff; border: 1px solid #e5e7eb; border-radius: 2px; color: #555; font: inherit; }
+.coupon-filter-grid input::placeholder { color: #b9bec6; }
+.coupon-filter-grid select:has(option[value=""]:checked) { color: #b9bec6; }
+.coupon-filter-grid input:focus, .coupon-filter-grid select:focus { outline: 1px solid #1890ff; }
+.coupon-date-field .shared-date-range { min-width: 0; flex: 1; }
+.coupon-date-field .date-range-display { width: 100%; height: 38px; border-radius: 2px; border-color: #e5e7eb; font-size: 14px; }
+.coupon-actions { display: flex; justify-content: flex-end; gap: 24px; margin-top: 32px; padding-right: 12px; }
+.coupon-actions .button { min-width: 100px; height: 40px; justify-content: center; border-radius: 2px; font-size: 15px; }
+.coupon-actions .primary { background: #1890ff; border-color: #1890ff; }
+.coupon-actions .secondary { background: #fff; color: #555; border-color: #e8e8e8; }
+.coupon-table-panel { margin-top: 16px; min-height: 340px; background: #fff; }
+.coupon-table { width: 100%; min-width: 950px; table-layout: fixed; border-collapse: collapse; }
+.coupon-table th { height: 46px; padding: 0 14px; color: #667085; background: #fafbfc; border-bottom: 1px solid var(--line); text-align: center; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.coupon-table th:nth-child(7) { width: 20%; }
+.coupon-table td { padding: 0; }
+.coupon-empty { display: flex; min-height: 230px; align-items: center; justify-content: center; flex-direction: column; gap: 12px; color: #b9bdc5; font-size: 14px; }
+.coupon-empty svg { width: 56px; height: 44px; fill: #fafafa; stroke: #dce0e5; stroke-width: 1.2; }
+@media (max-width: 1100px) {
+  .coupon-filter-grid { gap: 22px 18px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .coupon-filter { padding: 26px 16px 22px; }
+  .coupon-filter-grid label > span, .coupon-date-field > span { flex-basis: 64px; font-size: 12px; }
+  .coupon-date-field .date-range-display { gap: 3px; padding: 0 5px; font-size: 11px; }
+  .coupon-nav button { padding: 0 12px; }
+}
+@media (max-width: 760px) {
+  .coupon-content { padding: 12px; }
+  .coupon-filter-grid { grid-template-columns: 1fr; gap: 18px; }
+  .coupon-actions { gap: 12px; padding-right: 0; }
+  .coupon-date-field .date-range-display { font-size: 13px; }
+}

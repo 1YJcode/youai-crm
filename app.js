@@ -4505,9 +4505,17 @@ function ledgerRecordsView() {
   return `<section class="page ledger-record-page">${analyticsNav("分账记录")}<div class="page-content"><section class="ledger-filter"><div class="ledger-filter-row"><label><strong>执行状态：</strong><select id="ledgerStatus"><option value="">请选择</option>${["待执行","执行成功","未满足条件"].map(v=>`<option ${f.status===v?"selected":""}>${v}</option>`).join("")}</select></label><label><strong>所属门店：</strong><select id="ledgerStore"><option value="">请选择门店</option>${["优爱天津店","优爱北京店","优爱上海店"].map(v=>`<option ${f.store===v?"selected":""}>${v}</option>`).join("")}</select></label><label class="ledger-date"><strong>分账时间：</strong><span><input id="ledgerFrom" type="date" value="${f.from}"><b>—</b><input id="ledgerTo" type="date" value="${f.to}"></span></label></div><div class="ledger-filter-actions"><button class="button primary" id="queryLedgers">${icon("search")}查询</button><button class="button secondary" id="resetLedgers">${icon("repeat")}重置</button></div></section><section class="ledger-table-panel"><div class="ledger-toolbar"><button class="button primary" id="newLedger">${icon("plus")}新增分账</button><span>共 ${rows.length} 条记录，分账金额 ${money(rows.reduce((sum,row)=>sum+row.ledgerAmount,0))}</span></div><div class="table-wrap"><table class="data-table ledger-table"><thead><tr><th>ID</th><th>门店名称</th><th>分账出款商编</th><th>流水号</th><th>订单金额</th><th>手续费</th><th>分账金额</th><th>分账收款商编</th><th>执行状态</th><th>分账时间</th><th>出款时间</th><th>交易上送订单号</th></tr></thead><tbody>${body || `<tr><td colspan="12"><div class="ledger-empty"><span class="empty-icon">${icon("wallet")}</span><strong>暂无数据</strong></div></td></tr>`}</tbody></table></div></section></div>${ledgerModal()}</section>`;
 }
 
+function invitationCouponView() {
+  const f = state.invitationCouponFilters || {};
+  const range = referenceDateRanges.invitationCoupon ||= { start: "", end: "", draftStart: "", draftEnd: "", picking: "start", viewMonth: "", open: false };
+  const tabs = ["首页", "客户列表", "公海列表", "客户导入", "消息管理", "订单列表", "合同列表", "流水列表", "退费列表", "业绩列表", "邀请券记录"];
+  const input = (key, placeholder) => `<input name="${key}" value="${escapeHtml(f[key] || "")}" placeholder="${placeholder}">`;
+  return `<section class="page invitation-coupon-page"><nav class="subnav coupon-nav" aria-label="业务导航">${tabs.map(tab => `<button type="button" data-coupon-nav="${tab}" class="${tab === "邀请券记录" ? "active" : ""}">${tab}</button>`).join("")}</nav><div class="coupon-content"><form id="invitationCouponFilter" class="coupon-filter"><div class="coupon-filter-grid"><label><span>发券人：</span>${input("issuer", "请选择")}</label><label><span>活动名：</span>${input("activity", "请输入关键词")}</label><label><span>用户姓名：</span>${input("customer", "请输入用户姓名")}</label><label><span>用户ID：</span>${input("customerId", "请输入用户ID")}</label><label><span>卡券状态：</span><select name="status" aria-label="卡券状态"><option value="">请选择</option>${["未使用", "已使用", "已过期", "已作废"].map(status => `<option ${f.status === status ? "selected" : ""}>${status}</option>`).join("")}</select></label><div class="coupon-date-field"><span>发放时间：</span>${sharedDateRangeControl("invitationCoupon", range)}</div></div><div class="coupon-actions"><button class="button primary" type="submit">${icon("search")}查询</button><button class="button secondary" type="reset">${icon("repeat")}重置</button></div></form><section class="coupon-table-panel" aria-label="邀请券记录"><div class="table-wrap"><table class="coupon-table"><thead><tr>${["所属部门", "销售", "客户姓名", "id", "发放时间", "活动名", "活动时间(开始/结束)", "卡券状态"].map(title => `<th scope="col">${title}</th>`).join("")}</tr></thead><tbody><tr><td colspan="8"><div class="coupon-empty"><svg viewBox="0 0 64 48" aria-hidden="true"><path d="M10 20 22 6h20l12 14v23H10Z"/><path d="M10 20h15l4 8h6l4-8h15"/></svg><span>暂无数据</span></div></td></tr></tbody></table></div></section></div></section>`;
+}
+
 function analyticsView() {
   if (!canAccessAnalyticsSection(state.analyticsSection)) state.analyticsSection = "邀约记录";
-  if (state.analyticsSection === "邀请券记录") return `<section class="page">${analyticsNav("邀请券记录")}<div class="page-content"><section class="data-panel"><div class="data-toolbar"><h2>邀请券记录</h2></div><div class="empty-state">邀请券记录功能暂未接入</div></section></div></section>`;
+  if (state.analyticsSection === "邀请券记录") return invitationCouponView();
   if (state.analyticsSection === "知识库") return knowledgeBaseView();
   if (state.analyticsSection === "邀约记录") return invitationRecordsView();
   if (state.analyticsSection === "分账记录") return ledgerRecordsView();
@@ -8147,6 +8155,34 @@ function bindViewEvents() {
   document.querySelector("#exportRefunds")?.addEventListener("click", exportRefunds);
   document.querySelector("#exportPerformance")?.addEventListener("click", exportPerformance);
   document.querySelector("#exportAnalytics")?.addEventListener("click", exportAnalytics);
+  document.querySelector("#invitationCouponFilter")?.addEventListener("submit", event => {
+    event.preventDefault();
+    state.invitationCouponFilters = Object.fromEntries(new FormData(event.currentTarget));
+    render();
+    toast("暂无符合条件的邀请券记录，数据接口暂未接入");
+  });
+  document.querySelector("#invitationCouponFilter")?.addEventListener("reset", event => {
+    event.preventDefault();
+    state.invitationCouponFilters = {};
+    Object.assign(referenceDateRanges.invitationCoupon, { start: "", end: "", draftStart: "", draftEnd: "", picking: "start", open: false });
+    render();
+  });
+  document.querySelectorAll("[data-coupon-nav]").forEach(button => button.addEventListener("click", () => {
+    const section = button.dataset.couponNav;
+    if (section === "邀请券记录") return;
+    if (section === "首页") { state.view = "dashboard"; }
+    else if (["客户列表", "公海列表", "客户导入"].includes(section)) {
+      if (!requireCustomerSectionAccess(section)) return;
+      state.view = "customers"; state.customerSection = section; state.customerDetailId = null;
+    } else if (section === "消息管理") { state.view = "messages"; state.messageSection = section; }
+    else {
+      if (!canAccessOrderSection(section)) return;
+      state.view = "orders"; state.orderSection = section; state.orderPage = 1;
+    }
+    render();
+    if (section === "合同列表") loadContracts();
+    if (["客户列表", "公海列表"].includes(section)) refreshVisibleCustomerList();
+  }));
   document.querySelector("#queryInvitations")?.addEventListener("click", () => {
     document.querySelectorAll("[data-invite-filter]").forEach(input => { state.invitationFilters[input.dataset.inviteFilter] = input.value; });
     state.invitationFilters.gender = document.querySelector('input[name="inviteGender"]:checked')?.value || "";
