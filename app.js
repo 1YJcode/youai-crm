@@ -8798,7 +8798,54 @@ document.addEventListener("keydown", event => {
 
 const notificationPopover = document.querySelector("#notificationPopover");
 document.querySelector("#notificationButton").addEventListener("click", event => { event.stopPropagation(); notificationPopover.hidden = !notificationPopover.hidden; document.querySelector("#userPopover").hidden = true; });
-document.querySelector("#headerCallButton")?.addEventListener("click", () => navigate("calls"));
+const headerCallButton = document.querySelector("#headerCallButton");
+const headerCallMenu = document.querySelector("#headerCallMenu");
+const headerContactDialog = document.querySelector("#headerContactDialog");
+const headerContactInput = document.querySelector("#headerContactInput");
+document.querySelectorAll("[data-close-header-contact]").forEach(button => {
+  button.addEventListener("click", () => headerContactDialog.close());
+});
+headerContactDialog.addEventListener("close", () => headerCallButton.focus());
+document.querySelector("#headerContactForm").addEventListener("submit", event => {
+  event.preventDefault();
+  if (!headerContactInput.value.trim()) {
+    headerContactInput.value = "";
+    headerContactInput.reportValidity();
+    return;
+  }
+  toast("电话平台尚未接入，请联系管理员配置");
+});
+function closeHeaderCallMenu() {
+  headerCallMenu.hidden = true;
+  headerCallButton.setAttribute("aria-expanded", "false");
+}
+headerCallButton.addEventListener("click", () => {
+  headerCallMenu.hidden = !headerCallMenu.hidden;
+  headerCallButton.setAttribute("aria-expanded", String(!headerCallMenu.hidden));
+  document.querySelectorAll(".popover").forEach(item => item.hidden = true);
+});
+headerCallMenu.addEventListener("click", event => {
+  const option = event.target.closest("[data-header-call-mode]");
+  if (!option) return;
+  closeHeaderCallMenu();
+  const isCall = option.dataset.headerCallMode === "呼叫";
+  document.querySelector("#headerContactTitle").textContent = isCall ? "确认呼叫手机号码" : "确认谈单ID";
+  headerContactInput.value = "";
+  headerContactInput.type = isCall ? "tel" : "text";
+  headerContactInput.placeholder = isCall ? "请输入手机号码" : "请输入用户ID";
+  headerContactInput.setAttribute("aria-label", isCall ? "手机号码" : "用户ID");
+  headerContactDialog.showModal();
+  headerContactInput.focus();
+});
+document.addEventListener("click", event => {
+  if (!event.target.closest(".header-call-picker")) closeHeaderCallMenu();
+}, true);
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && !headerCallMenu.hidden) {
+    closeHeaderCallMenu();
+    headerCallButton.focus();
+  }
+});
 document.querySelector("#userMenu").addEventListener("click", event => { event.stopPropagation(); const popover = document.querySelector("#userPopover"); popover.hidden = !popover.hidden; notificationPopover.hidden = true; });
 document.querySelector("#accountSwitchButton").addEventListener("click", () => { document.querySelector("#userPopover").hidden = true; openAccountSwitcher(); });
 document.querySelector("#logoutButton").addEventListener("click", () => { document.querySelector("#userPopover").hidden = true; logout(); });

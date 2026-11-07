@@ -73,7 +73,13 @@
           <input id="globalSearch" type="search" placeholder="ID/号码/姓名" aria-label="搜索客户ID、号码或姓名" autocomplete="off">
           <button class="global-search-submit" type="submit" aria-label="搜索客户" title="搜索客户"><svg aria-hidden="true"><use href="#i-search"></use></svg></button>
         </form>
-        <button class="header-call" id="headerCallButton" type="button" aria-label="打开呼叫中心"><svg><use href="#i-phone"></use></svg><span>呼叫</span><svg class="header-call-chevron"><use href="#i-down"></use></svg></button>
+        <div class="header-call-picker">
+          <button class="header-call" id="headerCallButton" type="button" aria-label="选择呼叫或谈单" aria-expanded="false" aria-controls="headerCallMenu"><svg><use href="#i-phone"></use></svg><span>呼叫</span><svg class="header-call-chevron"><use href="#i-down"></use></svg></button>
+          <div class="header-call-menu" id="headerCallMenu" hidden>
+            <button type="button" data-header-call-mode="呼叫">呼叫</button>
+            <button type="button" data-header-call-mode="谈单">谈单</button>
+          </div>
+        </div>
         <button class="icon-button notification-button" id="notificationButton" type="button" aria-label="通知"><svg><use href="#i-bell"></use></svg><span></span></button>
         <button class="user-menu" id="userMenu" type="button"><span class="avatar">林</span><span class="user-name">林夕</span><svg><use href="#i-down"></use></svg></button>
       </div>
@@ -83,6 +89,14 @@
   <nav class="workspace-tabs" id="workspaceTabs" aria-label="已打开功能" hidden></nav>
 
   <main id="app" tabindex="-1"></main>
+
+  <dialog class="header-contact-dialog" id="headerContactDialog" aria-labelledby="headerContactTitle">
+    <form id="headerContactForm">
+      <header><h2 id="headerContactTitle">确认呼叫手机号码</h2><button class="icon-button" type="button" data-close-header-contact aria-label="关闭">×</button></header>
+      <div class="header-contact-body"><input id="headerContactInput" name="target" type="tel" placeholder="请输入手机号码" aria-label="手机号码" required></div>
+      <footer><button class="button secondary" type="button" data-close-header-contact>取消</button><button class="button primary" type="submit">确定</button></footer>
+    </form>
+  </dialog>
 
   <aside class="help-rail" aria-label="帮助工具">
     <button type="button" data-help="帮助中心"><svg><use href="#i-help"></use></svg><span>帮助</span></button>
