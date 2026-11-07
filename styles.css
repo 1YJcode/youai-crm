@@ -323,7 +323,7 @@ button.profile-private-value { cursor:pointer; font-family:inherit; }
 .refund-summary { margin: 0 0 12px; color: #e6a23c; font-size: 13px; }
 .order-refund-table { min-width: 1520px; table-layout: fixed; font-size: 13px; }
 .order-refund-table th, .order-refund-table td { height: 48px; padding: 0 8px; border-bottom: 1px solid #f1f2f4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
-.order-refund-table th { height: 60px; color: #667085; background: #fafbfc; font-weight: 600; }
+.order-refund-table th { height: 60px; padding-top: 8px; padding-bottom: 8px; color: #667085; background: #fafbfc; font-weight: 600; white-space: normal; overflow-wrap: anywhere; text-overflow: clip; line-height: 20px; }
 .order-coupon-reference { background: #f5f6f8; min-height: calc(100vh - var(--topbar-height)); }
 .order-coupon-content { padding: 12px 14px 46px; }
 .coupon-filter-panel { margin-bottom: 14px; padding: 18px 28px 20px; background: #fff; box-shadow: 0 1px 5px rgba(16,24,40,.05); }
