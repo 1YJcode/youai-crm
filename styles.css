@@ -2597,18 +2597,23 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 /* 数据中心 · 邀约记录 */
 .invitation-record-page { min-height: calc(100vh - var(--topbar-height)); background: #f3f5f8; }
 .invitation-record-page .page-content { max-width: none; padding: 12px 14px 28px; }
-.invitation-filter { position: relative; padding: 22px 24px 18px; background: #fff; border: 1px solid #e5e9ef; }
-.invitation-filter-grid { display: grid; grid-template-columns: repeat(3, minmax(270px, 1fr)); gap: 18px 24px; }
-.invitation-filter-grid > label { display: flex; min-width: 0; align-items: center; gap: 8px; color: #596273; font-size: 12px; }
-.invitation-filter-grid strong { flex: 0 0 70px; font-weight: 500; text-align: right; }
+.invitation-filter { position: relative; padding: 32px 24px 24px; background: #fff; border: 1px solid #e5e9ef; }
+.invitation-filter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+.invitation-filter-column { display: grid; grid-auto-rows: 40px; gap: 24px; align-content: start; }
+.invitation-filter-column > label, .invitation-filter-column > .invite-radio, .invitation-date-field { display: flex; min-width: 0; align-items: center; gap: 8px; color: #596273; font-size: 12px; }
+.invitation-filter-column > label > strong, .invitation-filter-column > .invite-radio > strong, .invitation-date-field > strong { flex: 0 0 76px; font-weight: 400; text-align: left; }
 .invitation-filter-grid input, .invitation-filter-grid select { min-width: 0; height: 34px; flex: 1; padding: 0 10px; color: #4d5868; background: #fff; border: 1px solid #e1e6ed; border-radius: 2px; outline: none; }
 .invitation-filter-grid input:focus, .invitation-filter-grid select:focus { border-color: #1594e8; box-shadow: 0 0 0 2px rgba(21,148,232,.1); }
-.invite-date-pair { display: flex; min-width: 0; flex: 1; align-items: center; }
-.invite-date-pair input { width: 0; }
-.invite-date-pair b { padding: 0 7px; color: #a5adba; font-weight: 400; }
-.invitation-filter-grid .invite-radio span { white-space: nowrap; }
+.invitation-date-field .shared-date-range { flex: 1; min-width: 0; }
+.invitation-date-field .date-range-display { min-height: 34px; border-radius: 2px; }
+.invitation-filter-column:last-child .shared-date-range .date-range-popover { left: auto; right: 0; }
+.invitation-filter-grid .invite-radio span { display: flex; gap: 24px; white-space: nowrap; }
+.invitation-filter-grid .invite-radio span label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .invitation-filter-grid .invite-radio input, .invitation-filter-grid .invite-check input { width: auto; height: auto; flex: none; accent-color: #1594e8; }
-.invitation-filter-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; padding-right: 10%; }
+.invitation-filter-actions { display: flex; justify-content: flex-end; gap: 26px; margin-top: 72px; padding-right: 14%; }
+.invitation-filter-actions .button { height: 40px; padding: 0 22px; border-radius: 2px; font-size: 14px; }
+.invitation-filter-actions .button.secondary { border-color: #d9dfe7; background: #fff; box-shadow: none; }
+.invitation-filter-actions .button.secondary:hover { color: #1594e8; border-color: #1594e8; background: #f0f8ff; }
 .invitation-table-panel { margin-top: 12px; background: #fff; border: 1px solid #e5e9ef; }
 .invitation-toolbar { display: flex; height: 56px; align-items: center; justify-content: space-between; padding: 0 24px; color: #7d8794; font-size: 12px; }
 .invitation-toolbar strong { color: #1594e8; }
