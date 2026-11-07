@@ -1282,6 +1282,7 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 }
 .data-table th { height: 46px; padding: 0 14px; color: #667085; background: #fafbfc; border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 700; text-align: center; white-space: nowrap; }
 .data-table td { height: 62px; padding: 9px 14px; border-bottom: 1px solid var(--line); color: #344054; font-size: 12px; vertical-align: middle; }
+.customer-call-table th, .customer-call-table td { text-align: center; }
 .data-table tbody tr { cursor: pointer; }
 .data-table tbody tr:hover { background: #f8fbff; }
 .data-table tbody tr:last-child td { border-bottom: 0; }
