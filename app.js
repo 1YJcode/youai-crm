@@ -2580,6 +2580,7 @@ function customerDateRangeSetViewMonth(target, year, month, calendarIndex = 0) {
     : selectedMonth;
   if (target === "followup") state.customerFollowUpDateViewMonth = viewMonth;
   else if (target === "order") state.orderDateRange.viewMonth = viewMonth;
+  else if (referenceDateRanges[target]) referenceDateRanges[target].viewMonth = viewMonth;
   else if (target === "advanced") state.customerAdvancedDatePickerViewMonth = viewMonth;
   else state.customerDateRangeViewMonth = viewMonth;
 }
@@ -2657,12 +2658,14 @@ function sharedCustomerDateRangePickerView({
   </div>`;
 }
 
+const referenceDateRanges = {};
+
 function sharedDateRangeControl(key, range) {
   return `<div class="date-range-picker-wrap shared-date-range" data-shared-date-range="${key}"><button class="date-range-display" type="button" data-range-toggle aria-label="选择时间范围" aria-expanded="${Boolean(range.open)}"><span>${range.start || "开始日期"}</span><b>→</b><span>${range.end || "结束日期"}</span><span class="date-range-picker">${icon("calendar")}</span></button>${range.open ? sharedCustomerDateRangePickerView({ start: range.draftStart, end: range.draftEnd, viewMonth: range.viewMonth, picking: range.picking, dateAttribute: "data-range-date", shiftAttribute: "data-range-shift", clearAttribute: "data-range-clear", viewTarget: key }) : ""}</div>`;
 }
 
 function bindSharedDateRangeControls() {
-  const ranges = { order: state.orderDateRange };
+  const ranges = { order: state.orderDateRange, ...referenceDateRanges };
   document.querySelectorAll("[data-shared-date-range]").forEach(wrapper => {
     const key = wrapper.dataset.sharedDateRange;
     const range = ranges[key];
@@ -8784,6 +8787,7 @@ document.addEventListener("click", event => {
   document.querySelectorAll("[data-shared-date-range]").forEach(wrapper => {
     if (!wrapper.contains(event.target)) {
       if (wrapper.dataset.sharedDateRange === "order") state.orderDateRange.open = false;
+      else if (referenceDateRanges[wrapper.dataset.sharedDateRange]) referenceDateRanges[wrapper.dataset.sharedDateRange].open = false;
       wrapper.querySelector(".date-range-popover")?.remove();
       wrapper.querySelector("[data-range-toggle]")?.setAttribute("aria-expanded", "false");
     }
@@ -8995,6 +8999,26 @@ function bindReferenceTableFilters() {
       }
       const label = control.closest('label')?.textContent.split('：')[0].trim() || '日期';
       if (/时间|日期/.test(label) || /日期/.test(control.placeholder || '')) {
+        if (['.payment-filter-panel', '.performance-filter-panel'].includes(panelSelector)) {
+          const key = `${panelSelector.slice(1)}-${index}`;
+          const range = referenceDateRanges[key] = {
+            start: saved[index]?.[0] || '', end: saved[index]?.[1] || '', open: false
+          };
+          const holder = document.createElement('div');
+          holder.innerHTML = sharedDateRangeControl(key, range);
+          control.replaceWith(holder.firstElementChild);
+          const refresh = () => {
+            range.open = false;
+            const wrapper = panel.querySelector(`[data-shared-date-range="${key}"]`);
+            holder.innerHTML = sharedDateRangeControl(key, range);
+            wrapper.replaceWith(holder.firstElementChild);
+            bindSharedDateRangeControls();
+          };
+          const start = { get value() { return range.start; }, set value(value) { range.start = value; } };
+          const end = { get value() { return range.end; }, set value(value) { range.end = value; } };
+          criteria.push({ index, column, start, end, refresh });
+          return;
+        }
         const start = document.createElement('input'), end = document.createElement('input');
         start.type = end.type = 'date';
         start.setAttribute('aria-label', label + '开始'); end.setAttribute('aria-label', label + '结束');
@@ -9006,6 +9030,7 @@ function bindReferenceTableFilters() {
         criteria.push({ index, column, control });
       }
     });
+    bindSharedDateRangeControls();
     const status = document.createElement('p');
     status.setAttribute('role', 'status'); panel.append(status);
     const summary = panel.parentElement.querySelector('.payment-summary, .refund-summary, .performance-summary');
@@ -9041,11 +9066,14 @@ function bindReferenceTableFilters() {
       if (!['查询', '重置'].includes(text)) return;
       button.addEventListener('click', event => {
         event.preventDefault(); event.stopImmediatePropagation();
-        if (text === '重置') criteria.forEach(c => { if (c.start) c.start.value = c.end.value = ''; else c.control.value = ''; });
+        if (text === '重置') criteria.forEach(c => {
+          if (c.start) { c.start.value = c.end.value = ''; c.refresh?.(); }
+          else c.control.value = '';
+        });
         apply();
       }, true);
     });
-    panel.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); apply(); } });
+    panel.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.target.closest('[data-shared-date-range]')) { event.preventDefault(); apply(); } });
     apply();
   }
   for (const selector of ['.sms-filter-panel', '.coupon-filter-panel']) {

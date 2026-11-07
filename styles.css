@@ -293,7 +293,7 @@ button.profile-private-value { cursor:pointer; font-family:inherit; }
 .order-payment-panel { margin: 0; padding: 16px 20px 22px; border: 0; border-radius: 0; box-shadow: 0 1px 5px rgba(16,24,40,.05); }
 .payment-summary { margin: 0 0 12px; color: #e6a23c; font-size: 13px; }
 .order-payment-table { min-width: 1280px; table-layout: fixed; font-size: 13px; }
-.order-payment-table th, .order-payment-table td { height: 48px; padding: 0 10px; border-bottom: 1px solid #f1f2f4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.order-payment-table th, .order-payment-table td { height: 48px; padding: 0 10px; border-bottom: 1px solid #f1f2f4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; vertical-align: middle; }
 .order-payment-table th { height: 58px; color: #667085; background: #fafbfc; font-weight: 600; }
 .order-payment-table th:nth-child(1) { width: 130px; } .order-payment-table th:nth-child(2) { width: 110px; } .order-payment-table th:nth-child(3) { width: 110px; } .order-payment-table th:nth-child(4) { width: 100px; } .order-payment-table th:nth-child(5) { width: 150px; } .order-payment-table th:nth-child(6) { width: 100px; } .order-payment-table th:nth-child(7) { width: 100px; } .order-payment-table th:nth-child(8), .order-payment-table th:nth-child(9) { width: 150px; } .order-payment-table th:nth-child(10), .order-payment-table th:nth-child(11) { width: 100px; } .order-payment-table th:nth-child(12) { width: 72px; }
 .order-performance-reference { background: #f5f6f8; min-height: calc(100vh - var(--topbar-height)); }
@@ -3148,3 +3148,8 @@ button.home-metric:hover { border-color: #9bcfff; box-shadow: 0 8px 24px rgba(25
 
 .order-reference-table .order-detail-button { border: 1px solid #aeb8c6; border-radius: 0; padding: 3px 12px; }
 .order-reference-table .order-detail-button:hover { border-color: var(--primary); }
+
+.payment-filter-grid .shared-date-range,
+.performance-filter-grid .shared-date-range { flex: 1; min-width: 0; }
+.payment-filter-grid .shared-date-range > .date-range-display,
+.performance-filter-grid .shared-date-range > .date-range-display { display: grid; grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) 20px; gap: 8px; padding: 0 12px; }
