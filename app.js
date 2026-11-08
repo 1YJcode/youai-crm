@@ -945,6 +945,7 @@ async function apiRequest(path, options = {}, allowRefresh = true) {
 }
 
 function clearAuth() {
+  if (typeof stopBrowserTelephony === "function") stopBrowserTelephony();
   if (typeof closeKnowledgeDialog === "function") closeKnowledgeDialog();
   if (typeof closeCallRecording === "function") closeCallRecording();
   state.orderQuerySequence++;
@@ -977,6 +978,7 @@ function customerOwnerSelectionNames(selection = {}) {
 function saveAuth(auth) {
   const accountChanged = String(state.auth.user?.id) !== String(auth.user?.id);
   if (accountChanged) { state.customerCalls = []; state.customerCallsMeta = null; }
+  if (accountChanged && typeof stopBrowserTelephony === "function") stopBrowserTelephony();
   if (accountChanged && typeof closeCallRecording === "function") closeCallRecording();
   if (accountChanged && typeof closeKnowledgeDialog === "function") closeKnowledgeDialog();
   const wasAdmin = isAdmin();
@@ -1187,6 +1189,7 @@ function showApp() {
   bindHelpActions();
   render();
   startFollowupAlertMonitor();
+  if (typeof startBrowserTelephony === "function") startBrowserTelephony();
   requestAnimationFrame(() => document.body.classList.remove("app-booting"));
 }
 
@@ -3651,7 +3654,7 @@ function customerDetailView(id) {
   const profileAllocationTime = isAssignedToEmployee && customer.lastAllocationAt ? formatDateTime(customer.lastAllocationAt) : "";
   const profileActions = isWhiteboardCustomer
     ? `<button class="button secondary" type="button" data-customer-more-action="1" data-customer-more-label="库存" data-customer-id="${value(customer.id)}">转为库存</button>${isAdmin() ? `<button class="button secondary" type="button" data-allocate-profile-customer="${value(customer.id)}">资源调配</button>` : ""}<button class="button secondary" type="button" data-customer-more-action="4" data-customer-more-label="诚意库" data-customer-id="${value(customer.id)}">＋ 添加至诚意库</button><button class="button secondary" type="button" data-next-customer="${value(customer.id)}" data-next-customer-label="下一个客户">下一个客户 ›</button>`
-    : `<button class="button secondary" type="button" data-new-order-customer="${value(customer.id)}">＋ 新订单</button>${contactVisible ? `<button class="button secondary" type="button" data-call-name="${value(customer.name)}">☎ 拨打</button><button class="button secondary" type="button" data-message-name="${value(customer.name)}">▣ 消息</button>` : ""}${isAdmin() ? `<button class="button secondary" type="button" data-allocate-profile-customer="${value(customer.id)}">资源调配</button>` : ""}<button class="button secondary" type="button" data-next-customer="${value(customer.id)}">下个客户 ›</button>${moreMenu}`;
+    : `<button class="button secondary" type="button" data-new-order-customer="${value(customer.id)}">＋ 新订单</button>${contactVisible ? `<button class="button secondary" type="button" data-call-customer="${value(customer.id)}">☎ 拨打</button><button class="button secondary" type="button" data-customer-message="${value(customer.id)}">▣ 消息</button>` : ""}${isAdmin() ? `<button class="button secondary" type="button" data-allocate-profile-customer="${value(customer.id)}">资源调配</button>` : ""}<button class="button secondary" type="button" data-next-customer="${value(customer.id)}">下个客户 ›</button>${moreMenu}`;
   const profileHeader = `<div class="profile-reference-header"><div class="profile-reference-title-row"><h1>${value(headerPhone)} <span>[${value(profileGender)} ${value(profileAge)} ${value(profileEducation)}]</span>　【${value(customer.id)}】 <span class="profile-header-icons">${icon("star")} ${icon(contactVisible ? "lock-open" : "lock")} ${icon("flag")}</span></h1><span class="profile-reference-status">● 未激活</span></div><div class="profile-reference-second-row"><div class="profile-reference-header-meta"><div class="profile-reference-meta-row profile-reference-tags-row"><span>客户标签：</span><button class="profile-add-tag" type="button" data-add-profile-tag="${value(customer.id)}">+ 增加标签</button></div><div class="profile-reference-meta-row"><span>归属人：<b>${value(profileOwner)}</b></span><span>协作人：<b>${value(profileCollaborator)}</b></span><span>分配时间：<b>${value(profileAllocationTime)}</b></span><span>下次跟进时间：<b>${value(customer.nextFollowAt ? formatDateTime(customer.nextFollowAt) : "")}</b></span></div></div><div class="profile-reference-actions">${profileActions}</div></div></div>`;
   const profileTabEdit = state.customerDetailTab === "profile" && canEditCustomer(customer)
     ? `<button class="customer-profile-tab-edit" type="button" data-edit-profile-customer="${value(customer.id)}">编辑</button>`
@@ -3793,7 +3796,7 @@ function customerMessagesInteractiveView(active, messages) {
   const totalUnread = unreadReminders.length + conversations.reduce((sum, item) => sum + item.unread, 0);
   return `<section class="page compact-message-page">${subnav(["消息管理", "短信记录"], "消息管理", ["消息管理", "短信记录"])}<div class="page-content compact-message-content">
     <form class="message-management-filters" id="messageFilterForm"><label>ID/手机号码：<input id="messageIdentity" placeholder="输入ID/手机号" value="${escapeHtml(filters.keyword)}"></label><fieldset><legend>回复时间</legend><span>回复时间：</span><div class="message-date-range"><label class="message-date-field" data-empty="${!filters.from}"><input id="messageReplyFrom" type="date" aria-label="回复开始日期" value="${escapeHtml(filters.from)}"><span class="message-date-placeholder" aria-hidden="true">开始日期</span></label><span class="date-separator">—</span><label class="message-date-field" data-empty="${!filters.to}"><input id="messageReplyTo" type="date" aria-label="回复结束日期" value="${escapeHtml(filters.to)}"><span class="message-date-placeholder" aria-hidden="true">结束日期</span></label></div></fieldset><button class="button primary" type="submit">查询</button><button class="button ghost" id="resetMessageFilters" type="button">重置</button></form>
-    <section class="message-layout"><aside class="conversation-list"><header class="message-list-heading"><h2>消息${totalUnread ? `<span class="unread">${totalUnread}</span>` : ""}</h2><span>共 ${conversations.length} 个会话</span></header><div class="message-list-tabs"><button type="button" data-message-list-tab="unread" class="${state.messageListTab === "unread" ? "active" : ""}">尚未阅读</button><button type="button" data-message-list-tab="replies" class="${state.messageListTab === "replies" ? "active" : ""}">客户回复</button></div><div class="message-list-items">${showSystem ? `<article class="conversation-item system-conversation ${systemActive ? "active" : ""}" data-system-message-channel><span class="system-message-avatar">${icon("bell")}</span><div class="conversation-copy"><strong>系统消息</strong><span>${reminders.length ? `共 ${reminders.length} 条跟进提醒，${unreadReminders.length} 条未读` : "暂无跟进提醒"}</span></div><div class="conversation-meta">${latestReminder ? `<time datetime="${escapeHtml(latestReminder.at)}" title="提醒时间：${escapeHtml(formatDateTime(latestReminder.at))}">${escapeHtml(formatDateTime(latestReminder.at).slice(5))}</time>` : ""}${unreadReminders.length ? `<span class="unread">${unreadReminders.length}</span>` : ""}</div></article>` : ""}${visibleConversations.map(conversation => `<article class="conversation-item ${state.activeMessageChannel === "conversation" && conversation.id === active?.id ? "active" : ""}" data-conversation="${escapeHtml(conversation.id)}"><span class="person-avatar">${escapeHtml(conversation.name?.[0] || "客")}</span><div class="conversation-copy"><strong>${escapeHtml(conversation.name)}</strong><span>${escapeHtml(conversation.preview || "")}</span></div><div class="conversation-meta"><time>${escapeHtml(conversation.time || "")}</time>${conversation.unread ? `<span class="unread">${conversation.unread}</span>` : ""}</div></article>`).join("")}<div class="message-list-end">${visibleConversations.length || showSystem ? "没有更多了" : "暂无符合条件的消息"}</div></div></aside><div class="chat-pane">${systemActive ? systemMessageThreadView(reminders) : state.activeMessageChannel === "conversation" && active ? `<header class="chat-header"><h2>${escapeHtml(active.name)}</h2><p>${escapeHtml(active.company || "")}</p></header><div class="messages" id="messageThread">${messages.map(message => `<div class="message ${message.outgoing ? "outgoing" : ""}"><span class="person-avatar">${escapeHtml(message.sender?.[0] || "客")}</span><div class="message-bubble">${escapeHtml(message.content)}<time>${escapeHtml(message.time || "")}</time></div></div>`).join("") || `<div class="empty-state">暂无消息，发送第一条消息开始沟通</div>`}</div><form class="composer" id="messageForm"><textarea id="messageInput" placeholder="输入消息内容，Enter 发送"></textarea><button class="button primary" type="submit">发送</button></form>` : ""}</div></section></div></section>`;
+    <section class="message-layout"><aside class="conversation-list"><header class="message-list-heading"><h2>消息${totalUnread ? `<span class="unread">${totalUnread}</span>` : ""}</h2><span>共 ${conversations.length} 个会话</span></header><div class="message-list-tabs"><button type="button" data-message-list-tab="unread" class="${state.messageListTab === "unread" ? "active" : ""}">尚未阅读</button><button type="button" data-message-list-tab="replies" class="${state.messageListTab === "replies" ? "active" : ""}">客户回复</button></div><div class="message-list-items">${showSystem ? `<article class="conversation-item system-conversation ${systemActive ? "active" : ""}" data-system-message-channel><span class="system-message-avatar">${icon("bell")}</span><div class="conversation-copy"><strong>系统消息</strong><span>${reminders.length ? `共 ${reminders.length} 条跟进提醒，${unreadReminders.length} 条未读` : "暂无跟进提醒"}</span></div><div class="conversation-meta">${latestReminder ? `<time datetime="${escapeHtml(latestReminder.at)}" title="提醒时间：${escapeHtml(formatDateTime(latestReminder.at))}">${escapeHtml(formatDateTime(latestReminder.at).slice(5))}</time>` : ""}${unreadReminders.length ? `<span class="unread">${unreadReminders.length}</span>` : ""}</div></article>` : ""}${visibleConversations.map(conversation => `<article class="conversation-item ${state.activeMessageChannel === "conversation" && conversation.id === active?.id ? "active" : ""}" data-conversation="${escapeHtml(conversation.id)}"><span class="person-avatar">${escapeHtml(conversation.name?.[0] || "客")}</span><div class="conversation-copy"><strong>${escapeHtml(conversation.name)}</strong><span>${escapeHtml(conversation.preview || "")}</span></div><div class="conversation-meta"><time>${escapeHtml(conversation.time || "")}</time>${conversation.unread ? `<span class="unread">${conversation.unread}</span>` : ""}</div></article>`).join("")}<div class="message-list-end">${visibleConversations.length || showSystem ? "没有更多了" : "暂无符合条件的消息"}</div></div></aside><div class="chat-pane">${systemActive ? systemMessageThreadView(reminders) : state.activeMessageChannel === "conversation" && active ? `<header class="chat-header"><h2>${escapeHtml(active.name)}</h2><p>${escapeHtml(active.company || "")}</p></header><div class="messages" id="messageThread">${messages.map(message => `<div class="message ${message.outgoing ? "outgoing" : ""}"><span class="person-avatar">${escapeHtml(message.sender?.[0] || "客")}</span><div class="message-bubble">${escapeHtml(message.content)}<time>${escapeHtml(message.time || "")} ${escapeHtml(messageDeliveryLabel(message))}</time></div></div>`).join("") || `<div class="empty-state">暂无消息，发送第一条消息开始沟通</div>`}</div><form class="composer" id="messageForm"><textarea id="messageInput" placeholder="输入消息内容，Enter 发送"></textarea><button class="button primary" type="submit">发送</button></form>` : ""}</div></section></div></section>`;
 }
 
 function systemMessageThreadView(reminders) {
@@ -6092,7 +6095,7 @@ function toast(message, variant = "success") {
 function callCustomer(name) {
   const customer = customers.find(item => item.name === name);
   if (!customer) { toast(`未找到客户 ${name}`); return; }
-  openBusinessModal("call", customer);
+  openBrowserCall(customer.id);
 }
 
 function customerPayload(customer, overrides = {}) {
@@ -6564,6 +6567,130 @@ async function selectConversation(id) {
   }
 }
 
+function messageDeliveryLabel(message) {
+  const labels = { LOCAL: "站内记录", QUEUED: "待发送", SENDING: "发送中", ACCEPTED: "网关已受理", DELIVERED: "已送达", FAILED: "发送失败", UNKNOWN: "结果待确认" };
+  return message.outgoing ? labels[message.deliveryStatus || "LOCAL"] || "结果待确认" : "";
+}
+
+function smsMessagePayload(input) {
+  const content = input.value.trim();
+  if (input.dataset.requestContent !== content || !input.dataset.requestId) {
+    input.dataset.requestId = crypto.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("");
+    input.dataset.requestContent = content;
+  }
+  return { content, channel: "SMS", requestId: input.dataset.requestId };
+}
+
+async function openCustomerMessageDialog(customerId) {
+  const customer = [...customers, ...state.poolCustomers].find(item => String(item.id) === String(customerId));
+  if (!customer || document.querySelector("#customerMessageDialog")) return;
+  const trigger = document.activeElement;
+  const dialog = document.createElement("dialog");
+  dialog.id = "customerMessageDialog";
+  dialog.className = "customer-message-dialog";
+  dialog.setAttribute("aria-labelledby", "customerMessageTitle");
+  dialog.innerHTML = `<header><h2 id="customerMessageTitle">${escapeHtml(customer.name)}-消息</h2><button class="icon-button" type="button" data-close aria-label="关闭消息">${icon("close")}</button></header><div class="customer-message-history" aria-live="polite">正在加载消息…</div><form class="customer-message-compose"><textarea aria-label="消息内容" placeholder="请输入消息内容" maxlength="2000" disabled></textarea><footer><span data-sms-status class="customer-sms-status">正在检查短信通道…</span><span data-count>0/2000</span><button class="button secondary" type="button" data-close>关闭</button><button class="button primary" type="submit" disabled>发送消息</button></footer></form>`;
+  document.body.append(dialog);
+  let refreshTimer;
+  dialog.addEventListener("close", () => { clearInterval(refreshTimer); dialog.remove(); if (trigger?.isConnected) trigger.focus(); });
+  dialog.querySelectorAll("[data-close]").forEach(button => button.addEventListener("click", () => dialog.close()));
+  dialog.showModal();
+  const history = dialog.querySelector(".customer-message-history");
+  const input = dialog.querySelector("textarea");
+  const submit = dialog.querySelector("[type=submit]");
+  let conversation;
+  let smsAvailable = false;
+  let sending = false;
+  let refreshing = false;
+  let messageVersion = 0;
+  const drawMessages = () => {
+    const messages = conversationMessages.get(conversation.id) || [];
+    history.innerHTML = messages.map(message => `<article class="customer-dialog-message ${message.outgoing ? "outgoing" : ""}"><div><span>${escapeHtml(message.sender || (message.outgoing ? "我" : customer.name))}</span><time>${escapeHtml(message.sentAt ? formatDateTime(message.sentAt) : message.time || "")}</time></div><p>${escapeHtml(message.content)}</p><small>${escapeHtml(messageDeliveryLabel(message))}${message.deliveryError ? ` · ${escapeHtml(message.deliveryError)}` : ""}</small></article>`).join("") || '<div class="customer-message-empty">暂无消息，发送第一条消息开始沟通</div>';
+    history.scrollTop = history.scrollHeight;
+  };
+  const updateInput = () => {
+    dialog.querySelector("[data-count]").textContent = `${input.value.length}/2000`;
+    submit.disabled = sending || !conversation || !smsAvailable || !input.value.trim();
+  };
+  input.addEventListener("input", updateInput);
+  dialog.querySelector("form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const content = input.value.trim();
+    if (!conversation || !smsAvailable || !content || sending) return;
+    sending = true;
+    messageVersion += 1;
+    input.disabled = true;
+    updateInput();
+    try {
+      requireBackend();
+      const result = normalizeMessage(await apiRequest(`/conversations/${conversation.id}/messages`, { method: "POST", body: JSON.stringify(smsMessagePayload(input)) }));
+      const messages = conversationMessages.get(conversation.id) || [];
+      messages.push(result);
+      conversationMessages.set(conversation.id, messages);
+      conversation.preview = content;
+      conversation.time = "刚刚";
+      conversation.lastMessageAt = result.sentAt;
+      input.value = "";
+      delete input.dataset.requestId;
+      drawMessages();
+    } catch (error) {
+      toast(`消息发送失败：${error.message}`);
+    } finally {
+      sending = false;
+      input.disabled = !smsAvailable;
+      updateInput();
+      if (dialog.open) input.focus();
+    }
+  });
+  input.addEventListener("keydown", event => {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      dialog.querySelector("form").requestSubmit();
+    }
+  });
+  try {
+    requireBackend();
+    conversation = normalizeConversation(await apiRequest("/conversations", { method: "POST", body: JSON.stringify({ customerId: customer.id }) }));
+    const messages = await apiRequest(`/conversations/${conversation.id}/messages`);
+    conversationMessages.set(conversation.id, messages.map(normalizeMessage));
+    const index = conversations.findIndex(item => item.id === conversation.id);
+    if (index < 0) conversations.unshift(conversation);
+    else conversations[index] = conversation;
+    if (conversation.unread > 0) {
+      await apiRequest(`/conversations/${conversation.id}/read`, { method: "PATCH" });
+      conversation.unread = 0;
+      state.unread = conversations.reduce((sum, item) => sum + item.unread, 0);
+    }
+    drawMessages();
+    const gatewayStatus = await apiRequest("/conversations/sms-status");
+    smsAvailable = gatewayStatus.configured === true;
+    dialog.querySelector("[data-sms-status]").textContent = smsAvailable ? "短信通道已配置" : "短信通道未配置，请先接入网关";
+    input.disabled = !smsAvailable;
+    updateInput();
+    if (dialog.open) refreshTimer = setInterval(async () => {
+      if (sending || refreshing) return;
+      refreshing = true;
+      const version = messageVersion;
+      try {
+        const updated = await apiRequest(`/conversations/${conversation.id}/messages`);
+        if (!dialog.open || sending || version !== messageVersion) return;
+        conversationMessages.set(conversation.id, updated.map(normalizeMessage));
+        const scrollTop = history.scrollTop;
+        drawMessages();
+        history.scrollTop = scrollTop;
+      } catch (error) {
+        dialog.querySelector("[data-sms-status]").textContent = "消息状态更新失败，请关闭后重试";
+      } finally {
+        refreshing = false;
+      }
+    }, 5000);
+    if (dialog.open) input.focus();
+  } catch (error) {
+    conversation = null;
+    history.textContent = `消息加载失败：${error.message}。请关闭后重试。`;
+  }
+}
+
 async function openConversationForCustomer(name) {
   const customer = customers.find(item => item.name === name);
   if (!customer) return;
@@ -6594,7 +6721,7 @@ async function sendActiveMessage(event) {
   submit.disabled = true;
   try {
     requireBackend();
-    const result = normalizeMessage(await apiRequest(`/conversations/${state.activeConversationId}/messages`, { method: "POST", body: JSON.stringify({ content }) }));
+    const result = normalizeMessage(await apiRequest(`/conversations/${state.activeConversationId}/messages`, { method: "POST", body: JSON.stringify(smsMessagePayload(input)) }));
     const messages = conversationMessages.get(state.activeConversationId) || [];
     messages.push(result);
     conversationMessages.set(state.activeConversationId, messages);
@@ -6602,7 +6729,7 @@ async function sendActiveMessage(event) {
     if (conversation) { conversation.preview = content; conversation.time = "刚刚"; }
     render();
     setTimeout(() => { const thread = document.querySelector("#messageThread"); if (thread) thread.scrollTop = thread.scrollHeight; document.querySelector("#messageInput")?.focus(); }, 0);
-    toast("消息已发送并写入 MySQL");
+    toast("短信已加入发送队列");
   } catch (error) {
     toast(`消息发送失败：${error.message}`);
   } finally {
@@ -6826,7 +6953,15 @@ function bindViewEvents() {
     if (button.textContent.includes("新订单")) button.innerHTML = `${icon("plus")}新建订单`;
   });
   document.querySelectorAll("[data-call-name]").forEach(button => { button.innerHTML = `${icon("phone")}拨打`; });
+  document.querySelectorAll("[data-call-customer]").forEach(button => {
+    button.innerHTML = `${icon("phone")}拨打`;
+    button.addEventListener("click", () => openBrowserCall(button.dataset.callCustomer));
+  });
   document.querySelectorAll("[data-message-name]").forEach(button => { button.innerHTML = `${icon("message")}消息`; });
+  document.querySelectorAll("[data-customer-message]").forEach(button => {
+    button.innerHTML = `${icon("message")}消息`;
+    button.addEventListener("click", () => openCustomerMessageDialog(button.dataset.customerMessage));
+  });
   document.querySelectorAll("[data-allocate-profile-customer]").forEach(button => { button.innerHTML = `${icon("sliders")}资源调配`; });
   document.querySelectorAll("[data-next-customer]").forEach(button => { button.innerHTML = `${icon("play")}${button.dataset.nextCustomerLabel || "下个客户"}`; });
   document.querySelectorAll("[data-customer-detail-tab]").forEach(button => button.addEventListener("click", async () => { if (state.customerDetailTab === button.dataset.customerDetailTab) return; state.customerDetailTab = button.dataset.customerDetailTab; render(); if (state.customerDetailTab === "follow" && state.customerDetailId) await loadCustomerFollowUps(state.customerDetailId); if (state.customerDetailTab === "calls" && state.customerDetailId) await loadCustomerCalls(state.customerDetailId); if (state.customerDetailTab === "transcript" && state.customerDetailId) await loadCustomerTranscript(state.customerDetailId); }));
@@ -8806,14 +8941,24 @@ document.querySelectorAll("[data-close-header-contact]").forEach(button => {
   button.addEventListener("click", () => headerContactDialog.close());
 });
 headerContactDialog.addEventListener("close", () => headerCallButton.focus());
-document.querySelector("#headerContactForm").addEventListener("submit", event => {
+document.querySelector("#headerContactForm").addEventListener("submit", async event => {
   event.preventDefault();
   if (!headerContactInput.value.trim()) {
     headerContactInput.value = "";
     headerContactInput.reportValidity();
     return;
   }
-  toast("电话平台尚未接入，请联系管理员配置");
+  const submit = event.currentTarget.querySelector("[type=submit]");
+  if (submit.disabled) return;
+  submit.disabled = true;
+  try {
+    const field = headerContactInput.type === "tel" ? "phone" : "customerId";
+    const customer = await apiRequest(`/telephony/customer?${field}=${encodeURIComponent(headerContactInput.value.trim())}`);
+    headerContactDialog.close();
+    await openBrowserCall(customer.id, null, customer);
+  } catch (error) {
+    toast(`呼叫失败：${error.message}`);
+  } finally { submit.disabled = false; }
 });
 function closeHeaderCallMenu() {
   headerCallMenu.hidden = true;

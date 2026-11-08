@@ -1,5 +1,8 @@
 package com.youai.crm.communication;
 
+import com.youai.crm.customer.CustomerAccessPolicy;
+import com.youai.crm.common.ConflictException;
+
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -23,19 +26,21 @@ public class ConversationService {
     private final CustomerService customerService;
     private final CustomerRepository customerRepository;
     private final AccessPolicy accessPolicy;
-    private final com.youai.crm.customer.CustomerAccessPolicy customerAccess;
+    private final SmsGatewayClient smsGateway;
+    private final CustomerAccessPolicy customerAccess;
 
     public ConversationService(
             ConversationRepository conversationRepository,
             MessageRepository messageRepository,
             CustomerService customerService,
             CustomerRepository customerRepository,
-            AccessPolicy accessPolicy, com.youai.crm.customer.CustomerAccessPolicy customerAccess) {
+            AccessPolicy accessPolicy, CustomerAccessPolicy customerAccess, SmsGatewayClient smsGateway) {
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
         this.customerService = customerService;
         this.customerRepository = customerRepository;
         this.accessPolicy = accessPolicy;
+        this.smsGateway = smsGateway;
         this.customerAccess = customerAccess;
     }
 
@@ -50,6 +55,7 @@ public class ConversationService {
 
     public ConversationResponse create(String customerNo, Authentication authentication) {
         CustomerResponse customer = customerService.find(customerNo, authentication);
+        customerRepository.lockByCustomerNo(customerNo).orElseThrow(() -> new NotFoundException("未找到客户"));
         Conversation conversation = conversationRepository.findByCustomerNo(customerNo)
                 .orElseGet(() -> {
                     Conversation created = new Conversation();
@@ -73,8 +79,30 @@ public class ConversationService {
     }
 
     public MessageResponse send(Long conversationId, MessageRequest request, Authentication authentication) {
-        Conversation conversation = get(conversationId, authentication);
+        get(conversationId, authentication);
+        Conversation conversation = conversationRepository.findLockedById(conversationId)
+                .orElseThrow(() -> new NotFoundException("未找到会话"));
+        customerAccess.requireAccess(conversation.getCustomerNo(), authentication);
+        boolean sms = "SMS".equals(request.channel());
+        Customer customer = customerRepository.findByCustomerNo(conversation.getCustomerNo())
+                .orElseThrow(() -> new NotFoundException("未找到客户"));
+        if (sms && request.requestId() == null) throw new IllegalArgumentException("短信发送需要请求编号");
+        if (sms) {
+            CrmMessage existing = messageRepository.findByConversationIdAndRequestKey(conversationId, request.requestId()).orElse(null);
+            if (existing != null) {
+                if (!"OUTBOUND".equals(existing.getDirection()) || !existing.getContent().equals(request.content().trim()))
+                    throw new ConflictException("请求编号已用于其他消息");
+                return MessageResponse.from(existing);
+            }
+            smsGateway.requireConfigured();
+        }
         CrmMessage message = new CrmMessage();
+        if (sms) {
+            message.setRecipientPhone(smsGateway.normalizePhone(customer.getPhone()));
+            message.setRequestKey(request.requestId());
+            message.setDeliveryStatus("QUEUED");
+            message.setDeliveryUpdatedAt(LocalDateTime.now());
+        }
         message.setConversationId(conversationId);
         message.setSender(accessPolicy.currentDisplayName(authentication));
         message.setDirection("OUTBOUND");
@@ -84,8 +112,7 @@ public class ConversationService {
         CrmMessage saved = messageRepository.save(message);
         conversation.setLastMessageAt(saved.getSentAt());
         conversationRepository.save(conversation);
-        Customer customer = customerRepository.findByCustomerNo(conversation.getCustomerNo()).orElse(null);
-        if (customer != null) {
+        if (!sms) {
             customer.setLastContactAt(saved.getSentAt());
             customerRepository.save(customer);
         }

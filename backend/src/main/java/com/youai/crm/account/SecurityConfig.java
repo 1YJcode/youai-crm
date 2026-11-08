@@ -52,6 +52,7 @@ public class SecurityConfig {
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/communications/events/calls", "/api/communications/events/sms").permitAll()
                         .requestMatchers("/api/auth/register").denyAll()
                         .requestMatchers("/api/auth/login", "/api/auth/login/phone", "/api/auth/refresh", "/api/health").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()

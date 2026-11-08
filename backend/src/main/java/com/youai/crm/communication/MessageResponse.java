@@ -9,10 +9,12 @@ public record MessageResponse(
         String direction,
         String content,
         LocalDateTime sentAt,
-        boolean read) {
+        boolean read,
+        String deliveryStatus,
+        String deliveryError) {
 
     public static MessageResponse from(CrmMessage message) {
         return new MessageResponse(message.getId(), message.getConversationId(), message.getSender(),
-                message.getDirection(), message.getContent(), message.getSentAt(), message.isRead());
+                message.getDirection(), message.getContent(), message.getSentAt(), message.isRead(), message.getDeliveryStatus(), message.getDeliveryError());
     }
 }

@@ -20,9 +20,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class ConversationController {
 
     private final ConversationService service;
+    private final SmsGatewayClient smsGateway;
 
-    public ConversationController(ConversationService service) {
+    public ConversationController(ConversationService service, SmsGatewayClient smsGateway) {
         this.service = service;
+        this.smsGateway = smsGateway;
+    }
+
+    @GetMapping("/sms-status")
+    public Map<String, Boolean> smsStatus() {
+        return Map.of("configured", smsGateway.enabled());
     }
 
     @GetMapping

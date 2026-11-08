@@ -103,3 +103,22 @@ security:
     secret: ${JWT_SECRET:youke-crm-dev-secret-change-this-before-production-2026}
     access-ttl-hours: ${JWT_ACCESS_TTL_HOURS:2}
     refresh-ttl-days: ${JWT_REFRESH_TTL_DAYS:7}
+
+sms:
+  gateway:
+    enabled: ${SMS_GATEWAY_ENABLED:false}
+    endpoint: ${SMS_GATEWAY_ENDPOINT:}
+    token: ${SMS_GATEWAY_TOKEN:}
+    sender: ${SMS_GATEWAY_SENDER:}
+    poll-ms: ${SMS_GATEWAY_POLL_MS:5000}
+
+communication:
+  webhook-token: ${COMMUNICATION_WEBHOOK_TOKEN:}
+
+telephony:
+  gateway:
+    enabled: ${TELEPHONY_GATEWAY_ENABLED:false}
+    endpoint: ${TELEPHONY_GATEWAY_ENDPOINT:}
+    token: ${TELEPHONY_GATEWAY_TOKEN:}
+    caller-id: ${TELEPHONY_CALLER_ID:}
+    poll-ms: ${TELEPHONY_GATEWAY_POLL_MS:2000}

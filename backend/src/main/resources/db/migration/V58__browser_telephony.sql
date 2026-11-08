@@ -1,0 +1,14 @@
+ALTER TABLE crm_call_record ADD COLUMN gateway_state VARCHAR(24) NOT NULL DEFAULT 'LOCAL';
+ALTER TABLE crm_call_record ADD COLUMN gateway_request_key VARCHAR(64);
+ALTER TABLE crm_call_record ADD COLUMN gateway_call_id VARCHAR(128);
+ALTER TABLE crm_call_record ADD COLUMN gateway_sequence BIGINT NOT NULL DEFAULT -1;
+ALTER TABLE crm_call_record ADD COLUMN gateway_updated_at DATETIME(6);
+ALTER TABLE crm_call_record ADD COLUMN connected_at DATETIME(6);
+ALTER TABLE crm_call_record ADD COLUMN browser_offer TEXT;
+ALTER TABLE crm_call_record ADD COLUMN browser_answer TEXT;
+ALTER TABLE crm_call_record ADD COLUMN hangup_requested BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE UNIQUE INDEX uk_call_gateway_request ON crm_call_record (agent_user_id, gateway_request_key);
+CREATE UNIQUE INDEX uk_call_gateway_id ON crm_call_record (gateway_call_id);
+CREATE INDEX idx_call_gateway_queue ON crm_call_record (gateway_state, gateway_updated_at, id);
+CREATE INDEX idx_call_gateway_incoming ON crm_call_record (agent_user_id, direction, gateway_state);
+ALTER TABLE crm_call_record ADD COLUMN browser_last_seen_at DATETIME(6);

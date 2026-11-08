@@ -15,6 +15,36 @@ public interface CallRecordRepository extends JpaRepository<CallRecord, Long>, J
     java.util.Optional<CallRecord> lockById(Long id);
     List<CallRecord> findAllByOrderByStartedAtDesc();
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    java.util.Optional<CallRecord> findByAgentUserIdAndGatewayRequestKey(Long agentUserId, String requestKey);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    java.util.Optional<CallRecord> findByGatewayCallId(String gatewayCallId);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    List<CallRecord> findByAgentUserIdAndGatewayStateIn(Long agentUserId, List<String> states);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("update CallRecord c set c.browserLastSeenAt=:now where c.id=:id and c.agentUserId=:agentId and c.gatewayState not in ('LOCAL', 'ENDED', 'FAILED')")
+    int touchBrowserCall(@Param("id") Long id, @Param("agentId") Long agentId, @Param("now") LocalDateTime now);
+
+    List<CallRecord> findTop20ByGatewayStateInAndBrowserLastSeenAtBeforeOrderByIdAsc(List<String> states, LocalDateTime cutoff);
+
+    List<CallRecord> findTop20ByGatewayStateOrderByIdAsc(String state);
+    List<CallRecord> findTop20ByHangupRequestedTrueOrderByIdAsc();
+    List<CallRecord> findTop20ByGatewayStateInAndGatewayUpdatedAtBeforeOrderByGatewayUpdatedAtAsc(
+            List<String> states, LocalDateTime cutoff);
+    List<CallRecord> findTop20ByAgentUserIdAndDirectionAndGatewayStateInOrderByIdDesc(
+            Long agentUserId, String direction, List<String> states);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("update CallRecord c set c.gatewayState='SUBMITTING', c.status='呼叫中', c.gatewayUpdatedAt=:now where c.id=:id and c.gatewayState='QUEUED' and c.hangupRequested=false")
+    int claimGatewayCall(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("update CallRecord c set c.gatewayState='UNKNOWN', c.status='结果待确认', c.gatewayUpdatedAt=:now where c.gatewayState='SUBMITTING' and c.gatewayUpdatedAt < :cutoff")
+    int recoverGatewayCalls(@Param("now") LocalDateTime now, @Param("cutoff") LocalDateTime cutoff);
+
     interface CustomerRecordCount {
         String getCustomerNo();
         long getRecordCount();

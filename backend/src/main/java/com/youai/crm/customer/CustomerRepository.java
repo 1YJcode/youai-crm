@@ -23,6 +23,9 @@ public interface CustomerRepository extends JpaRepository<Customer, Long>, JpaSp
 
     List<Customer> findAllByName(String name);
     Optional<Customer> findByCustomerNo(String customerNo);
+    @Query("select c from Customer c where replace(replace(replace(replace(c.phone, ' ', ''), '-', ''), '(', ''), ')', '') in :phones")
+    List<Customer> findGatewayPhoneMatches(@Param("phones") List<String> phones);
+
     Optional<Customer> findByPhone(String phone);
     long countByOwner(String owner);
     long countByOwnerId(Long ownerId);

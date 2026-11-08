@@ -13,11 +13,11 @@ public record CallResponse(
         String status,
         int durationSeconds,
         String note,
-        LocalDateTime startedAt, String recordingSource, Long agentUserId, Long uploadedByUserId, LocalDateTime uploadedAt, String customerOwnershipStatus, boolean canAccessRecording) {
+        LocalDateTime startedAt, String recordingSource, Long agentUserId, Long uploadedByUserId, LocalDateTime uploadedAt, String customerOwnershipStatus, boolean canAccessRecording, String gatewayState) {
 
     public static CallResponse from(CallRecord call, String ownershipStatus, boolean canAccessRecording) {
         return new CallResponse(call.getId(), call.getCustomerNo(), call.getCustomerName(), canAccessRecording ? call.getPhone() : "",
                 canAccessRecording ? call.getOwner() : "", call.getAgent(), call.getDirection(), call.getStatus(), call.getDurationSeconds(),
-                canAccessRecording ? call.getNote() : "", call.getStartedAt(), call.getRecordingSource(), call.getAgentUserId(), call.getUploadedByUserId(), call.getUploadedAt(), ownershipStatus, canAccessRecording);
+                canAccessRecording ? call.getNote() : "", call.getStartedAt(), call.getRecordingSource(), call.getAgentUserId(), call.getUploadedByUserId(), call.getUploadedAt(), ownershipStatus, canAccessRecording, call.getGatewayState());
     }
 }

@@ -79,7 +79,7 @@ public class CallService {
         return call -> {
             Long ownerId = owners.get(call.getCustomerNo());
             boolean following = ownerId != null && ownerId.equals(call.getAgentUserId());
-            boolean canAccess = admin || (ownerId != null && ownerId.equals(viewerId))
+            boolean canAccess = admin || (call.getCustomerNo().isBlank() && viewerId.equals(call.getAgentUserId())) || (ownerId != null && ownerId.equals(viewerId))
                     || customerAccess.canAccess(call.getCustomerNo(), authentication);
             return CallResponse.from(call, following ? "FOLLOWING" : "TRANSFERRED", canAccess);
         };
